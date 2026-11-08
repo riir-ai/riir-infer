@@ -251,11 +251,9 @@ fn main() {
                 eprintln!("--prompt chat needs --fixture <path>");
                 std::process::exit(2);
             }
-            let fixture =
-                std::fs::read_to_string(&fixture_path).unwrap_or_else(|e| panic!("[t1] fixture: {e}"));
-            format!(
-                "<|im_start|>user\n{fixture}<|im_end|>\n<|im_start|>assistant\n<think>\n"
-            )
+            let fixture = std::fs::read_to_string(&fixture_path)
+                .unwrap_or_else(|e| panic!("[t1] fixture: {e}"));
+            format!("<|im_start|>user\n{fixture}<|im_end|>\n<|im_start|>assistant\n<think>\n")
         }
         "vendor" => {
             // Bench-1167 R2 calibration: one FILLER token count, then reps.
@@ -314,15 +312,13 @@ fn main() {
     let mut serial_stream: Vec<u32> = Vec::new();
     if mode == "greedy" && sanity_steps > 0 {
         let cp = fwd.checkpoint_state();
-        let mut pos = prompt.len();
         let mut tok_i = pending;
-        for _ in 0..sanity_steps {
+        for pos in (prompt.len()..).take(sanity_steps) {
             let (next, _, _) = fwd
                 .forward_token_capture(tok_i, pos, &[])
                 .unwrap_or_else(|e| panic!("[t1] serial sanity: {e}"));
             serial_stream.push(next);
             tok_i = next;
-            pos += 1;
         }
         fwd.restore_state(&cp);
     }
@@ -509,7 +505,7 @@ fn main() {
                             let mut normed = feat.clone();
                             let sum_sq: f32 = normed.iter().map(|v| v * v).sum();
                             let inv = 1.0 / (sum_sq / e as f32 + 1e-6).sqrt();
-                            for (_i, v) in normed.iter_mut().enumerate() {
+                            for v in normed.iter_mut() {
                                 *v *= inv;
                             }
                             let mut ttop2: Vec<(u32, f32)> = Vec::new();
@@ -637,11 +633,12 @@ fn main() {
     let n_cycles = js.len();
     // survival[p] = P(j > p): the accept walked past draft position p (1-indexed).
     let survival: Vec<f64> = (0..=block - 1)
-        .map(|p| {
-            js.iter().filter(|&&j| j > p).count() as f64 / n_cycles.max(1) as f64
-        })
+        .map(|p| js.iter().filter(|&&j| j > p).count() as f64 / n_cycles.max(1) as f64)
         .collect();
-    let rank0_rate: Vec<f64> = rank0_hits.iter().map(|&h| h as f64 / n_cycles.max(1) as f64).collect();
+    let rank0_rate: Vec<f64> = rank0_hits
+        .iter()
+        .map(|&h| h as f64 / n_cycles.max(1) as f64)
+        .collect();
     let row = serde_json::json!({
         "cell": format!("t1_head_only_{}_{}", prompt_kind, mode),
         "mode": mode,

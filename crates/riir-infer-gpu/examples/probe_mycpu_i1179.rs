@@ -7,10 +7,19 @@ use riir_infer_core::gguf_loader::GgufFile;
 use riir_infer_gpu::qwen38_specdec::{DFlashCpu, StFile, parse_vendor_config};
 
 fn main() {
-    let spec = StFile::open(std::path::Path::new("/Users/katopz/uzu27b/speculator/model.safetensors")).unwrap();
-    let cfg = parse_vendor_config(&std::fs::read_to_string("/Users/katopz/uzu27b/speculator/config.json").unwrap()).unwrap();
+    let spec = StFile::open(std::path::Path::new(
+        "/Users/katopz/uzu27b/speculator/model.safetensors",
+    ))
+    .unwrap();
+    let cfg = parse_vendor_config(
+        &std::fs::read_to_string("/Users/katopz/uzu27b/speculator/config.json").unwrap(),
+    )
+    .unwrap();
     let mut draft = DFlashCpu::load(&spec, &cfg).unwrap();
-    let gg = GgufFile::open(std::path::Path::new("/Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf")).unwrap();
+    let gg = GgufFile::open(std::path::Path::new(
+        "/Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf",
+    ))
+    .unwrap();
 
     // Same KV: the 4 dumped feature rows (verify rows 0..3), packed.
     let dump = std::fs::read("/tmp/i1179_cycle0_dump.f32").unwrap();
@@ -26,13 +35,30 @@ fn main() {
             }
         }
     }
-    draft.accept(&packed, rows).unwrap();
+    let _ = &packed;
+    let kv_rows: usize = std::env::var("I1179_KV_ROWS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(rows);
+    if kv_rows > 0 {
+        let mut packed_k = vec![0.0f32; kv_rows * d * layers];
+        for li in 0..layers {
+            for r in 0..kv_rows {
+                for i in 0..d {
+                    packed_k[(r * layers + li) * d + i] = f32s[(li * rows + r) * d + i];
+                }
+            }
+        }
+        draft.accept(&packed_k, kv_rows).unwrap();
+    }
     println!("[cpu-probe] kv ctx_len = {}", draft.context_length());
 
     // Same t_prev: token 198, logical row (no embedding transform — matches
     // the dense mini-target table uzu gathered).
     let t_prev = gg.dequant_tensor_row("token_embd.weight", 198, d).unwrap();
-    let mask = gg.dequant_tensor_row("token_embd.weight", 248070, d).unwrap();
+    let mask = gg
+        .dequant_tensor_row("token_embd.weight", 248070, d)
+        .unwrap();
     let hidden = draft.draft(&t_prev, &mask).unwrap();
 
     // Same readout: the GGUF lm_head rows (bf16 in the mini target; f32 here).

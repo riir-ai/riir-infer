@@ -70,6 +70,19 @@ using namespace metal;
 #ifndef SWEEP_DEQUANT_V2
 #define SWEEP_DEQUANT_V2 1
 #endif
+// Issue 1167 rung C (round 3): the double-buffered staging variant —
+// PROMOTE-ONLY (`RIIR_METAL_TENSOR_DOUBLE_BUFFER=1`; absent = the incumbent
+// two-barrier loop byte-identically, every SWEEP define's contract). One
+// tile ahead: dequant(k+1) writes tile B while matmul reads tile A (disjoint
+// smem, no race, no barrier between them); ONE barrier per K-tile (vs two)
+// makes dequant(k+1) visible before run(k+1). BIT-EXACT by construction
+// (same dequant arithmetic, same tile contents, same matmul sequence — G1
+// held at 1e-5 with the variant bit-identical to the baseline). smem cost:
+// 2× K_TILE*NRA halves; the launch sites double threadgroup_mem_bytes when
+// the define is on.
+#ifndef SWEEP_DOUBLE_BUFFER
+#define SWEEP_DOUBLE_BUFFER 0
+#endif
 constant constexpr int SZ_SIMD     = SWEEP_SZ_SIMD;
 constant constexpr int NK_CHUNK    = SWEEP_NK_CHUNK;           // N_MM_NK
 constant constexpr int K_TILE      = SZ_SIMD * NK_CHUNK;       // 32
@@ -149,6 +162,93 @@ kernel void gemm_ternary_tensor(
     const uint words_per_row = blocks64 * 2u;  // u32 words per weight row
 
     // ---- K-dimension accumulation loop ----
+#if SWEEP_DOUBLE_BUFFER
+    // ── double-buffer variant (Issue 1167 rung C) ──
+    // Ping-pong tiles: tile[k%2] feeds run k while tile[(k+1)%2] is being
+    // dequanted — disjoint smem, no barrier between dequant and matmul; ONE
+    // barrier per tile makes the next tile's dequant visible before its run.
+    // Same dequant arithmetic, same tile contents, same matmul sequence as
+    // the incumbent loop below — bit-exact, only the staging is re-timed.
+    {
+        threadgroup half* tile0 = (threadgroup half*)(shmem);
+        threadgroup half* tile1 = (threadgroup half*)(shmem) + (size_t)(K_TILE * NRA);
+
+        // One K-tile's dequant into the NAMED tile (the incumbent Phase-1
+        // body verbatim, `t` in place of `sa`).
+        auto dequant_tile = [&](threadgroup half* t, int k_deq) {
+            for (int work = tiitg; work < A_WORK_ITEMS; work += NUM_THREADS) {
+                const int row_local = work / NK_CHUNK;       // [0, NRA)
+                const int k_chunk   = work % NK_CHUNK;       // [0, NK_CHUNK)
+                const int k_base    = k_chunk * SZ_SIMD;     // [0, K_TILE) in steps of 16
+                const int k_pos     = k_deq + k_base;        // absolute K position
+
+                const int row_global = ra + row_local;
+
+#if SWEEP_DEQUANT_V2
+                if (row_global < (int)m_features && k_pos + SZ_SIMD <= (int)k_input_dim) {
+                    const uint word_idx = (uint)row_global * words_per_row + (uint)(k_pos / 32);
+                    const uint shift    = (uint)(k_pos % 32);
+                    const uint pw       = pos_bits_u32[word_idx] >> shift;
+                    const uint nw       = neg_bits_u32[word_idx] >> shift;
+                    const float scale   = group_scale_f32[(uint)row_global * groups_per_row + (uint)(k_pos / 128)];
+                    threadgroup half4* dst =
+                        (threadgroup half4*)(t + (size_t)k_base + (size_t)row_local * K_TILE);
+                    #pragma clang loop unroll(full)
+                    for (short q = 0; q < SZ_SIMD / 4; ++q) {
+                        half4 v;
+                        #pragma clang loop unroll(full)
+                        for (short j = 0; j < 4; ++j) {
+                            const uint b = (uint)(q * 4 + j);
+                            const float sign = (float)((pw >> b) & 1u) - (float)((nw >> b) & 1u);
+                            v[j] = (half)(sign * scale);
+                        }
+                        dst[q] = v;
+                    }
+                } else
+#endif
+                {
+                #pragma clang loop unroll(full)
+                for (short i = 0; i < SZ_SIMD; ++i) {
+                    const int col = k_pos + i;
+                    half val = 0.0h;
+                    if (row_global < (int)m_features && col < (int)k_input_dim) {
+                        const uint word_idx = (uint)row_global * words_per_row + (uint)(col / 32);
+                        const uint bit_pos  = (uint)(col % 32);
+                        const uint pos_bit  = (pos_bits_u32[word_idx] >> bit_pos) & 1u;
+                        const uint neg_bit  = (neg_bits_u32[word_idx] >> bit_pos) & 1u;
+                        const float sign    = (float)pos_bit - (float)neg_bit;
+                        const float scale   = group_scale_f32[(uint)row_global * groups_per_row + (uint)(col / 128)];
+                        val = (half)(sign * scale);
+                    }
+                    t[(size_t)(k_base + i) + (size_t)row_local * K_TILE] = val;
+                }
+                }
+            }
+        };
+        auto run_tile = [&](threadgroup half* t, int k_run) {
+            auto mA = tensor(t, dextents<int32_t, 2>(K_TILE, NRA)).slice(0, 0);
+            auto mB = tB.slice(k_run, rb);
+            mm.run(mB, mA, cT);
+        };
+
+        dequant_tile(tile0, 0);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        int tk = 0;
+        for (int loop_k = 0; loop_k < (int)k_input_dim; loop_k += K_TILE) {
+            threadgroup half* cur = (tk % 2 == 0) ? tile0 : tile1;
+            threadgroup half* nxt = (tk % 2 == 0) ? tile1 : tile0;
+            const int k_next = loop_k + K_TILE;
+            if (k_next < (int)k_input_dim) {
+                dequant_tile(nxt, k_next);
+            }
+            run_tile(cur, loop_k);
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            tk += 1;
+        }
+    }
+#else
+// (the incumbent two-barrier loop)
     for (int loop_k = 0; loop_k < (int)k_input_dim; loop_k += K_TILE) {
 
         // === PHASE 1: Dequant ternary weights into threadgroup `half` buffer ===
@@ -218,6 +318,7 @@ kernel void gemm_ternary_tensor(
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
+#endif // SWEEP_DOUBLE_BUFFER
 
     // === Store result tile to output ===
     // Y is [P × M] row-major: element (p, m) at output_batch[p * M + m].
