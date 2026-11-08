@@ -99,10 +99,13 @@ foreach ($eps in @("0.1", "0.2", "0.3")) {
         exit 2
     }
     $h = $hm.Groups[1].Value
-    if ($null -eq $firstHash) { $firstHash = $h }
-    elseif ($h -ne $firstHash) {
-        Write-Output "FAIL: v1 blake3 drifted across cells ($h != $firstHash) — the width flag leaked into the canonical payload" | Tee-Object -FilePath $log -Append
-        exit 2
+    if ($null -eq $firstHash) {
+        $firstHash = $h
+    } else {
+        if ($h -ne $firstHash) {
+            Write-Output "FAIL: v1 blake3 drifted across cells ($h != $firstHash) — the width flag leaked into the canonical payload" | Tee-Object -FilePath $log -Append
+            exit 2
+        }
     }
     Write-Output "cell eps=$eps OK: heads=$heads censored=$censored v1blake3=$($h.Substring(0,12))" | Tee-Object -FilePath $log -Append
 }
