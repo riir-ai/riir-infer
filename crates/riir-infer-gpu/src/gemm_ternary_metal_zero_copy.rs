@@ -143,6 +143,11 @@ pub struct MetalTensorZeroCopyGemm {
     /// reads stale tiles (the constants here MUST mirror the `SWEEP_*`
     /// defines the MSL was compiled with).
     config: crate::gemm_ternary_metal_tensor::MetalTileConfig,
+    /// Whether THIS pipeline was compiled with the double-buffer staging
+    /// variant — captured at construction so a launch can never disagree
+    /// with its own smem need (the global pin may flip after this context
+    /// exists; the compiled variant cannot).
+    double_buffered: bool,
     /// The most recent committed command buffer, retained for
     /// [`Self::wait_last`](Self::wait_last). The raw dispatches bypass
     /// wgpu's usage tracking, so a CubeCL-side read of the output can
@@ -238,6 +243,7 @@ impl MetalTensorZeroCopyGemm {
             init_fills: std::sync::atomic::AtomicU64::new(0),
             dispatch_count: std::sync::atomic::AtomicU64::new(0),
             config,
+            double_buffered: crate::gemm_ternary_metal_tensor::production_double_buffer(),
             last_cmd_buffer: std::sync::Mutex::new(None),
             _wgpu_device: wgpu_device,
             _wgpu_queue: wgpu_queue,
@@ -456,14 +462,20 @@ impl MetalTensorZeroCopyGemm {
         };
 
         // matmul2d tile constants — from THIS context's compiled config
-        // (Issue 1122 gate 2; must mirror the `SWEEP_*` defines above).
+        // (Issue 1122 gate 2; must mirror the `SWEEP_*` defines above). The
+        // smem length is THIS instance's compile-time posture, never the
+        // live global — a double-buffer-compiled pipeline launched with
+        // single-tile smem would write past the buffer.
         let nra = u64::from(self.config.nra);
         let nrb = u64::from(self.config.nrb);
         let nsg = u64::from(self.config.nsg);
         let threads_per_sg: u64 = 32;
         let num_threads = threads_per_sg * nsg;
-        let threadgroup_mem_bytes =
-            crate::gemm_ternary_metal_tensor::production_threadgroup_mem_bytes(self.config);
+        let threadgroup_mem_bytes = if self.double_buffered {
+            self.config.threadgroup_mem_bytes() * 2
+        } else {
+            self.config.threadgroup_mem_bytes()
+        };
 
         // Grid: one workgroup per output tile.
         // NOTE: use `dispatch_thread_groups` (not `dispatch_threads`). The

@@ -291,15 +291,38 @@ static PROD_DEQUANT_V2_ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new
 /// launch sites double the threadgroup memory when this is on (two tiles).
 /// Bit-exact vs the incumbent by construction (G1b: variant == baseline
 /// bit-identical + CPU 1e-5 at the ragged cases).
+static PROD_DOUBLE_BUFFER: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 static PROD_DOUBLE_BUFFER_ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Pin the double-buffer staging variant for every context constructed AFTER
+/// this call (wins over `RIIR_METAL_TENSOR_DOUBLE_BUFFER`) — the
+/// `set_metal_tensor_relaxed_precision` pattern. An A/B harness holds BOTH
+/// arms in one process by pinning each arm explicitly before constructing
+/// its pipelines (the env OnceLock cannot be reset; the pin can).
+pub fn set_metal_tensor_double_buffer(on: bool) {
+    let v = match on {
+        true => 2,
+        false => 1,
+    };
+    PROD_DOUBLE_BUFFER.store(v, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the next context compiles the double-buffered staging variant:
+/// the explicit setter if pinned, else `RIIR_METAL_TENSOR_DOUBLE_BUFFER=1`
+/// (parsed once, announced on stderr), else OFF (the incumbent two-barrier
+/// loop, byte-identical).
 pub fn production_double_buffer() -> bool {
-    *PROD_DOUBLE_BUFFER_ENV.get_or_init(|| {
-        let on = std::env::var("RIIR_METAL_TENSOR_DOUBLE_BUFFER").as_deref() == Ok("1");
-        if on {
-            eprintln!("[Issue 1167] tensor GEMM double-buffer staging ARMED (promote-only)");
-        }
-        on
-    })
+    match PROD_DOUBLE_BUFFER.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => *PROD_DOUBLE_BUFFER_ENV.get_or_init(|| {
+            let on = std::env::var("RIIR_METAL_TENSOR_DOUBLE_BUFFER").as_deref() == Ok("1");
+            if on {
+                eprintln!("[Issue 1167] tensor GEMM double-buffer staging ARMED (promote-only)");
+            }
+            on
+        }),
+    }
 }
 
 /// Issue 1146 rung 2b (H4): whether the next context compiles the hoisted-load
@@ -337,15 +360,6 @@ pub fn compose_msl_source(config: MetalTileConfig, body: &str) -> String {
         false => "",
     };
     format!("{}{relaxed}{dequant}{dbl}{body}", config.defines())
-}
-
-/// The threadgroup memory a context needs: two tiles when the double-buffer
-/// variant is compiled (tile ping + tile pong), the incumbent tile otherwise.
-pub fn production_threadgroup_mem_bytes(config: MetalTileConfig) -> u64 {
-    match production_double_buffer() {
-        true => config.threadgroup_mem_bytes() * 2,
-        false => config.threadgroup_mem_bytes(),
-    }
 }
 
 /// The geometry the next integration context compiles with: the explicit
@@ -393,6 +407,11 @@ pub struct MetalTensorGemm {
     /// The tile geometry this instance's pipeline was compiled with — the
     /// launch grid, threadgroup size, and smem length all derive from it.
     config: MetalTileConfig,
+    /// Whether THIS instance's pipeline was compiled with the double-buffer
+    /// staging variant — captured at construction so a launch can never
+    /// disagree with its own smem need (the global pin may flip after this
+    /// context exists; the compiled variant cannot).
+    double_buffered: bool,
     /// Scratch buffer cache (T8 optimization). Keyed by byte size; reused
     /// across calls to avoid per-projection `new_buffer` allocation overhead.
     /// Stores both input + output scratch buffers.
@@ -442,6 +461,7 @@ impl MetalTensorGemm {
             pipeline,
             _library: library,
             config,
+            double_buffered: production_double_buffer(),
             scratch: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
     }
@@ -449,6 +469,25 @@ impl MetalTensorGemm {
     /// The tile geometry this instance was compiled with.
     pub fn config(&self) -> MetalTileConfig {
         self.config
+    }
+
+    /// Whether THIS instance's pipeline was compiled with the double-buffer
+    /// staging variant (engagement evidence for A/B harnesses — the env
+    /// announce alone is not a proof the compiled source carried the define).
+    pub fn double_buffered(&self) -> bool {
+        self.double_buffered
+    }
+
+    /// The threadgroup memory THIS instance's launches need (two tiles when
+    /// double-buffer-compiled, one otherwise) — the launch sites' sizing
+    /// source, captured at construction so a global-pin flip can never
+    /// under-allocate a compiled pipeline.
+    pub fn threadgroup_mem_bytes(&self) -> u64 {
+        if self.double_buffered {
+            self.config.threadgroup_mem_bytes() * 2
+        } else {
+            self.config.threadgroup_mem_bytes()
+        }
     }
 
     /// Get or create a scratch buffer of `byte_len` bytes, reused across calls.
@@ -567,13 +606,19 @@ impl MetalTensorGemm {
         p: u32,
     ) {
         // Tile geometry derives from the compiled config (the fork geometry
-        // reproduces the historical constants exactly).
+        // reproduces the historical constants exactly). The smem length is
+        // THIS instance's compile-time posture, never the live global — a
+        // double-buffer-compiled pipeline launched with single-tile smem
+        // would write past the buffer.
         let cfg = self.config;
         let nra = cfg.nra;
         let nrb = cfg.nrb;
         let num_threads = u64::from(32 * cfg.nsg);
-        let threadgroup_mem_bytes =
-            crate::gemm_ternary_metal_tensor::production_threadgroup_mem_bytes(cfg);
+        let threadgroup_mem_bytes = if self.double_buffered {
+            cfg.threadgroup_mem_bytes() * 2
+        } else {
+            cfg.threadgroup_mem_bytes()
+        };
 
         // Grid: one workgroup per output tile
         let grid = MTLSize {

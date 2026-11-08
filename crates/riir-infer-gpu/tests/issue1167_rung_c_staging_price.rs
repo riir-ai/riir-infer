@@ -723,8 +723,12 @@ fn g1_incumbent_and_probe_fixture_gates() {
     // crate_defines and quote distribution-class tolerance, not G1 exactness.
     // (The pin is process-global — G1 and G2/G3 run as separate test
     // binaries/processes under --test-threads=1, and each G-run constructs
-    // its own pipelines.)
+    // its own pipelines.) The double-buffer pin is ALSO pinned OFF here
+    // explicitly: this test's arm label is "incumbent", and g1b (which pins
+    // ON) may run first in the same process — the explicit pin makes the
+    // label true under any construction order.
     riir_infer_gpu::gemm_ternary_metal_tensor::set_metal_tensor_relaxed_precision(false);
+    riir_infer_gpu::gemm_ternary_metal_tensor::set_metal_tensor_double_buffer(false);
     let gemm = MetalTensorGemm::new_with_config(MetalTileConfig::KTILE64)
         .expect("incumbent pipeline must compile at the promoted posture");
     let probe = DequantProbe::new(MetalTileConfig::KTILE64)
@@ -800,6 +804,143 @@ fn g1_incumbent_and_probe_fixture_gates() {
             assert!(g.is_finite(), "probe tile {i} wrote a non-finite consume");
         }
         println!("  G1 probe {rows}x{cols} p={p}: {tiles}/{tiles} tiles live PASS");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// G1b — the double-buffer staging variant (Issue 1167 rung C decider, gate 1):
+// engagement + correctness + bit-identity, at the bit-exact posture
+// ---------------------------------------------------------------------------
+
+/// The decider's G1 gate for the PROMOTE-ONLY `RIIR_METAL_TENSOR_DOUBLE_BUFFER`
+/// variant (the kernel's `SWEEP_DOUBLE_BUFFER` block, landed `c1bbbeb`):
+///
+/// 1. **Engagement** — the composed MSL carries the define, the context
+///    reports itself double-buffered, and the context's smem sizing is the
+///    doubled tile (the announce alone is not a proof the compiled source
+///    carried the define — the Issue-1124 T1.5 lesson).
+/// 2. **Correctness** — the variant at the bit-exact posture (relaxed OFF)
+///    meets the same 1e-5 scale-relative bar vs the CPU decode on the SAME
+///    ragged cases as [`g1_incumbent_and_probe_fixture_gates`].
+/// 3. **Bit-identity** — variant output == incumbent output, exactly, per
+///    element (same dequant arithmetic, same tile contents, same matmul
+///    sequence — only the staging is re-timed). This is the variant's G1
+///    form the kernel doc names; a tolerance here would be a lossy-surface
+///    claim, which rung C is NOT.
+///
+/// Pin-phase discipline: ALL variant work (construction + launches) runs
+/// while the pin is ON, then the incumbent phase runs with the pin OFF —
+/// each context captures its own posture at construction, so a launch can
+/// never disagree with its pipeline's smem need (the under-allocation
+/// footgun the capture exists to close).
+#[test]
+#[ignore = "requires macOS Metal + a GPU; run explicitly with --release"]
+fn g1b_double_buffer_variant_gate() {
+    use riir_infer_gpu::gemm_ternary_metal_tensor::compose_msl_source;
+
+    let cfg = MetalTileConfig::KTILE64;
+
+    // ── Phase A: the variant (pin ON, bit-exact relaxed OFF) ──
+    riir_infer_gpu::gemm_ternary_metal_tensor::set_metal_tensor_relaxed_precision(false);
+    riir_infer_gpu::gemm_ternary_metal_tensor::set_metal_tensor_double_buffer(true);
+
+    // Engagement at the source level: the one composition every compile site
+    // rides must carry the define.
+    let composed = compose_msl_source(cfg, "");
+    assert!(
+        composed.contains("#define SWEEP_DOUBLE_BUFFER 1"),
+        "engagement: compose_msl_source did not carry SWEEP_DOUBLE_BUFFER 1 — \
+         the variant pipeline would silently compile the incumbent body"
+    );
+    let single_tile = cfg.threadgroup_mem_bytes();
+
+    let variant = MetalTensorGemm::new_with_config(cfg)
+        .expect("double-buffer variant pipeline must compile at the promoted posture");
+    assert!(variant.double_buffered(), "engagement: context built with the pin ON must report double_buffered");
+    assert_eq!(
+        variant.threadgroup_mem_bytes(),
+        single_tile * 2,
+        "engagement: a double-buffer context sizes smem for TWO tiles"
+    );
+
+    let mut variant_outputs: Vec<Vec<f32>> = Vec::new();
+    for &(rows, cols, p) in G1_CASES {
+        let fx = TernaryFixture::build(rows, cols, 0x1167 ^ rows as u64 ^ (cols as u64) << 8);
+        let input = random_input(p * cols, 0xBEEF ^ p as u64);
+        let want = fx.cpu_reference(&input, p);
+
+        let (pos, neg, scale) = variant.upload_weights(&fx.pos_u32, &fx.neg_u32, &fx.scale_f32);
+        let input_buf = variant.upload_f32(&input);
+        let output_buf = variant.create_output(p * rows);
+        variant.launch(
+            &pos, &neg, &scale, &input_buf, &output_buf,
+            fx.blocks64 as u32, fx.groups_per_row as u32,
+            fx.cols as u32, fx.rows as u32, p as u32,
+        );
+        let got = variant.read_f32(&output_buf, p * rows);
+
+        let ref_scale = want.iter().fold(0.0f32, |a, b| a.max(b.abs())).max(1e-6);
+        let mut worst = (0.0f64, 0usize);
+        for (i, (g, w)) in got.iter().zip(want.iter()).enumerate() {
+            let rel = ((g - w).abs() / ref_scale) as f64;
+            if rel > worst.0 {
+                worst = (rel, i);
+            }
+        }
+        println!(
+            "  G1b variant {rows}x{cols} p={p}: worst_rel={:.3e} at [{}] {}",
+            worst.0,
+            worst.1,
+            if worst.0 < G1_REL_LIMIT { "PASS" } else { "FAIL" }
+        );
+        assert!(
+            worst.0 < G1_REL_LIMIT,
+            "variant G1 FAILED at {rows}x{cols} p={p} (worst_rel={:.3e} at [{}] >= {G1_REL_LIMIT})",
+            worst.0,
+            worst.1
+        );
+        variant_outputs.push(got);
+    }
+
+    // ── Phase B: the incumbent (pin OFF) — bit-identity vs the variant ──
+    riir_infer_gpu::gemm_ternary_metal_tensor::set_metal_tensor_double_buffer(false);
+    let incumbent = MetalTensorGemm::new_with_config(cfg)
+        .expect("incumbent pipeline must compile at the promoted posture");
+    assert!(!incumbent.double_buffered(), "the phase-B context must report the incumbent posture");
+    assert_eq!(incumbent.threadgroup_mem_bytes(), single_tile);
+
+    for (case, &(rows, cols, p)) in G1_CASES.iter().enumerate() {
+        let fx = TernaryFixture::build(rows, cols, 0x1167 ^ rows as u64 ^ (cols as u64) << 8);
+        let input = random_input(p * cols, 0xBEEF ^ p as u64);
+
+        let (pos, neg, scale) = incumbent.upload_weights(&fx.pos_u32, &fx.neg_u32, &fx.scale_f32);
+        let input_buf = incumbent.upload_f32(&input);
+        let output_buf = incumbent.create_output(p * rows);
+        incumbent.launch(
+            &pos, &neg, &scale, &input_buf, &output_buf,
+            fx.blocks64 as u32, fx.groups_per_row as u32,
+            fx.cols as u32, fx.rows as u32, p as u32,
+        );
+        let got = incumbent.read_f32(&output_buf, p * rows);
+
+        let variant_out = &variant_outputs[case];
+        let first_diff = got
+            .iter()
+            .zip(variant_out.iter())
+            .position(|(a, b)| a.to_bits() != b.to_bits());
+        assert!(
+            first_diff.is_none(),
+            "variant != incumbent at {rows}x{cols} p={p}: first differing element [{}] \
+             (got {:?}, want {:?}) — the staging re-time moved a bit, which rung C \\
+             does not own (lossy-surface walk would be required, never silent)",
+            first_diff.unwrap_or(0),
+            first_diff.map(|i| got[i]),
+            first_diff.map(|i| variant_out[i]),
+        );
+        println!(
+            "  G1b bit-identity {rows}x{cols} p={p}: variant == incumbent, {} elements EXACT",
+            got.len()
+        );
     }
 }
 
