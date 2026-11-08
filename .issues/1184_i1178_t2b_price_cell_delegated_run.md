@@ -1,6 +1,7 @@
 # Issue 1184 — run the i1178 T2b price cell (lane-sliced Q4 decode GEMV) on bmo — delegated execution vehicle
 
-**Status:** OPEN — filed 2026-11-08 (session zed-m3-i1178t2b@m3, epoch 1794146120). Owner call: the amo rig session executes the bmo benchmark; the m3 session filed this issue and folded its 1178 lease. **UNCLAIMED — the executing session claims this issue (append `**Claimed:**` + push) before starting.**
+**Status:** OPEN — filed 2026-11-08 (session zed-m3-i1178t2b@m3, epoch 1794146120). Owner call: the amo rig session executes the bmo benchmark; the m3 session filed this issue and folded its 1178 lease. **CLAIMED — executing session below.**
+**Claimed:** zed-amo-1184@amo (amo), 1794147545, expires 2026-11-10T14:19:05+00:00
 Parent: riir-infer **Issue 1178 T2b** (the implementation `5674cef4` + engagement instrument `fd8ecac7` are already LANDED on origin/develop — nothing to write, this is a RUN-and-RECORD issue). Cross-links: 1179 (the beat arithmetic's serial half), Bench 1167 (the uzu bar), Bench 951 (validity question below), 1177 item 2 (f16 payload class — see finding).
 
 ## The posture finding (settled by code-reading + the GGUF header probe, 2026-11-08)
