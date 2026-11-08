@@ -5,6 +5,10 @@
 //! cargo run --release --features sink_audit --bin sink_audit -- \
 //!     ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
 //!     --n 512 --out .benchmarks/sink_audit_report.json
+//! # Optional (issue 1185 T2-run): the per-layer ε-width census on the same
+//! # window — writes width_census_report.json beside --out, NEVER touching the
+//! # v1 canonical payload (the BLAKE3 pin above is untouched by this flag):
+//! #   ... --width-eps 0.2
 //! ```
 //!
 //! Determinism (G1): the report's `blake3` field is taken over the canonical
@@ -25,6 +29,7 @@ use anyhow::{Context, Result, bail};
 use riir_infer_core::corpus_text::load_corpus_text;
 use riir_infer_core::deltanet::effective_rotary_dim;
 use riir_infer_core::deltanet::sink_audit::{SinkCensus, run_census, run_census_ternary};
+use riir_infer_core::deltanet::width_census::{WidthCensusConfig, run_width_census};
 use riir_infer_core::gguf_loader::{
     GgmlType, GgufFile, config_from_gguf_metadata, load_gemma2_f16_direct, load_llama_weights_gguf,
     load_qwen_deltanet_ternary_weights_gguf, load_qwen_deltanet_weights_gguf,
@@ -52,6 +57,11 @@ struct Args {
     incumbent_sinks: usize,
     incumbent_window: usize,
     out: Option<PathBuf>,
+    /// Issue 1185 T2-run: run the per-layer ε-width census after the sink
+    /// census (`--width-eps <EPS>`); the report lands beside `--out` (or
+    /// stdout-only when `--out` is unset). Measurement only — it never
+    /// applies a budget and never enters the v1 canonical payload.
+    width_eps: Option<f64>,
 }
 
 fn parse_args() -> Args {
@@ -62,6 +72,7 @@ fn parse_args() -> Args {
         incumbent_sinks: DEFAULT_SINKS,
         incumbent_window: DEFAULT_WINDOW,
         out: None,
+        width_eps: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(f) = it.next() {
@@ -75,6 +86,7 @@ fn parse_args() -> Args {
             "--incumbent-sinks" => a.incumbent_sinks = val("incumbent-sinks").parse().unwrap(),
             "--incumbent-window" => a.incumbent_window = val("incumbent-window").parse().unwrap(),
             "--out" => a.out = Some(val("out").into()),
+            "--width-eps" => a.width_eps = Some(val("width-eps").parse().unwrap()),
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -89,11 +101,14 @@ fn parse_args() -> Args {
 fn print_help() {
     println!(
         "sink_audit <model.gguf> [--corpus PATH] [--n N] [--incumbent-sinks K] \
-         [--incumbent-window W] [--out report.json]\n\n\
+         [--incumbent-window W] [--out report.json] [--width-eps EPS]\n\n\
          One-time per-checkpoint census (Issue 981): F-Attn profile over the\n\
          first N tokens on the FULL-ATTENTION layers only, the chosen-cut\n\
          verdict, and the audited SinkWindowPolicy. The report JSON embeds the\n\
-         BLAKE3 of its canonical payload (G1: same inputs -> same hash)."
+         BLAKE3 of its canonical payload (G1: same inputs -> same hash).\n\n\
+         --width-eps (issue 1185): also run the per-layer effective-width\n\
+         census on the same window and write width_census_report.json beside\n\
+         --out; the v1 payload/hash are untouched by this flag."
     );
 }
 
@@ -379,7 +394,120 @@ fn finish(args: &Args, config: &Config, census: &SinkCensus, body: &str) -> Resu
         std::fs::write(&out, report).with_context(|| format!("write {}", out.display()))?;
         println!("# report: {}", out.display());
     }
+
+    // ── Issue 1185 T2-run: the per-layer ε-width census, on demand ──
+    if let Some(eps) = args.width_eps {
+        let Some(q) = census.q.as_ref() else {
+            bail!(
+                "--width-eps needs the Q capture: the width census is a \
+                 hybrid-lane feature (the dense twin carries no Q capture)"
+            );
+        };
+        let cfg = WidthCensusConfig {
+            eps,
+            ..WidthCensusConfig::default()
+        };
+        let t2 = std::time::Instant::now();
+        let width = run_width_census(q, &census.kv, &cfg).map_err(anyhow::Error::msg)?;
+        // Summary: per-layer median/KV-head spread + the r_ent ratio band —
+        // the shape the 987 lead's budget question reads first.
+        let mut widths: Vec<usize> = width.per_head.iter().filter_map(|h| h.width).collect();
+        widths.sort_unstable();
+        let median = widths.get(widths.len() / 2).copied().unwrap_or(0);
+        let censored = width.per_head.iter().filter(|h| h.censored).count();
+        let specialized = width
+            .per_head
+            .iter()
+            .filter_map(|h| h.r_ent)
+            .filter(|r| *r < 1.0)
+            .count();
+        println!(
+            "width census: eps={eps} heads={} median_width={median} censored={censored} \
+             specialized_heads={specialized} ({:.1}s)",
+            width.per_head.len(),
+            t2.elapsed().as_secs_f32()
+        );
+        if let Some(out) = args.out.clone() {
+            let wpath = out.with_file_name("width_census_report.json");
+            std::fs::write(&wpath, format_width_report(args, &width, eps))
+                .with_context(|| format!("write {}", wpath.display()))?;
+            println!("# width report: {}", wpath.display());
+        } else {
+            println!("# width report: pass --out to write width_census_report.json");
+        }
+    }
     Ok(())
+}
+
+/// The width-census report JSON (issue 1185 T2-run): per-KV-head rows + the
+/// config + the pin context. Deliberately SEPARATE from the v1 sink report —
+/// the BLAKE3 canonical payload is untouched by this lane.
+fn format_width_report(
+    args: &Args,
+    width: &riir_infer_core::deltanet::width_census::WidthCensus,
+    eps: f64,
+) -> String {
+    let mut s = String::new();
+    s.push_str("{\n");
+    s.push_str(&format!(
+        "  \"schema\": \"width_census_v1\",\n  \"model\": {},\n",
+        json_str(&args.model.display().to_string())
+    ));
+    s.push_str(&format!(
+        "  \"corpus\": {},\n  \"n_positions\": {},\n  \"eps\": {eps},\n",
+        json_str(&args.corpus.display().to_string()),
+        width.n_positions
+    ));
+    s.push_str(&format!(
+        "  \"layers_scanned\": {},\n  \"n_kv_head\": {},\n",
+        width.layers_scanned, width.n_kv_head
+    ));
+    s.push_str(&format!(
+        "  \"incumbent_sink_pin\": {},\n",
+        args.incumbent_sinks
+    ));
+    s.push_str("  \"per_head\": [\n");
+    for (i, h) in width.per_head.iter().enumerate() {
+        let width_str = h
+            .width
+            .map(|w| w.to_string())
+            .unwrap_or_else(|| "null".into());
+        let cw_str = h
+            .control_width
+            .map(|w| w.to_string())
+            .unwrap_or_else(|| "null".into());
+        let rent_str = h
+            .r_ent
+            .map(|r| format!("{r:.6}"))
+            .unwrap_or_else(|| "null".into());
+        let atoms = h
+            .atoms
+            .iter()
+            .map(|a| a.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        s.push_str(&format!(
+            "    {{\"layer\": {}, \"kvh\": {}, \"width\": {}, \"censored\": {}, \
+             \"residual\": {:.9}, \"control_width\": {}, \"control_censored\": {}, \
+             \"r_ent\": {}, \"atoms\": [{}]}}{}\n",
+            h.layer_idx,
+            h.kvh,
+            width_str,
+            h.censored,
+            h.residual,
+            cw_str,
+            h.control_censored,
+            rent_str,
+            atoms,
+            if i + 1 < width.per_head.len() {
+                ","
+            } else {
+                ""
+            }
+        ));
+    }
+    s.push_str("  ]\n}\n");
+    s
 }
 
 /// The report JSON: the canonical payload echoed verbatim (the hash's source
