@@ -720,6 +720,10 @@ impl StageTimers {
     }
 }
 
+/// The `forward_token_capture` return row: the sampled token, its logits,
+/// and the per-layer hidden captures (Bench-1167's specdec verify feed).
+type TokenCapture = (u32, Vec<f32>, Vec<Vec<f32>>);
+
 impl Qwen38WgpuForward {
     /// Open the GGUF, build the config, upload all weights (host-dequants the
     /// embedding + lm_head to f32 — ~10 GB of host work + buffers), allocate
@@ -1419,10 +1423,16 @@ impl Qwen38WgpuForward {
         token: u32,
         pos: usize,
         capture_layers: &[usize],
-    ) -> Result<(u32, Vec<f32>, Vec<Vec<f32>>), String> {
+    ) -> Result<TokenCapture, String> {
         let mut logits = Vec::new();
         let mut captures: Vec<Vec<f32>> = Vec::with_capacity(capture_layers.len());
-        let argmax = self.forward_token_inner(token, pos, Some(capture_layers), Some(&mut logits), Some(&mut captures))?;
+        let argmax = self.forward_token_inner(
+            token,
+            pos,
+            Some(capture_layers),
+            Some(&mut logits),
+            Some(&mut captures),
+        )?;
         Ok((argmax, logits, captures))
     }
 
@@ -1431,7 +1441,7 @@ impl Qwen38WgpuForward {
         token: u32,
         pos: usize,
         capture_layers: Option<&[usize]>,
-        mut logits_out: Option<&mut Vec<f32>>,
+        logits_out: Option<&mut Vec<f32>>,
         mut captures_out: Option<&mut Vec<Vec<f32>>>,
     ) -> Result<u32, String> {
         if pos + 1 > self.max_ctx {
@@ -1470,14 +1480,15 @@ impl Qwen38WgpuForward {
             // post-layer residual add — the next layer's input).
             if let Some(layers) = capture_layers
                 && layers.contains(&li)
-                    && let Some(out) = captures_out.as_deref_mut() {
-                        let row = self
-                            .client
-                            .read_one(self.x.clone())
-                            .map(|b| bytemuck::cast_slice(&b).to_vec())
-                            .unwrap_or_default();
-                        out.push(row);
-                    }
+                && let Some(out) = captures_out.as_deref_mut()
+            {
+                let row = self
+                    .client
+                    .read_one(self.x.clone())
+                    .map(|b| bytemuck::cast_slice(&b).to_vec())
+                    .unwrap_or_default();
+                out.push(row);
+            }
         }
 
         // Tail: norm + lm_head + argmax.
@@ -1805,7 +1816,12 @@ impl Qwen38WgpuForward {
             let snap = timers
                 .as_ref()
                 .map(|t| (t.wte_upload_ms, t.gdn_ms, t.attn_ms, t.tail_logits_ms));
-            self.ingest_chunk_gpu(&tokens[p..p + self.chunk], base_pos + p, timers.as_mut(), None)?;
+            self.ingest_chunk_gpu(
+                &tokens[p..p + self.chunk],
+                base_pos + p,
+                timers.as_mut(),
+                None,
+            )?;
             if let Some(t) = timers.as_mut() {
                 let t0 = std::time::Instant::now();
                 last = self.read_chunk_argmax();
@@ -1890,13 +1906,19 @@ impl Qwen38WgpuForward {
         let mut last_logits = Vec::new();
         let mut p = 0usize;
         while tokens.len() - p >= self.chunk {
-            self.ingest_chunk_gpu(&tokens[p..p + self.chunk], base_pos + p, None, Some((capture_layers, &mut feats)))?;
+            self.ingest_chunk_gpu(
+                &tokens[p..p + self.chunk],
+                base_pos + p,
+                None,
+                Some((capture_layers, &mut feats)),
+            )?;
             last_logits = self.read_logits(&self.logits_b);
             p += self.chunk;
         }
         if !tokens[p..].is_empty() {
             for (i, &t) in tokens[p..].iter().enumerate() {
-                let (_, logits, caps) = self.forward_token_capture(t, base_pos + p + i, capture_layers)?;
+                let (_, logits, caps) =
+                    self.forward_token_capture(t, base_pos + p + i, capture_layers)?;
                 for (l, cap) in caps.into_iter().enumerate() {
                     feats[l].extend_from_slice(&cap);
                 }
@@ -1919,7 +1941,10 @@ impl Qwen38WgpuForward {
             kv: self.max_ctx * self.config.kvd(),
         };
         let read = |client: &ComputeClient<ActiveRuntime>, h: &Handle, len: usize| -> Vec<u8> {
-            client.read_one(h.clone()).map(|b| b.to_vec()).unwrap_or_else(|_| vec![0u8; len * 4])
+            client
+                .read_one(h.clone())
+                .map(|b| b.to_vec())
+                .unwrap_or_else(|_| vec![0u8; len * 4])
         };
         for (li, s) in self.gdn_states.iter().enumerate() {
             if let Some(h) = s {
@@ -1955,7 +1980,8 @@ impl Qwen38WgpuForward {
                 StateKind::KvValue => self.kv_value_caches.get_mut(*li).and_then(|s| s.as_mut()),
             };
             if let Some(h) = slot {
-                self.client.write(h, cubecl::bytes::Bytes::from_bytes_vec(bytes.clone()));
+                self.client
+                    .write(h, cubecl::bytes::Bytes::from_bytes_vec(bytes.clone()));
             }
         }
     }
@@ -2042,15 +2068,16 @@ impl Qwen38WgpuForward {
             // speculator's feature feed) — one [chunk × n_embd] read per
             // captured layer per chunk.
             if let Some((layers, sink)) = capture.as_mut()
-                && layers.contains(&li) {
-                    let idx = layers.iter().position(|&l| l == li).expect("capture idx");
-                    let rows = self
-                        .client
-                        .read_one(self.x_b.clone())
-                        .map(|b| bytemuck::cast_slice(&b).to_vec())
-                        .unwrap_or_else(|_| vec![0.0f32; p * e]);
-                    sink[idx].extend_from_slice(&rows);
-                }
+                && layers.contains(&li)
+            {
+                let idx = layers.iter().position(|&l| l == li).expect("capture idx");
+                let rows = self
+                    .client
+                    .read_one(self.x_b.clone())
+                    .map(|b| bytemuck::cast_slice(&b).to_vec())
+                    .unwrap_or_else(|_| vec![0.0f32; p * e]);
+                sink[idx].extend_from_slice(&rows);
+            }
             if let (Some(t), Some(t0)) = (timers.as_mut(), layer_t0) {
                 pollster::block_on(self.client.sync()).ok();
                 let ms = t0.elapsed().as_secs_f64() * 1e3;

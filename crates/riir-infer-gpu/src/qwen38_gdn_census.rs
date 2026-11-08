@@ -189,6 +189,9 @@ impl GdnCensusReport {
 /// raw Metal handles (the dense-module pattern; the wgpu Arcs stay alive
 /// in the context singleton, which outlives every forward).
 pub struct GdnCensus {
+    // Retained for the Metal-side teardown ordering; never dereferenced by
+    // the census readout itself.
+    #[allow(dead_code, reason = "teardown-ordering handle, never dereferenced")]
     device: *mut MTLDevice,
     queue: *mut MTLCommandQueue,
     marker_pipeline: ComputePipelineState,

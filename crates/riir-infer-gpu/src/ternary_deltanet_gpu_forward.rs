@@ -2146,6 +2146,9 @@ fn prefill_site_timing_record(site: PrefillSite, d: core::time::Duration) {
 // the cache) would measure CubeCL twice with no trace. One eprintln per
 // process keeps the dispatch hot path log-clean.
 #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
+// Reached only under the lanes that arm the metal-cache A/B; the specdec
+// verify combo reads the incumbent path and never flips that flag.
+#[allow(dead_code)]
 fn warn_metal_cache_missing_once(flag: &str, reason: &str) {
     use std::sync::atomic::{AtomicBool, Ordering};
     static WARNED: AtomicBool = AtomicBool::new(false);
@@ -3457,7 +3460,10 @@ pub struct TernaryDeltanetGpuForward {
     // Plan 534 T2: Metal tensor GEMM context for the matmul2d prefill path.
     // `None` when the `metal_tensor_gemm` feature is off, non-macOS, or Metal
     // init failed (falls back to CubeCL silently).
+    // Unread under combos whose ternary lane never arms the matmul2d prefill
+    // (e.g. the specdec verify posture); read by the league/production arms.
     #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
+    #[allow(dead_code, reason = "combo-scoped: read by the league prefill arms")]
     metal_gemm: Option<crate::gemm_ternary_metal_tensor::MetalTensorGemm>,
 
     // Issue 657: zero-copy wgpu MSL passthrough variant. Shares CubeCL's
@@ -3472,8 +3478,9 @@ pub struct TernaryDeltanetGpuForward {
     // `MTLComputeCommandEncoder` on the shared CubeCL Metal device + queue —
     // zero staging copy, zero bind group, zero host round-trip. `None` when
     // feature is off, non-macOS, or the CubeCLContext didn't expose the wgpu
-    // device/queue.
+    // device/queue. Unread under combos that route no matmul2d prefill.
     #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
+    #[allow(dead_code, reason = "combo-scoped: read by the league prefill arms")]
     metal_zerocopy_gemm: Option<crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm>,
     // riir-ai Plan 644 G4: ONE `[block × max(n−k)]` f32 scratch for every
     // channel-split seam's GPU suffix (seams are queue-serial, so one buffer
@@ -3498,7 +3505,12 @@ pub struct TernaryDeltanetGpuForward {
     // on first routed use against `metal_zerocopy_gemm`'s device (which also
     // supplies the shared raw-buffer extraction + wgpu zero-init tracker).
     // `Some(None)` = compile failed once; the chain falls through for good.
+    // Uncompiled/unread under combos that route no matmul2d prefill.
     #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
+    #[allow(
+        dead_code,
+        reason = "combo-scoped: compiled by the league prefill arms"
+    )]
     metal_tensor_attn: std::sync::OnceLock<
         Option<crate::attention_prefill_metal_tensor::MetalTensorAttentionPrefill>,
     >,
@@ -7709,8 +7721,11 @@ impl TernaryDeltanetGpuForward {
     /// through the matmul2d tensor arm when selected and routable. Returns
     /// whether it dispatched; `false` (deselected, unroutable, no zero-copy
     /// context, compile or dispatch failure) leaves the CubeCL chain to run.
+    /// Unrouted under combos that never select the tensor attn arm (the
+    /// specdec verify posture rides the incumbent chain).
     #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
     #[allow(clippy::too_many_arguments, reason = "the attn_decode handle set")]
+    #[allow(dead_code, reason = "combo-scoped: routed by the league prefill arms")]
     fn try_prefill_attn_metal_tensor(
         &self,
         query: &cubecl::server::Handle,
