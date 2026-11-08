@@ -10,7 +10,7 @@
 - **Repo**: [github.com/tencent/dspine](https://github.com/tencent/dspine) — inference code + `tencent/Qwen3-8B-DSpine-b16` released 2026-10; the README's supported-models table still lists Qwen3.8-27B as **"Coming soon"** — the README predates the 27B checkpoint drop; the HF card's 27B recipe is the fresher source (T0 reconciles any config drift between the 8B reference the code documents and the 27B checkpoint).
 - **Upstream numbers (cross-fixture — never printed as our measurement**, the 1179 verdict-round-1 discipline): 8B family, same-budget retrains, T=0 7-benchmark mean acceptance — DSpine **7.83** > DFlash2 7.55 > DSpark 7.44 > Domino 7.05 > DFlash 5.92; 27B card acceptance lengths (greedy) 4.48–7.20 vs official DFlash2(block 8) 4.11–5.69; serving +23.3% over DFlash / +11.1% over DFlash2 (8B), ≤4.0× over AR; injection ≤0.15 ms/round.
 
-**Why this lane matters here (the riir-ai Plan 614 tie-in):** the M5 verify-kernel gate (riir-ai plan 614 Phase 3, Bench 1162) needs acceptance **L_eff ≥ 4.78–10.3** at today's kernels; the best head measured is 2.83 (z-lab class) — every head so far misses on the ACCEPTANCE side, not the kernel side. DSpine is the first head family whose claimed acceptance lengths (4.5–7.2 on the 27B card) plausibly enter that range — this lane is the potential **M5-verify unlock**, pending our own T5 cell. The p-sweep in plan 614 already priced p ∈ {1,4,8,9,12,16} (Bench 1164 skeleton), so k=16 verify rows are a priced shape, not a new one.
+**Why this lane matters here (the riir-ai Plan 614 tie-in):** the M5 verify-kernel gate (riir-ai plan 614 Phase 3, Bench 1162) needs acceptance **L_eff ≥ 4.78–10.3** at today's kernels; the best head measured is 2.83 (z-lab class) — every head so far misses on the ACCEPTANCE side, not the kernel side. DSpine is the first head family whose claimed acceptance lengths (4.5–7.2 on the 27B card) plausibly enter that range — this lane is the potential **M5-verify unlock**, pending our own T5 cell. The p-sweep in riir-ai plan 614 already priced p ∈ {1,4,8,9,12,16} (Bench 1164 skeleton), so k=16 verify rows are a priced shape, not a new one.
 
 ## The "original qwen support" verdict (owner question, answered here — no separate issue)
 
@@ -46,7 +46,7 @@ The owner heard "even original qwen is not supported in riir-infer yet". The hon
 
 - **Storage-not-math**: load bf16 as RAW `u16` bytes (`bytemuck::cast_slice` — bytemuck is already a dep; `half` is already an optional dep via `cubecl_runtime`/`ane_prefill`), dequant to f32 at kernel time — never scalar-emulate bf16 arithmetic on CPU. The `qwen38_dflash2_gpu.rs` posture: stream tensor-by-tensor, host peak = one tensor (~4 GB est. weights → fine on 96 GB boxes).
 - Metal/wgpu: f32 math in shaders; bf16 bits ride as u16 storage (the `m32_kvf16` KV lane is the f16-storage precedent; bf16→f32 dequant is exponent-byte widen — no `half` in kernel code).
-- **Determinism law (Issue 940)**: draft logits feed argmax/rejection sampling — every reduction crossing an accept decision pins its fold order, same as the 1179 G1 reference discipline.
+- **Determinism law (katgpt-rs Issue 940)**: draft logits feed argmax/rejection sampling — every reduction crossing an accept decision pins its fold order, same as the 1179 G1 reference discipline.
 - Weights never committed (A1/A8): blake3 pin recorded HERE at T1; the pin rides every quoted cell.
 
 ## Pre-registered gates

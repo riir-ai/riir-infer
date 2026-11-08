@@ -24,7 +24,7 @@
 ### Phase 2 — CPU oracle (T2)
 - [ ] `qwen38_dspine.rs` CPU oracle: block forward, per-layer gated adjacent injection, unified transfer space, predecessor-conditioned decoding + transition cache (K×K pairs + last-write-redo), ReplaySSM replay
 - [ ] Piecewise parity fixtures vs the vendor reference (Bench-952 rig pattern): injection gate, transfer projection, transition cache, SSM replay — a stated tolerance per piece
-- [ ] Determinism-law audit (Issue 940): every reduction feeding an accept decision pins its fold order
+- [ ] Determinism-law audit (katgpt-rs Issue 940): every reduction feeding an accept decision pins its fold order
 
 ### Phase 3 — GPU port (T3) — Metal-first, cudarc twin second
 - [ ] Metal (cubecl/wgpu on the dense lane): draft attention over SW-8192 KV rings; injection as a fused gather+scale per layer; the 256-pair transition scoring as one batched kernel; bf16→f32 dequant in-kernel
