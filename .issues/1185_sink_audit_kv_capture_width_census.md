@@ -1,7 +1,8 @@
 # Issue 1185 — sink_audit K/V capture extension + per-layer ε-width census (Cactus "How Wide Is Attention", katgpt-rs issue 987 lead A2)
 
 **Status:** OPEN — intake issue, filed from katgpt-rs `.issues/987_cactus_neurips2026_follow_ups.md` (Research 657 §A2, 2026-11-08). T1 claimed 2026-11-08 (amo).
-**Claimed:** zed-amo (amo), 1794150461, expires 2026-11-10T15:07:41+00:00 Issue-first per the ungoat discipline: no GOAT plan opens until this issue names its fixture. Execution routes 4090/bmo (offline census over Bonsai-2-27B — a heavy-model lane, not a workstation cell).
+**Claimed:** zed-amo@amo, 1794150461, expires 2026-11-10T15:07:41+00:00
+(scope: Issue-first per the ungoat discipline: no GOAT plan opens until this issue names its fixture. Execution routes 4090/bmo (offline census over Bonsai-2-27B — a heavy-model lane, not a workstation cell).
 
 ## Named plan-time check — DONE at filing (2026-11-08, amo)
 
