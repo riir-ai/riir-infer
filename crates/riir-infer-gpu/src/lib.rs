@@ -875,6 +875,19 @@ pub mod qwen38_gdn_census;
 #[cfg(feature = "qwen38_wgpu")]
 pub mod gemv_q6k_cubecl;
 pub mod qwen38_dflash2;
+// Issue 1186 T1 — the CQ3 never-unpack GEMV prototype (Cactus whole-model
+// quant, Research 657 §A3 / katgpt-rs issue 987 lead A3): the CPU fixture
+// lane for the qwen3.8 dense league cell — deterministic structured
+// rotation (FWHT rides katgpt-core::meld's normalized Walsh–Hadamard,
+// substrate-first) + per-(g,b) Lloyd–Max codebook trained on synthetic
+// unit vectors + fused-LUT GEMV arms. `gemv_f32_lut` is BIT-EXACT vs
+// reference dequant + plain matmul (the G1 fixture pins to_bits equality);
+// `gemv_i8_sdot` is the phone-kernel shape under a pinned measured
+// tolerance. GPTQ Hessian residual is DEFERRED to T2 (consumes the same
+// calibration samples the matched-calibration arm fits). Opt-in until the
+// T3 league cell's GOAT gate; never in `production` before that.
+#[cfg(feature = "cq3")]
+pub mod qwen38_cq3;
 #[cfg(all(feature = "ternary_gemv_cuda_raw", not(target_os = "macos")))]
 pub mod qwen38_dflash2_gpu;
 // Plan 614 Phase 2 — the keyed spec-decode lane: the pure decision layer is
