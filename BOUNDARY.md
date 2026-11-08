@@ -139,7 +139,7 @@ cognition crate, any trained-weight artifact, any Python dependency.
 
 | Repo | Edge | Condition |
 |---|---|---|
-| the public decision-engine serving repo (`gist-rs/riir-reflex`) | path-deps `riir-infer-laya` behind its own `laya-riir` / `laya-riir-metal` feature names (a `pub use` shim keeps its public API); the parity fixtures + consumer-side gate stay THERE | ONE-WAY — this repo never depends on it, from any feature combination (zero back-edge, fence-gated) |
+| the public decision-engine serving repo (`riir-ai/riir-reflex`) | path-deps `riir-infer-laya` behind its own `laya-riir` / `laya-riir-metal` feature names (a `pub use` shim keeps its public API); the parity fixtures + consumer-side gate stay THERE | ONE-WAY — this repo never depends on it, from any feature combination (zero back-edge, fence-gated) |
 
 ## Inherited boundaries (links)
 
