@@ -122,6 +122,10 @@ where
         n_positions,
         tokens_used: n_positions,
         kv,
+        // The dense twin consumes Q inside the probe — no Q capture exists
+        // here (the width census is a hybrid-lane consumer for now; the dense
+        // width lane would ride the probe's own Q tap if it ever opens).
+        q: None,
     })
 }
 

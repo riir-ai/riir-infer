@@ -63,6 +63,18 @@ pub struct SinkAuditQCapture {
     pub n_positions: usize,
 }
 
+impl std::fmt::Debug for SinkAuditQCapture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Shapes only — the rows are megabyte-scale.
+        f.debug_struct("SinkAuditQCapture")
+            .field("attn_layers", &self.attn_layers)
+            .field("slots", &self.q_rows.len())
+            .field("n_positions", &self.n_positions)
+            .field("pos", &self.pos)
+            .finish()
+    }
+}
+
 impl SinkAuditQCapture {
     /// Size the capture for one census pass: `n_positions` rows per
     /// full-attention layer, `q_dim = n_head * head_dim` wide.
@@ -116,6 +128,11 @@ pub struct SinkCensus {
     /// matching the profile's layer scope; an offline diagnostic that rides
     /// the gated module — never a serving surface.
     pub kv: SinkAuditKVCapture,
+    /// The Q capture the census armed, kept for the offline lanes that score
+    /// Q against the captured K/V (the width census). `None` on the dense
+    /// twin — its Q rows are consumed inside the probe's arithmetic and never
+    /// materialized per layer.
+    pub q: Option<SinkAuditQCapture>,
 }
 
 /// The K/V capture for the width-census lane (issue 1185 T1): the census
@@ -369,9 +386,6 @@ fn finish_census(
         .take()
         .ok_or_else(|| "census capture vanished".to_string())?;
     let profile = harvest_profile(cache, &capture, config, n_positions);
-    // Issue 1185 T1: the K/V capture is the cache's own window rows — the
-    // bytes the harvest above just scored against, taken before the cache
-    // drops. Same slots, same order.
     let kvd = crate::types::kv_dim(config);
     let kv = SinkAuditKVCapture::extract(
         &capture.attn_layers,
@@ -389,6 +403,10 @@ fn finish_census(
         n_positions,
         tokens_used,
         kv,
+        // Issue 1185 T2: the Q rows ride out too — the width census scores
+        // them against the captured K/V. Everything the offline lanes need
+        // is now on one census return.
+        q: Some(capture),
     })
 }
 

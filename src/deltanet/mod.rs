@@ -53,6 +53,8 @@ pub mod kv_evict;
 // zero serving-path cost (the capture rides a cfg-gated Option).
 #[cfg(feature = "sink_audit")]
 pub mod sink_audit;
+#[cfg(feature = "sink_audit")]
+pub mod width_census;
 
 // Issue 049 — the GDN delta-roll state journal (Research 629 E2's
 // riir-infer half): post-commit state recovery by rank-1 unwind from the
