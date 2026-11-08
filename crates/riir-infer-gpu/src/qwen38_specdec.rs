@@ -895,6 +895,20 @@ impl DFlashCpu {
         for kv in self.kv.iter_mut() {
             kv.clear();
         }
+        if self.vendor_numerics {
+            for c in self.kv_kcodes.iter_mut() {
+                c.clear();
+            }
+            for c in self.kv_vcodes.iter_mut() {
+                c.clear();
+            }
+            for c in self.kv_kscales.iter_mut() {
+                c.clear();
+            }
+            for c in self.kv_vscales.iter_mut() {
+                c.clear();
+            }
+        }
         self.ctx_len = 0;
         self.capacity = 0;
     }
@@ -934,20 +948,62 @@ impl DFlashCpu {
                 // K: per-head RMS norm (key_norm) + PER-HEAD rope at this
                 // position (the rope is 128-dim per head — the same bug the
                 // draft block had, fixed here too).
-                let k_row = &mut dst[..kv_dim];
-                for head in 0..DRAFT_GROUPS {
-                    head_rmsnorm(
-                        &mut k_row[head * DRAFT_HEAD_DIM..(head + 1) * DRAFT_HEAD_DIM],
-                        &self.w.layers[li].key_norm,
-                    );
-                    apply_rope(
-                        &mut k_row[head * DRAFT_HEAD_DIM..(head + 1) * DRAFT_HEAD_DIM],
-                        1,
-                        &cos[t * DRAFT_HEAD_DIM..(t + 1) * DRAFT_HEAD_DIM],
-                        &sin[t * DRAFT_HEAD_DIM..(t + 1) * DRAFT_HEAD_DIM],
-                    );
+                {
+                    let k_row = &mut dst[..kv_dim];
+                    for head in 0..DRAFT_GROUPS {
+                        head_rmsnorm(
+                            &mut k_row[head * DRAFT_HEAD_DIM..(head + 1) * DRAFT_HEAD_DIM],
+                            &self.w.layers[li].key_norm,
+                        );
+                        apply_rope(
+                            &mut k_row[head * DRAFT_HEAD_DIM..(head + 1) * DRAFT_HEAD_DIM],
+                            1,
+                            &cos[t * DRAFT_HEAD_DIM..(t + 1) * DRAFT_HEAD_DIM],
+                            &sin[t * DRAFT_HEAD_DIM..(t + 1) * DRAFT_HEAD_DIM],
+                        );
+                    }
+                } // k_row borrow ends — the vendor snapshot below reads dst.
+                  // V: raw (value_norm absent in this config).
+                  // Vendor-exact append (I1179_VENDOR_NUMERICS=1): quantize
+                  // the FINAL per-head normed+roped K row and the raw V row
+                  // per (row, kv_head) — the same H128·signs int8 basis the
+                  // vendor prefix cache stores (attention_block_vendor's read
+                  // side; never written before this — the T1 fixture cells
+                  // panicked on the empty prefix slice).
+                if self.vendor_numerics {
+                    let row_base = self.ctx_len * DRAFT_GROUPS;
+                    // Snapshot both head rows from dst (immutable copies;
+                    // the mutable borrow above ended with its scope).
+                    let k_heads: Vec<Vec<f32>> = (0..DRAFT_GROUPS)
+                        .map(|head| {
+                            dst[head * DRAFT_HEAD_DIM..(head + 1) * DRAFT_HEAD_DIM].to_vec()
+                        })
+                        .collect();
+                    let v_heads: Vec<Vec<f32>> = (0..DRAFT_GROUPS)
+                        .map(|head| {
+                            dst[kv_dim + head * DRAFT_HEAD_DIM
+                                ..kv_dim + (head + 1) * DRAFT_HEAD_DIM]
+                                .to_vec()
+                        })
+                        .collect();
+                    for head in 0..DRAFT_GROUPS {
+                        let idx = (row_base + head) * DRAFT_HEAD_DIM;
+                        let (kc, ks) = vendor_quantize(&mut k_heads[head].clone());
+                        if self.kv_kcodes[li].len() < idx + DRAFT_HEAD_DIM {
+                            self.kv_kcodes[li].resize(idx + DRAFT_HEAD_DIM, 0);
+                            self.kv_kscales[li].resize(row_base + head + 1, 1.0);
+                        }
+                        self.kv_kcodes[li][idx..idx + DRAFT_HEAD_DIM].copy_from_slice(&kc);
+                        self.kv_kscales[li][row_base + head] = ks;
+                        let (vc, vs) = vendor_quantize(&mut v_heads[head].clone());
+                        if self.kv_vcodes[li].len() < idx + DRAFT_HEAD_DIM {
+                            self.kv_vcodes[li].resize(idx + DRAFT_HEAD_DIM, 0);
+                            self.kv_vscales[li].resize(row_base + head + 1, 1.0);
+                        }
+                        self.kv_vcodes[li][idx..idx + DRAFT_HEAD_DIM].copy_from_slice(&vc);
+                        self.kv_vscales[li][row_base + head] = vs;
+                    }
                 }
-                // V: raw (value_norm absent in this config).
             }
             self.ctx_len += 1;
         }
