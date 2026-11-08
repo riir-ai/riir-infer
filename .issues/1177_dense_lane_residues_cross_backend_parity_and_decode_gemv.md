@@ -3,7 +3,11 @@
 **Status:** Open — residue pointer filed 2026-11-05 when the parent lanes
 closed (1150 + 1170; Claude verdict round 1 AGREE on the closure batch).
 Two items the lane still owes, both priced/deferred, neither blocking a
-landed surface.
+landed surface. **Item 2's owed cells ALL LANDED 2026-11-08 ([Bench 956](../.benchmarks/956_i1177_owed_cells_attribution_ceiling_engagement_instability.md))** — the 6× was
+stale-posture artifact (real packed-vs-f16 ctx gap 1.32×, stable n=5);
+ceiling measured 700–750 GB/s (87–91% of the assumed 819); engagement
+Δ+15,872/cell; walk byte-identical across 4 postures. Lever stays retired
+(1184 finding + measured confirmation). Item 1 (4090 parity cell) remains.
 **Claimed:** zed-754da340@amo, 1794174540, expires 2026-11-10T15:00:00+00:00
 (re-claim after the zed-83e79a9e@amo lease expired — Item 2 owed cells in the quiet-GPU window; the 6× attribution first per the REVISE order; Item 1 stays 4090-queue-gated, not this claim)
 
@@ -80,26 +84,29 @@ half-B armed` + `Q6_K packed tail armed (~2.1 GB resident)` (A) /
    pair may not even be one posture. Co-tenancy cannot yet be credited
    with the 6×.
 
-**OWED before any verdict or lever lane (verdict round 1 REVISE):**
-- [ ] Attribution cell: Arm A with `RIIR_QWEN38_LMHEAD_Q6K=0`, then
-  F16ACT also demoted (or the interlock refusals recorded) — splits the
-  6× into code vs box. First attempt killed by a tool timeout mid-load
-  (log stopped at "loaded in 39.1s", f32 tail adds ~5.5 s load).
-- [ ] Measured ceiling: streaming-read probe or llama.cpp f16 decode on
-  the same box (the ~810 GB/s is ASSUMED; the Q6K commit measured its
-  tail GEMV at ~470 GB/s) + recomputed bytes/token for the CURRENT
-  posture (f16 layers + 2.1 GB Q6K tail + KV at ctx 2048).
-- [ ] Correctness proof: engagement trace that decode actually dispatches
-  `gemv_dense_f16` + a greedy-walk digest vs the packed arm (this lane's
-  own precedent: `27edb75`'s first run was a fast-but-wrong all-zero
-  walk).
-- [ ] Packed ctx-2048 instability: UNADJUDICATED at n=2 — 5+ fresh
-  processes required before "bimodal" is claimed (the `5923713`
-  precedent). Hypothesis named only: depth-coupled (each B run does
-  ~4 min of slow packed prefill before the ctx-decode cell; raw packed
-  cells are stable 8.76/8.82).
-- The re-priced lever lane does NOT open until the attribution + a
-  measured ceiling land.
+**OWED before any verdict or lever lane (verdict round 1 REVISE) — ALL LANDED 2026-11-08, [Bench 956](../.benchmarks/956_i1177_owed_cells_attribution_ceiling_engagement_instability.md):**
+- [x] Attribution cell: A2 (`RIIR_QWEN38_LMHEAD_Q6K=0`) + A3 (also
+  `F16ACT=0`) × 2 legs each — raw decode arm-insensitive (±0.4);
+  ctx-2048: Q6K tail +1.2 tok/s, F16ACT ~0 at decode (prefill-only
+  variant; engagement Δ identical). A1 baseline re-run at today's HEAD:
+  12.06/12.11 raw, 10.33/10.37 ctx.
+- [x] Measured ceiling: `examples/gemv_read_bw.rs` — the ENGAGED decode
+  kernel over a 2 GiB shape, 3 processes: 715.5 / 748.5 / 699.4 GB/s
+  median = **700–750 GB/s measured**, 87–91% of the assumed 819; the
+  1184 finding's derived ~720 lands inside the band → f16 decode runs
+  AT its kernel-class ceiling, no craft headroom.
+- [x] Correctness proof: `[gemv-engagement]` instrument in the bench bin
+  (dispatch_count delta per cell) — **Δ+15,872 per 32-step cell =
+  496 GEMVs/step**, 10/10 legs; greedy-walk ids BYTE-IDENTICAL across
+  A1/A2/A3/B1 (64 tokens, 4 postures).
+- [x] Packed ctx-2048 instability: REFUTED at n=5 — 7.85/7.92/7.86/7.85/
+  7.86 (spread 0.9%); the 11-05 "5.00/1.23" pair is stale-posture class
+  (predates `d19223c`'s demote interlocks), never bimodality. Real
+  packed-vs-f16 ctx gap = 1.32×; B raw 9.0 corroborates the 1184
+  discriminator band (packedOFF ≈ 8.6-9).
+- The re-priced lever lane stays CLOSED (the 1184 posture finding retired
+  it at the byte-class level; §5 of the bench confirms at the measured
+  level). Residue = Item 1 only (4090-queue-gated).
 
 ## Provenance
 

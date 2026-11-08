@@ -737,6 +737,13 @@ name = "prefix_cache_ab"
 path = "examples/prefix_cache_ab.rs"
 required-features = ["ternary_gemv_cuda_raw"]
 
+# Issue 1177 item 2 — the measured decode-class read-BW ceiling probe (the
+# roofline denominator becomes a measurement, never an assumption).
+[[example]]
+name = "gemv_read_bw"
+path = "examples/gemv_read_bw.rs"
+required-features = ["metal_tensor_gemm", "cubecl_runtime"]
+
 [dev-dependencies]
 # Test RNG (qwen38_dflash2_gpu determinism fixtures; version matches the
 # engine gpu crate's).

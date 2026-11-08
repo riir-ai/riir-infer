@@ -203,6 +203,7 @@ fn main() {
         fwd.zero_state();
         fwd.ingest(&ids, 0)
             .unwrap_or_else(|e| panic!("ingest: {e}"));
+        let dd0 = dense_dispatch_count();
         let mut next = 0u32;
         let t = std::time::Instant::now();
         for s in 0..decode_steps {
@@ -215,6 +216,10 @@ fn main() {
         println!(
             "[decode] {decode_steps} steps in {dt:.2}s = {:.2} tok/s",
             decode_steps as f64 / dt
+        );
+        println!(
+            "[gemv-engagement] dense dispatches Δ+{} over the decode cell",
+            dense_dispatch_count() - dd0
         );
     }
 
@@ -234,6 +239,7 @@ fn main() {
         fwd.zero_state();
         fwd.ingest(&toks, 0)
             .unwrap_or_else(|e| panic!("decode-ctx ingest: {e}"));
+        let dd0 = dense_dispatch_count();
         let mut next = 0u32;
         let t = std::time::Instant::now();
         for s in 0..steps {
@@ -246,6 +252,10 @@ fn main() {
         println!(
             "[decode-ctx {ctx_n}] {steps} steps in {dt:.2}s = {:.2} tok/s",
             steps as f64 / dt
+        );
+        println!(
+            "[gemv-engagement] dense dispatches Δ+{} over the decode-ctx cell",
+            dense_dispatch_count() - dd0
         );
     }
 
@@ -270,6 +280,23 @@ fn main() {
             .collect();
         println!("[walk] text: {}", text.join(""));
     }
+}
+
+/// The dense-f16 lane's raw dispatch counter — the engagement instrument
+/// (the Issue-1124 T1.5 law: a bench log asserts the ARM it measured,
+/// never infers it from env). Counts gemv+matmul2d+q4k classes; the
+/// decode cells' delta is the GEMV engagement proof (prefill gemms are
+/// outside every delta — the counters are captured after each ingest).
+#[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
+fn dense_dispatch_count() -> u64 {
+    riir_infer_gpu::gemm_dense_f16_metal_zero_copy::dense_mm()
+        .map(|mm| mm.dispatch_count())
+        .unwrap_or(0)
+}
+
+#[cfg(not(all(feature = "metal_tensor_gemm", target_os = "macos")))]
+fn dense_dispatch_count() -> u64 {
+    0
 }
 
 /// Issue 1174 — the free-running attribution matrix. One model load; per
