@@ -62,7 +62,13 @@ BLAKE3, box name. Lands as `.benchmarks/<N>_issue1186_t2b_opp_arm.md` when the j
 - [x] Plan pre-registered (this file, before any artifact exists)
 - [ ] amo prep job (queued via `agent-mail rig run`): clone fork@tag → build Metal Release → download BF16 (sha256-verify both shards) → `llama-imatrix` @v1 + @v2 → `llama-quantize` Q3_K(v1), Q3_K(v2), Q3_K(rtn) → BLAKE3 all artifacts + ledger JSON — script `scripts/cq3_league/prep_opponent_arm.sh`
 - [ ] Ledger bench record landed from the job output (window counts, bpw, hashes)
-- [ ] Ours-side capture seam (per-tensor Gram accumulation, sequential layer-local) + `cq3_quantize` GGUF→CQ3 driver — next cycle
+- [ ] Ours-side capture seam (per-tensor Gram accumulation, sequential layer-local) + `cq3_quantize` GGUF→CQ3 driver — next cycle. **SCOPED 2026-11-09** (hook sites verified on the wgpu/CubeCL dense lane `crates/riir-infer-gpu/src/qwen38_dense_cubecl.rs`):
+  - Precedent to follow: the census hook pattern — `census_li: Option<usize>` + `census_mark(cli, "mlp_act", &act_hz)` ride `prefill_mlp` (:2830) and the attention twin `prefill_attn_layer` (:2643) as pure read-back instrumentation; `ingest_capture` (:1909) shows the caller-side capture-plumbing shape (Option params threading `forward_token_inner`, :1449).
+  - Seam: a `calib_mark(site, handles)` beside `census_mark` — reads back the named batch handles (`norm_x_b` = gate/up GEMM input; `hidden_b` = down GEMM input; the attn q/k/v input + o input in `prefill_attn_layer`), accumulates per (layer, matrix) host-side Grams `H += XᵀX` (f64 or f32, column-summed per chunk — rows arrive chunked at `p`×d).
+  - Feature: `cq3_calibrate` (opt-in; implies `cq3`) on `riir-infer-gpu`; the hooks compile to nothing when off (the census pattern's zero-cost posture).
+  - Driver: `cargo run --features cq3_calibrate --bin cq3_quantize -- <bf16.gguf> <corpus.txt> --budget v1|v2 --out <artifact>` — sequential layer-local: ingest chunk → per-layer read-back → quantize that layer's matrices (fit_smooth + rotation + LUT + residual) → propagate quantized weights before the next chunk (GPTQ sequential law; the dequant-CQ3 weights replace f16 in the running forward so downstream sees the quantized upstream).
+  - VRAM note: 27B on amo's 96 GB unified — weights stay resident (wgpu Metal); chunk buffers reused; Gram storage per layer ~2-4 GB transient (16K² f32 FFN twins), freed after the layer quantizes.
+  - Artifact: `.cq3` sidecar or GGUF-extended container — DECISION AT IMPLEMENTATION, pinned in the ledger row either way; per-family retention cells consume the same container's dequant path.
 - [ ] Ours artifacts at b1 + b2 budgets (same corpora, same chunk order)
 - [ ] T3 cells: perf (pp2048/pp4096 + decode vs Q3_K(b1), 4090 ALONE) + per-family retention (held-out corpus, pinned then) — gated on the capture seam + a CUDA CQ3 GEMV arm
 - [ ] T4 verdict per the league law (GOAT gate; demote-only env on win; loss → recorded verdict + corpus note)
