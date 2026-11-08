@@ -315,6 +315,11 @@ qwen38_wgpu = ["cubecl_runtime", "ternary_gemv", "ternary_deltanet_chunked_prefi
 # DFlash speculator, CPU f32 draft + the keyed accept over the dense target).
 # Opt-in PROMOTE-ONLY per the env-switch law; feature-off is byte-identical.
 qwen38_specdec = ["qwen38_wgpu"]
+# Issue 1183 — the DSpine b16 draft-model lane (tencent/Qwen3.8-27B-DSpine-b16,
+# the DFlash-successor parallel drafter, owner ask 2026-11-08): the CPU oracle
+# + loader (T2) over the same dense target; the verify-loop integration stays
+# 1179's (T4 gated there). Opt-in PROMOTE-ONLY; feature-off is byte-identical.
+qwen38_dspine = ["qwen38_specdec"]
 # Tree-masked batched verify kernels for DeltaNet layers (Issue 721). Mirrors
 # the engine gpu crate's feature (which additionally pulls the
 # speculative-decode dispatch there). The katgpt-core leg supplies the
@@ -645,6 +650,14 @@ required-features = ["qwen38_wgpu"]
 [[bin]]
 name = "qwen38_specdec_t1"
 required-features = ["qwen38_specdec"]
+
+# Issue 1183 T2 — the DSpine CPU-oracle harness: synthetic piecewise dumps
+# (read/codes, message/write, attention, serial tail) for the vendor golden
+# generator + the real-checkpoint shape walk (blake3-pinned at load).
+# Weights-from-disk (A1/A8), never committed.
+[[bin]]
+name = "qwen38_dspine_t2"
+required-features = ["qwen38_dspine"]
 
 # Issue 1150 follow-up 3 — the Q6_K tail-GEMV unit gate: the CubeCL kernel
 # vs the CPU canonical gemv_q6_k (quantize-then-GEMV + sign/bitfield

@@ -893,3 +893,11 @@ pub mod qwen38_verify_mma;
 // accept above). Opt-in `qwen38_specdec`.
 #[cfg(feature = "qwen38_specdec")]
 pub mod qwen38_specdec;
+// Issue 1183 — the DSpine b16 draft model (tencent/Qwen3.8-27B-DSpine-b16,
+// blake3 53d18516… at load): the CPU oracle — loader + block forward + code
+// bridge + serial refinement tail, op-for-op the vendor MLX reference
+// (.raw/dspine pin 6450af7) with the bf16 rounding points explicit. Opt-in
+// `qwen38_dspine` (implies qwen38_specdec); feature-off compiles to nothing.
+// Weights never committed (A1/A8); ReplaySSM is the 1179 verify loop's half.
+#[cfg(feature = "qwen38_dspine")]
+pub mod qwen38_dspine;
