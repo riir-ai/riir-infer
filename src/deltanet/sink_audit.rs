@@ -111,6 +111,118 @@ pub struct SinkCensus {
     pub n_positions: usize,
     /// The tokens actually consumed (the first N of the encoded corpus).
     pub tokens_used: usize,
+    /// The census-window K/V the profile was scored against (issue 1185 T1,
+    /// the width-census lane's input). Full-attention layers only, slot order
+    /// matching the profile's layer scope; an offline diagnostic that rides
+    /// the gated module — never a serving surface.
+    pub kv: SinkAuditKVCapture,
+}
+
+/// The K/V capture for the width-census lane (issue 1185 T1): the census
+/// window's post-RoPE K and V rows for every full-attention layer, extracted
+/// FROM THE KV CACHE at census-finish time.
+///
+/// Why extraction, not a forward-body capture: the census cache is sized to
+/// exactly the window (`census_posture`), each position's row is written once
+/// during the decode pass, and the harvest itself scores the profile against
+/// these very rows — so the cache holds the forward-time K/V bit-exactly, and
+/// a body-level capture would duplicate the write in exactly the aliasing
+/// class Issue 594 paid for. One extraction, shared by the hybrid and dense
+/// twin finishes; zero forward-body edits; the capture exists only under the
+/// `sink_audit` feature (the whole module is gated).
+pub struct SinkAuditKVCapture {
+    /// Slot `s` holds the `[n_positions × kv_dim]` row-major K rows of
+    /// full-attention layer `attn_layers[s]` (parallel arrays — same slot
+    /// order as the Q capture and the profile's layer scope).
+    pub key_rows: Vec<Vec<f32>>,
+    /// The matching V rows, same layout.
+    pub value_rows: Vec<Vec<f32>>,
+    /// The `layer_idx` values that are full-attention layers, ascending —
+    /// identical to the Q capture's list.
+    pub attn_layers: Vec<usize>,
+    /// The census window N every row buffer holds.
+    pub n_positions: usize,
+    /// GQA geometry the width-census math (T2) splits heads by.
+    pub kv_dim: usize,
+    pub n_kv_head: usize,
+    pub head_dim: usize,
+}
+
+impl SinkAuditKVCapture {
+    /// Extract the window rows for `attn_layers` from a KV-cache-like
+    /// surface: `key_value_of_layer(slot)` returns the layer's full K and V
+    /// buffers (`[capacity × kv_dim]`; capacity may exceed the window —
+    /// exactly the first `n_positions` rows are copied). Sequential copies,
+    /// no arithmetic: the bytes are the cache's own, so the capture is as
+    /// deterministic as the forward that filled it.
+    pub(crate) fn extract<'a>(
+        attn_layers: &[usize],
+        mut key_value_of_layer: impl FnMut(usize) -> (&'a [f32], &'a [f32]),
+        n_positions: usize,
+        kv_dim: usize,
+        n_kv_head: usize,
+        head_dim: usize,
+    ) -> Self {
+        let want = n_positions * kv_dim;
+        let mut key_rows = Vec::with_capacity(attn_layers.len());
+        let mut value_rows = Vec::with_capacity(attn_layers.len());
+        for slot in 0..attn_layers.len() {
+            let (key, value) = key_value_of_layer(slot);
+            debug_assert!(
+                key.len() >= want && value.len() >= want,
+                "kv cache rows shorter than the census window: key {} value {} want {want}",
+                key.len(),
+                value.len()
+            );
+            key_rows.push(key[..want.min(key.len())].to_vec());
+            value_rows.push(value[..want.min(value.len())].to_vec());
+        }
+        Self {
+            key_rows,
+            value_rows,
+            attn_layers: attn_layers.to_vec(),
+            n_positions,
+            kv_dim,
+            n_kv_head,
+            head_dim,
+        }
+    }
+
+    /// Gather one KV head's rows into a contiguous `[n_positions ×
+    /// head_dim]` block in `dst` (the cache/capture layout strides heads by
+    /// `kv_dim`; the width-census math wants the per-head block contiguous).
+    /// Reuse the buffer: `clear()` + extend, allocated once at the caller.
+    pub fn gather_kv_head(&self, slot: usize, kvh: usize, dst: &mut Vec<f32>) {
+        assert!(slot < self.key_rows.len(), "slot {slot} out of range");
+        assert!(kvh < self.n_kv_head, "kvh {kvh} out of range");
+        let rows = &self.key_rows[slot];
+        let head_off = kvh * self.head_dim;
+        dst.clear();
+        dst.reserve(self.n_positions * self.head_dim);
+        for pos in 0..self.n_positions {
+            let off = pos * self.kv_dim + head_off;
+            dst.extend_from_slice(&rows[off..off + self.head_dim]);
+        }
+    }
+
+    /// Shapes-only debug — never the row contents (megabyte-scale).
+    fn fmt_shapes(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SinkAuditKVCapture")
+            .field("attn_layers", &self.attn_layers)
+            .field("n_positions", &self.n_positions)
+            .field("kv_dim", &self.kv_dim)
+            .field("n_kv_head", &self.n_kv_head)
+            .field("head_dim", &self.head_dim)
+            .field("key_rows_slots", &self.key_rows.len())
+            .field("value_rows_slots", &self.value_rows.len())
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for SinkAuditKVCapture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt_shapes(f)
+    }
 }
 
 /// Run the census over the first `n_positions` tokens of `tokens`.
@@ -257,10 +369,26 @@ fn finish_census(
         .take()
         .ok_or_else(|| "census capture vanished".to_string())?;
     let profile = harvest_profile(cache, &capture, config, n_positions);
+    // Issue 1185 T1: the K/V capture is the cache's own window rows — the
+    // bytes the harvest above just scored against, taken before the cache
+    // drops. Same slots, same order.
+    let kvd = crate::types::kv_dim(config);
+    let kv = SinkAuditKVCapture::extract(
+        &capture.attn_layers,
+        |slot| {
+            let layer = &cache.kv_cache.layers[capture.attn_layers[slot]];
+            (layer.key.as_slice(), layer.value.as_slice())
+        },
+        n_positions,
+        kvd,
+        config.n_kv_head,
+        config.head_dim,
+    );
     Ok(SinkCensus {
         profile,
         n_positions,
         tokens_used,
+        kv,
     })
 }
 
@@ -542,5 +670,104 @@ mod tests {
         assert_eq!(a.profile.first_n_profile, b.profile.first_n_profile);
         assert_eq!(a.profile.f_attn_token0, b.profile.f_attn_token0);
         assert_eq!(a.profile.m_act, b.profile.m_act);
+    }
+
+    // ── Issue 1185 T1: the K/V capture fixtures ─────────────────────────
+
+    /// The capture is the harvest's own input: re-deriving the m_act signal
+    /// from the captured V rows must reproduce the profile bit-exactly (same
+    /// bytes, same sequential f64 folds, same layer order). This is the pin
+    /// that the extraction-from-cache design carries the FORWARD-time values,
+    /// not post-hoc noise.
+    #[test]
+    fn kv_capture_reproduces_the_m_act_signal_bit_exactly() {
+        let config = tiny_config();
+        let weights = QwenDeltaNetWeights::zeros(&config);
+        let rope = RopeFreqTable::new(
+            config.rope_theta,
+            crate::deltanet::effective_rotary_dim(&config),
+        );
+        let n = 8usize;
+        let tokens: Vec<usize> = (0..n).collect();
+
+        let census = run_census(&weights, &config, &tokens, &rope, n).expect("census runs");
+        let kvd = crate::types::kv_dim(&config);
+        let m_from_capture =
+            mean_layer_max_v_norm(census.kv.value_rows.iter().map(|v| v.as_slice()), n, kvd);
+        assert_eq!(m_from_capture, census.profile.m_act);
+    }
+
+    /// Slot scope: the capture covers exactly the full-attention layers, in
+    /// ascending order, shaped [N × kvd] per slot (zero-padding identity is
+    /// covered by the m_act pin above — zero weights ⇒ zero V rows).
+    #[test]
+    fn kv_capture_covers_only_full_attention_layers() {
+        let config = tiny_config();
+        let weights = QwenDeltaNetWeights::zeros(&config);
+        let rope = RopeFreqTable::new(
+            config.rope_theta,
+            crate::deltanet::effective_rotary_dim(&config),
+        );
+        let n = 8usize;
+        let tokens: Vec<usize> = (0..n).collect();
+
+        let census = run_census(&weights, &config, &tokens, &rope, n).expect("census runs");
+        let kvd = crate::types::kv_dim(&config);
+        assert_eq!(census.kv.attn_layers, vec![1, 3], "only the ATTN layers");
+        assert_eq!(census.kv.key_rows.len(), 2);
+        assert_eq!(census.kv.value_rows.len(), 2);
+        for (key, value) in census.kv.key_rows.iter().zip(&census.kv.value_rows) {
+            assert_eq!(key.len(), n * kvd);
+            assert_eq!(value.len(), n * kvd);
+        }
+        assert_eq!(census.kv.n_positions, n);
+        assert_eq!(census.kv.kv_dim, kvd);
+        assert_eq!(census.kv.n_kv_head, config.n_kv_head);
+        assert_eq!(census.kv.head_dim, config.head_dim);
+    }
+
+    /// G1 on the capture itself: the same census twice yields byte-identical
+    /// K/V rows (no RNG, no wall clock — the extraction is pure copies).
+    #[test]
+    fn kv_capture_is_deterministic() {
+        let config = tiny_config();
+        let weights = QwenDeltaNetWeights::zeros(&config);
+        let rope = RopeFreqTable::new(
+            config.rope_theta,
+            crate::deltanet::effective_rotary_dim(&config),
+        );
+        let n = 8usize;
+        let tokens: Vec<usize> = (0..n).map(|i| (i * 7 + 3) % config.vocab_size).collect();
+
+        let a = run_census(&weights, &config, &tokens, &rope, n).expect("census runs");
+        let b = run_census(&weights, &config, &tokens, &rope, n).expect("census runs");
+        assert_eq!(a.kv.key_rows, b.kv.key_rows);
+        assert_eq!(a.kv.value_rows, b.kv.value_rows);
+        assert_eq!(a.kv.attn_layers, b.kv.attn_layers);
+    }
+
+    /// The per-KV-head gather (the T2 width-census lane's input shape):
+    /// gathering head (slot, kvh) must equal the manual strided read of the
+    /// captured rows — contiguous [N × head_dim], heads in cache order.
+    #[test]
+    fn gather_kv_head_matches_the_strided_read() {
+        let config = tiny_config();
+        let weights = QwenDeltaNetWeights::zeros(&config);
+        let rope = RopeFreqTable::new(
+            config.rope_theta,
+            crate::deltanet::effective_rotary_dim(&config),
+        );
+        let n = 8usize;
+        let tokens: Vec<usize> = (0..n).collect();
+
+        let census = run_census(&weights, &config, &tokens, &rope, n).expect("census runs");
+        let mut gathered = Vec::new();
+        census.kv.gather_kv_head(0, 1, &mut gathered);
+        assert_eq!(gathered.len(), n * config.head_dim);
+        let rows = &census.kv.key_rows[0];
+        for (pos, chunk) in gathered.chunks_exact(config.head_dim).enumerate() {
+            let off = pos * census.kv.kv_dim + config.head_dim;
+            assert_eq!(chunk, &rows[off..off + config.head_dim], "pos {pos}");
+        }
     }
 }

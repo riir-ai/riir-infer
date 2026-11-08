@@ -21,7 +21,7 @@ use katgpt_transformer::MultiLayerKVCache;
 
 use super::ForwardContext;
 use super::attention_probe::AttnSpanProbe;
-use crate::deltanet::sink_audit::{SinkCensus, mean_layer_max_v_norm};
+use crate::deltanet::sink_audit::{SinkAuditKVCapture, SinkCensus, mean_layer_max_v_norm};
 use crate::types::{Config, kv_dim};
 
 /// Run the census over the first `n_positions` of `tokens` through
@@ -89,10 +89,26 @@ where
     }
     let first_n_profile =
         finalize_profile(&probe.profile, config.n_layer, config.n_head, n_positions);
+    let kvd = kv_dim(config);
     let m_act = mean_layer_max_v_norm(
         cache.layers.iter().map(|l| l.value.as_slice()),
         n_positions,
-        kv_dim(config),
+        kvd,
+    );
+    // Issue 1185 T1: the dense bodies are full causal attention at every
+    // layer, so the capture slots are all layers — the same bytes the
+    // m_act reduction above just read.
+    let all_layers: Vec<usize> = (0..config.n_layer).collect();
+    let kv = SinkAuditKVCapture::extract(
+        &all_layers,
+        |slot| {
+            let layer = &cache.layers[slot];
+            (layer.key.as_slice(), layer.value.as_slice())
+        },
+        n_positions,
+        kvd,
+        config.n_kv_head,
+        config.head_dim,
     );
     Ok(SinkCensus {
         profile: SinkAuditProfile {
@@ -105,6 +121,7 @@ where
         },
         n_positions,
         tokens_used: n_positions,
+        kv,
     })
 }
 
@@ -197,5 +214,28 @@ mod tests {
     fn short_corpus_refuses() {
         let cfg = tiny_config();
         assert!(run_census_dense(&cfg, &[0, 1], 8, uniform_forward).is_err());
+    }
+
+    /// Issue 1185 T1: the dense twin's K/V capture. Every layer is an
+    /// attention layer here, so the slots are 0..n_layer, and the m_act
+    /// identity carries over — re-deriving the signal from the captured V
+    /// rows reproduces the profile bit-exactly (this body writes no cache
+    /// rows, so the rows are zeros and m_act is 0 on both sides).
+    #[test]
+    fn dense_kv_capture_covers_every_layer() {
+        let cfg = tiny_config();
+        let n = 8usize;
+        let tokens: Vec<usize> = (0..n).collect();
+        let census = run_census_dense(&cfg, &tokens, n, uniform_forward).expect("census runs");
+        let kvd = kv_dim(&cfg);
+        assert_eq!(census.kv.attn_layers, (0..cfg.n_layer).collect::<Vec<_>>());
+        assert_eq!(census.kv.key_rows.len(), cfg.n_layer);
+        for (key, value) in census.kv.key_rows.iter().zip(&census.kv.value_rows) {
+            assert_eq!(key.len(), n * kvd);
+            assert_eq!(value.len(), n * kvd);
+        }
+        let m_from_capture =
+            mean_layer_max_v_norm(census.kv.value_rows.iter().map(|v| v.as_slice()), n, kvd);
+        assert_eq!(m_from_capture, census.profile.m_act);
     }
 }

@@ -1,6 +1,7 @@
 # Issue 1185 — sink_audit K/V capture extension + per-layer ε-width census (Cactus "How Wide Is Attention", katgpt-rs issue 987 lead A2)
 
-**Status:** OPEN — intake issue, filed from katgpt-rs `.issues/987_cactus_neurips2026_follow_ups.md` (Research 657 §A2, 2026-11-08). Issue-first per the ungoat discipline: no GOAT plan opens until this issue names its fixture. Execution routes 4090/bmo (offline census over Bonsai-2-27B — a heavy-model lane, not a workstation cell).
+**Status:** OPEN — intake issue, filed from katgpt-rs `.issues/987_cactus_neurips2026_follow_ups.md` (Research 657 §A2, 2026-11-08). T1 claimed 2026-11-08 (amo).
+**Claimed:** zed-amo (amo), 1794150461, expires 2026-11-10T15:07:41+00:00 Issue-first per the ungoat discipline: no GOAT plan opens until this issue names its fixture. Execution routes 4090/bmo (offline census over Bonsai-2-27B — a heavy-model lane, not a workstation cell).
 
 ## Named plan-time check — DONE at filing (2026-11-08, amo)
 
@@ -19,7 +20,7 @@ Extend the capture from Q-only to **K/V**, then run the weighted block-pivoted-Q
 
 **NOT licensed by the paper:** runtime head-skipping (the authors' method is an offline measurement, not a runtime algorithm). The output is a census tool + budget numbers, nothing more.
 
-- [ ] T1 — K/V capture extension: cfg-gated `SinkAuditKVCapture` beside `sink_audit_q` in `HybridForwardScratch` + harvest in both attention bodies (ternary + dense twins); feature-off compiles the capture to nothing (the Plan-287 G3 posture); `cargo test --features sink_audit` census cells stay green (947/948 records unchanged — the Q census is not re-litigated).
+- [x] T1 — K/V capture: `SinkAuditKVCapture` beside the Q capture in the gated census lane, exposed as `SinkCensus::kv`. DESIGN REFINEMENT AT IMPLEMENTATION (recorded 2026-11-08): the capture is **extracted from the KV cache at census-finish time, not captured during the forward** — the census cache is sized to exactly the window and each position's post-RoPE K/V row is written once, so the cache rows the harvest itself reads ARE the forward-time values (bit-identical to a body-level capture by construction), and a body-level capture would duplicate state in the aliasing class Issue 594 paid for. ONE shared extraction serves both bodies (the hybrid `finish_census` + the dense twin's finish) with zero forward-body edits; the serving path is untouched either way (the module is `#[cfg(feature = "sink_audit")]`). Q-census cells 947/948 are not re-litigated: the harvest arithmetic is untouched (the capture re-derives `m_act` from the captured V rows bit-exactly — the fixture pins it).
 - [ ] T2 — the census: weighted block-pivoted-QR ε-width over the captured K/V, per layer × KV head, on Bonsai-2-27B (4090/bmo window, GPU-exclusivity per the correctness-gate law; record box state beside every number).
 - [ ] T3 — the GATE (two mandatory arms, both pre-registered):
   - **Needle-retention cell** — the paper's own width budgets FAIL needle tests 10/10 (a loss-only gate is forbidden): every candidate `kv_sink_window` budget must hold needle retention at the incumbent's level on the needle_eviction_gate lane, or the budget is refused. Per-family conditional retention per the lossy-surface promotion rule.
