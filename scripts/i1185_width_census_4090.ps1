@@ -1,4 +1,4 @@
-# i1185 T2-run — the per-layer width census on Bonsai-2-27B (4090 cell).
+﻿# i1185 T2-run — the per-layer width census on Bonsai-2-27B (4090 cell).
 #
 # Preconditions (the queueing session's contract):
 #   * E:\git\riir-infer is gitsynced to origin/develop >= 4e5f471
