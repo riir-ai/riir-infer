@@ -493,8 +493,13 @@ impl QuantWeight {
                         .q4k_tensor_blocks(name)
                         .map_err(|e| format!("weights: {name}: {e}"))?;
                     let ls = crate::gemv_q4k_lanesliced_cubecl::LaneSlicedQ4KHandle::from_blocks(
-                        client, &blocks2, m, n,
+                        client, blocks2, m, n,
                     );
+                    // Engagement proof (the Issue-1124 T1.5 lesson): the price
+                    // cell's log must show the twin was constructed — the
+                    // decode gemv() match is exhaustive on Q4LS, so
+                    // construction ⇒ routing. Load-time-only cost.
+                    eprintln!("[1178 T2b] lane-sliced Q4 decode twin armed (m={m}, n={n})");
                     return Ok(QuantWeight::Q4LS { q4, ls });
                 }
                 #[allow(unreachable_code)]

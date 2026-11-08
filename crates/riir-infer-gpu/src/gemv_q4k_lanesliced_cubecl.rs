@@ -84,7 +84,10 @@ impl LaneSlicedQ4KHandle {
         m: usize,
         n: usize,
     ) -> Self {
-        assert!(n.is_multiple_of(BLOCK), "n ({n}) must be multiple of {BLOCK}");
+        assert!(
+            n.is_multiple_of(BLOCK),
+            "n ({n}) must be multiple of {BLOCK}"
+        );
         let bpr = n / BLOCK; // blocks per row
         assert_eq!(blocks.len(), m * bpr, "blocks len mismatch");
 
@@ -168,7 +171,10 @@ impl LaneSlicedQ4KHandle {
                     self.sliced_words.clone(),
                     self.m * LANES * self.blocks_per_row(),
                 ),
-                BufferArg::from_raw_parts(self.ab.clone(), self.m * self.blocks_per_row() * SUBS * 2),
+                BufferArg::from_raw_parts(
+                    self.ab.clone(),
+                    self.m * self.blocks_per_row() * SUBS * 2,
+                ),
                 BufferArg::from_raw_parts(input_handle, self.n),
                 BufferArg::from_raw_parts(output_handle, self.m),
             );
@@ -180,12 +186,7 @@ impl LaneSlicedQ4KHandle {
 /// One plane owns one output row; lane j streams its private u32 chain.
 #[cfg(feature = "cubecl_runtime")]
 #[cube(launch_unchecked)]
-fn gemv_q4k_lanesliced(
-    sliced_words: &[u32],
-    ab: &[f32],
-    input: &[f32],
-    output: &mut [f32],
-) {
+fn gemv_q4k_lanesliced(sliced_words: &[u32], ab: &[f32], input: &[f32], output: &mut [f32]) {
     let n = input.len() as u32;
     let m = output.len() as u32;
     let bpr = n / (BLOCK as u32);
@@ -198,7 +199,7 @@ fn gemv_q4k_lanesliced(
     }
 
     let mut partial = f32::new(0.0f32);
-    let base = (row * (PLANE_DIM as u32) + lane) * bpr;
+    let base = (row * PLANE_DIM + lane) * bpr;
 
     let mut b = 0u32;
     while b < bpr {
