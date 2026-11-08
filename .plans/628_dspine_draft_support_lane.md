@@ -1,6 +1,6 @@
 # Plan 628: the DSpine b16 draft-model support lane (tencent/Qwen3.8-27B-DSpine-b16 → riir-infer specdec)
 
-**Status:** Filed 2026-11-08 (session zed-m3-dspine-file@m3, epoch 1794128516) — CLAIMED zed-amo-1183@amo. **PROGRESS 2026-11-08: Phase 0 DONE (T0, vendor pin 6450af7 — the README "Coming soon" was stale, the tip carries 27B) · Phase 1 pin-half DONE (checkpoint blake3 53d18516…, on-disk at ~/uzu27b/models/Qwen3.8-27B-DSpine-b16/) · Phase 2 MOSTLY DONE (T2 `c8de365`: `qwen38_dspine.rs` — loader + forward + bridge + serial tail + 8 invariant tests + the shape walk PASS on the real checkpoint; the G1 vendor-MLX golden diff is the remaining half — fixtures written by `qwen38_dspine_t2 --fixtures`, the Python replay harness pending)**. T4 stays gated on 1179 T2/T3. Tracks [Issue 1183](../.issues/1183_dspine_b16_draft_model_support.md); the gates (G1–G4), the boundary split and the decision gates live there.
+**Status:** Filed 2026-11-08 (session zed-m3-dspine-file@m3, epoch 1794128516) — CLAIMED zed-amo-1183@amo. **PROGRESS 2026-11-09: Phase 0 DONE (T0, vendor pin 6450af7 — the README "Coming soon" was stale, the tip carries 27B) · Phase 1 DONE (checkpoint blake3 53d18516…, on-disk at ~/uzu27b/models/Qwen3.8-27B-DSpine-b16/; loader landed with T2) · Phase 2 COMPLETE (T2 `c8de365` oracle + the G1(a) vendor-MLX golden diff, [Bench 959](../.benchmarks/959_i1183_t2_golden_diff_vendor_mlx.md): idx/tokens bit-exact vs the vendor walk; the diff caught the sender-base score bug + the transposed TG read + a green-zero fixture — all fixed/regression-tested/guarded)**. T4 stays gated on 1179 T2/T3. Tracks [Issue 1183](../.issues/1183_dspine_b16_draft_model_support.md); the gates (G1–G4), the boundary split and the decision gates live there.
 **Claimed:** zed-amo-1183@amo (amo), 1794154200, expires 2026-11-10T16:00:00+00:00
 
 ## Ground truth at filing (re-verify at T0)
@@ -18,14 +18,14 @@
 - [ ] Reconcile the README "Coming soon" vs the 27B HF card (the card is fresher); note any 8B→27B config drift
 
 ### Phase 1 — acquisition + loader (T1)
-- [ ] Download `tencent/Qwen3.8-27B-DSpine-b16` → weights-from-disk lane (never in-repo, A1/A8); blake3 pin into Issue 1183; owner-noted if the pull lands on SDXC
-- [ ] Loader: raw-u16 bf16 safetensors streaming (the `qwen38_dflash2_gpu.rs` posture — no f32 materialization; host peak = one tensor); config parse vs the T0 field map
-- [ ] `bytemuck::cast_slice` zero-copy views; `half` only where host math needs it (already an optional dep); never scalar-emulate bf16
+- [x] Download `tencent/Qwen3.8-27B-DSpine-b16` → weights-from-disk lane (never in-repo, A1/A8); blake3 pin into Issue 1183; owner-noted if the pull lands on SDXC — DONE 2026-11-08 (~/uzu27b/models/, blake3 53d18516…)
+- [x] Loader: raw-u16 bf16 safetensors streaming (the `qwen38_dflash2_gpu.rs` posture — no f32 materialization; host peak = one tensor); config parse vs the T0 field map — DONE with T2 (`c8de365`)
+- [x] `bytemuck::cast_slice` zero-copy views; `half` only where host math needs it (already an optional dep); never scalar-emulate bf16
 
 ### Phase 2 — CPU oracle (T2)
-- [ ] `qwen38_dspine.rs` CPU oracle: block forward, per-layer gated adjacent injection, unified transfer space, predecessor-conditioned decoding + transition cache (K×K pairs + last-write-redo), ReplaySSM replay
-- [ ] Piecewise parity fixtures vs the vendor reference (Bench-952 rig pattern): injection gate, transfer projection, transition cache, SSM replay — a stated tolerance per piece
-- [ ] Determinism-law audit (katgpt-rs Issue 940): every reduction feeding an accept decision pins its fold order
+- [x] `qwen38_dspine.rs` CPU oracle: block forward, per-layer gated adjacent injection, unified transfer space, predecessor-conditioned decoding + transition cache (K×K pairs + last-write-redo), ReplaySSM replay — DONE `c8de365` (ReplaySSM is TARGET-side only per T0 — the draft carries no SSM tensors; out of draft scope by the T0 correction)
+- [x] Piecewise parity fixtures vs the vendor reference (Bench-952 rig pattern): injection gate, transfer projection, transition cache, SSM replay — a stated tolerance per piece — DONE + the vendor replay [Bench 959](../.benchmarks/959_i1183_t2_golden_diff_vendor_mlx.md) (all PASS; two oracle bugs + a green-zero fixture caught and fixed)
+- [x] Determinism-law audit (katgpt-rs Issue 940): every reduction feeding an accept decision pins its fold order — sequential ascending everywhere; the confidence mass pins the Triton contract formula
 
 ### Phase 3 — GPU port (T3) — Metal-first, cudarc twin second
 - [ ] Metal (cubecl/wgpu on the dense lane): draft attention over SW-8192 KV rings; injection as a fused gather+scale per layer; the 256-pair transition scoring as one batched kernel; bf16→f32 dequant in-kernel

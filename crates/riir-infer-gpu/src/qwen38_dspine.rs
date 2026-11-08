@@ -53,7 +53,9 @@
 //! @ W_last` `[V,512]` and `TSV[v] = [G_p; A] @ (sqrt(C)·codebook[v])`
 //! `[V,1024]`; `m[n,j] = sigmoid(q[n] + TSV[sid,:512] + gate_b)·TSV[sid,512:]`
 //! with `sid[n,j] = cand[n−1,j]` (row 0: the anchor token); score
-//! `base[n,j] + rms[n]·(m·TG[cand[j']]ᵀ)`; per-lane argmax (first-index
+//! `base[n,j'] + rms[n]·(m·TG[cand[j']]ᵀ)` — the CANDIDATE lane's base
+//! (both vendor references broadcast `base[None,:]` over the sender axis);
+//! per-lane argmax (first-index
 //! ties) → the greedy chain walk (each row's chosen lane conditions the next
 //! row's table read — predecessor-conditioned decoding); confidence
 //! `1/Σexp((s−best)/max(rms,1e-6))` at the previous chosen lane.
@@ -935,8 +937,13 @@ pub fn build_serial_tables(
             }
             for o in 0..r {
                 let mut acc = 0.0f32;
+                // write_w is [H, R] row-major (the vendor matmul is
+                // [V,H] @ [H,R]); column o walks the H stride, found by
+                // the bench-959 fixture replay (the transposed read
+                // produced TG entries beyond the ±H bound — impossible
+                // for the true contract).
                 for i in 0..h {
-                    acc += wb[o * h + i] * u[i];
+                    acc += wb[i * r + o] * u[i];
                 }
                 tg_row[o] = bf16r(acc);
             }
@@ -1513,7 +1520,7 @@ impl DspineDrafter {
 
 /// The per-row lane tables + argmax + confidence mass (fixture piece (d)'s
 /// core — [`DspineDrafter::serial_tail`] shares it).
-/// score[n][j][jp] = base[n][j] + rms[n] · Σ_rr m[n][j][rr] ·
+/// score[n][j][jp] = base[n][jp] + rms[n] · Σ_rr m[n][j][rr] ·
 /// TG[cand[n][jp]][rr], with m[n][j][rr] = sigmoid(q[n][rr] +
 /// TSV[sid[n,j],rr] + gate_b[rr]) · TSV[sid[n,j], R+rr] and
 /// sid[n][j] = cand[n−1][j] (row 0: the anchor token). Returns
@@ -1547,10 +1554,13 @@ pub fn serial_walk_core(
         let rms_n = rms[nn + 1];
         let q = &packed_q[(nn + 1) * r..(nn + 2) * r];
         let cand_n = &candidates[nn];
-        // u = bf16(raw · norm_w) — shared by every lane's base.
+        // u = raw · norm_w, kept UNROUNDED f32 — both vendor references
+        // keep the walk's base product in f32 (the Triton _serial_table
+        // loads bf16 → f32 and multiplies; only the TG TABLE build rounds
+        // u to bf16 before its matmul).
         let mut u = vec![0.0f32; e];
         for (i2, uv) in u.iter_mut().enumerate() {
-            *uv = bf16r(raw_row[i2] * norm_w[i2]);
+            *uv = raw_row[i2] * norm_w[i2];
         }
         let base: Vec<f32> = cand_n
             .iter()
@@ -1579,7 +1589,10 @@ pub fn serial_walk_core(
                 for (rr, mv) in m_msg.iter().enumerate() {
                     s += mv * tables.tg[tg_base + rr];
                 }
-                scores[j * k + jp] = base[j] + rms_n * s;
+                // The CANDIDATE's base joins the score (the vendor
+                // broadcasts base[None, :] over the sender axis in both
+                // references); the sender's own base never does.
+                scores[j * k + jp] = base[jp] + rms_n * s;
             }
         }
         for (j, srow) in scores.chunks_exact(k).enumerate() {
@@ -1738,7 +1751,7 @@ mod tests {
         assert_eq!(bf16r(v), v);
         // Any f32 → bf16 → f32 changes only the low mantissa bits: the
         // result re-rounds to itself.
-        let x = 0.123456789f32;
+        let x = 0.123_456_79_f32;
         assert_eq!(bf16r(bf16r(x)), bf16r(x));
     }
 
@@ -1805,7 +1818,7 @@ mod tests {
         );
         assert!(m.iter().any(|&v| v != 0.0));
         // write_w all-ones: delta = Σ message → out = raw + rms·delta·1.
-        let delta_sum: f32 = m.iter().map(|&v| v).sum();
+        let delta_sum: f32 = m.iter().copied().sum();
         assert_eq!(out[0], bf16r(0.5 + delta_sum));
         // normed is the standard-form RMSNorm of out.
         let ss: f32 = out.iter().map(|&v| v * v).sum();
@@ -1908,6 +1921,81 @@ mod tests {
                 assert!((p - 0.5).abs() < 1e-5, "tie mass = 1/K, got {p}");
             }
         }
+    }
+
+    #[test]
+    fn serial_walk_core_scores_the_candidate_base() {
+        // The G1 golden-diff regression: the CANDIDATE's base enters the
+        // score (the vendor broadcasts base[None,:] over the sender axis in
+        // both references). With TG = 0 the message half vanishes, so the
+        // winner lane is pure argmax over base — it must follow the
+        // CANDIDATE lane, not stay at lane 0 because the SENDER's base is
+        // a per-row constant the argmax cannot see.
+        let cfg = DspineConfig {
+            n_layer: 5,
+            n_embd: 4,
+            n_head: 2,
+            n_kv_head: 1,
+            head_dim: 2,
+            n_ff: 4,
+            trained_block_size: 4,
+            sliding_window: 8,
+            rope_theta: 1.0e7,
+            rms_eps: 1e-6,
+            code_size: 4,
+            rank: 2,
+            bridge_eps: 1e-6,
+            vocab_size: 6,
+            mask_token_id: 5,
+            head_topk: 2,
+            target_layer_ids: vec![1, 16, 31, 46, 61],
+            num_target_layers: 64,
+        };
+        let e = cfg.n_embd;
+        let v = cfg.vocab_size;
+        // Stash rows all ones; norm_w ones → u = 1 per element.
+        let raw = vec![1.0f32; 3 * e];
+        let rms = vec![0.0f32, 2.0, 2.0];
+        let packed_q = vec![0.0f32; 3 * cfg.rank];
+        let candidates = vec![vec![1u32, 2u32], vec![1u32, 2u32]];
+        let mut lm_head = vec![0.0f32; v * e];
+        for i in 0..e {
+            lm_head[1 * e + i] = 1.0; // base = 4
+            lm_head[2 * e + i] = 2.0; // base = 8 — must WIN lane 1
+        }
+        let norm_w = vec![1.0f32; e];
+        let gate_b = vec![0.0f32; cfg.rank];
+        let tables = SerialTables {
+            tg: vec![0.0f32; v * cfg.rank], // s ≡ 0 → score = base[jp]
+            tsv: vec![0.5f32; v * 2 * cfg.rank],
+        };
+        let (idx, probs) = serial_walk_core(
+            &raw,
+            &rms,
+            &packed_q,
+            &candidates,
+            0,
+            &lm_head,
+            &norm_w,
+            &gate_b,
+            &tables,
+            &cfg,
+        );
+        for row in &idx {
+            assert_eq!(row, &[1usize, 1usize], "candidate base 8 must win lane 1");
+        }
+        // mass = exp((4−8)/2) + exp(0) = 1 + e⁻² → EVERY sender lane's
+        // confidence = 1/mass (probs is per-SENDER lane; the mass is over
+        // the candidate axis).
+        let want = 1.0 / (1.0 + (-2.0f32).exp());
+        for row in &probs {
+            for p in row {
+                assert!((p - want).abs() < 1e-5, "confidence = {p}");
+            }
+        }
+        // And the chain token is the high-base candidate.
+        let (tokens, _) = chain_walk(&candidates, &idx, &probs);
+        assert_eq!(tokens, vec![2u32, 2u32]);
     }
 
     #[test]

@@ -165,11 +165,31 @@ fn write_fixtures(out: &Path) {
     // (d) the serial walk: tables over the synthetic codebook slice + a
     //     synthetic lm_head slice (candidates PRE-COMPUTED so the top-k tie
     //     rule stays under its own unit test, not the golden diff).
+    //
+    //     DISCRIMINATING SCALES (bench 959): at natural synthetic magnitudes
+    //     the walk degenerates — the message half's heavy tails drive score
+    //     gaps ~1e6× the confidence scale, the mass underflows to exactly 1.0
+    //     everywhere, and the fixture cannot tell the two score formulas
+    //     apart (the golden diff would pass trivially — a green zero). Two
+    //     knobs keep it live (probe-tuned): pv_w ×2e-7 puts the rms·s term
+    //     at ~0.4× base scale so the CANDIDATE base is visible to the argmax
+    //     while the message half still perturbs winners; rms ×30 raises the
+    //     confidence scale so the mass stays strictly between 1/K and 1
+    //     (probs land in ~[0.10, 0.16], top-2 gaps ≤ ~5.3). pv entries are
+    //     RE-ROUNDED to bf16 after scaling (inputs stay bf16-valued — the
+    //     vendor build rounds pv_w to bf16 before its matmul, so both sides
+    //     must see the same bf16 values); rms is an fp32 stash scalar on the
+    //     vendor path (no bf16 store), so the scaled rms stays f32.
     let v_slice = cb_rows; // candidate ids index the codebook slice
     let lm_head: Vec<f32> = (0..v_slice * e).map(|_| rng.next_bf16()).collect();
     // pv_w = [G_p; A] [2r, c]; TG needs write_w_last (= write_w here).
-    let pred_gate: Vec<f32> = (0..r * c).map(|_| rng.next_bf16()).collect();
-    let prev_w: Vec<f32> = (0..r * c).map(|_| rng.next_bf16()).collect();
+    let pv_scale = 2.0e-7f32;
+    let pred_gate: Vec<f32> = (0..r * c)
+        .map(|_| bf16_round(rng.next_f32() * pv_scale))
+        .collect();
+    let prev_w: Vec<f32> = (0..r * c)
+        .map(|_| bf16_round(rng.next_f32() * pv_scale))
+        .collect();
     let mut pv_w = Vec::with_capacity(2 * r * c);
     pv_w.extend_from_slice(&pred_gate);
     pv_w.extend_from_slice(&prev_w);
@@ -182,13 +202,15 @@ fn write_fixtures(out: &Path) {
                 .collect::<Vec<_>>()
         })
         .collect();
-    // The stash-shaped inputs for rows 1..t (the walk reads (nn+1)).
+    // The stash-shaped inputs for rows 1..t (the walk reads (nn+1)). The
+    // rms scale ↑ (see the block comment) keeps the confidence mass live.
+    const RMS_SCALE: f32 = 30.0;
     let mut stash_raw = vec![0.0f32; t * e];
     let mut stash_rms = vec![0.0f32; t];
     let mut stash_q = vec![0.0f32; t * r];
     for i in 0..t {
         stash_raw[i * e..(i + 1) * e].copy_from_slice(&raw[i * e..(i + 1) * e]);
-        stash_rms[i] = rms_a[i];
+        stash_rms[i] = rms_a[i] * RMS_SCALE;
         stash_q[i * r..(i + 1) * r].copy_from_slice(&packed[i * 3 * r..i * 3 * r + r]);
     }
     let (idx, probs) = serial_walk_core(
@@ -204,6 +226,29 @@ fn write_fixtures(out: &Path) {
         &cfg,
     );
     let (tokens, confs) = chain_walk(&candidates, &idx, &probs);
+    // The degeneracy guard — a fixture whose mass collapsed (all probs 1.0)
+    // or whose argmax never moves proves nothing; refuse to write it.
+    let distinct_idx: std::collections::HashSet<usize> = idx.iter().flatten().copied().collect();
+    let min_prob = probs
+        .iter()
+        .flatten()
+        .copied()
+        .fold(f32::INFINITY, f32::min);
+    let max_prob = probs
+        .iter()
+        .flatten()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+    if distinct_idx.len() < 4 || !(0.05..0.995).contains(&min_prob) || max_prob > 0.995 {
+        panic!(
+            "[t2.fixtures] piece (d) degenerate: distinct_idx={} min_prob={min_prob} max_prob={max_prob} — rescale",
+            distinct_idx.len()
+        );
+    }
+    println!(
+        "[t2.fixtures] piece (d) discriminating: distinct_idx={} probs [{min_prob:.4}, {max_prob:.4}]",
+        distinct_idx.len()
+    );
     dump_bin(out, "d_raw_in", &stash_raw);
     dump_bin(out, "d_rms_in", &stash_rms);
     dump_bin(out, "d_q_in", &stash_q);
@@ -238,13 +283,19 @@ fn write_fixtures(out: &Path) {
              # vendor MLX side replays the inputs through dspine_mlx and diffs\n\
              # against the `_out` files).\n\n\
              - geometry: E={e} C={c} R={r} K={k} T={t} V_SLICE={v_slice} ANCHOR={anchor}\n\
-             - (a) piece_read_codes: in a_raw a_read_w a_codebook → a_rms_out a_codes_out (bit-exact)\n\
-             - (b) piece_message_write: in b_packed_in b_write_w b_gate_b b_raw_in b_norm_w →\n\
-             -   b_message_out b_out_out b_normed_out (bit-exact)\n\
-             - (d) serial_walk_core+chain_walk: in d_* → d_idx_out d_probs_out d_tokens_out\n\
-             -   d_confs_out (bit-exact on the bf16-valued chain; the TSV/TG matmuls ≤1e-5 rel)\n\
+             - piece (d) scales: pv_w \u{d7}2e-7 (bf16 re-rounded), stash rms \u{d7}30 \u{2014} the\n\
+             -   confidence mass must stay non-degenerate or the diff proves nothing\n\
+             - (a) piece_read_codes: in a_raw a_read_w a_codebook \u{2192} a_rms_out a_codes_out\n\
+             - (b) piece_message_write: in b_packed_in b_write_w b_gate_b b_raw_in b_norm_w \u{2192}\n\
+             -   b_message_out b_out_out b_normed_out\n\
+             - (d) serial_walk_core+chain_walk: in d_* \u{2192} d_idx_out d_probs_out d_tokens_out\n\
+             -   d_confs_out\n\
              - all f32 .bin little-endian; idx/tokens are f32-CAST integers\n\
-             - fold order: sequential ascending index everywhere (the 940 law)\n"
+             - fold order: sequential ascending index everywhere (the 940 law)\n\
+             - tolerances (measured, bench 959): idx/tokens bit-exact; bf16-valued\n\
+             -   outputs \u{2264}0.2% flips at \u{2264}2 bf16 ULP (the MLX Metal matmul fold vs our\n\
+             -   pinned sequential fold); tg/tsv \u{2264}0.05% flips; rms \u{2264}1e-5 rel; probs/confs\n\
+             -   \u{2264}1e-3 abs (score-ULP class); MLX argmax ties = first index (probed)\n"
         ),
     )
     .unwrap_or_else(|e| panic!("manifest: {e}"));
