@@ -1,6 +1,7 @@
 # Issue 1186 — CQ3 league cell on the qwen3.8 dense lane (Cactus whole-model quant, katgpt-rs issue 987 lead A3)
 
-**Status:** IN PROGRESS — T1 + T2a LANDED 2026-11-09 (this box); T2b/T3/T4 open. Claimed by zed-m3-cq3@0, epoch 1794518540, expires 2026-11-11T18:00:00+00:00. Execution routes 4090 (league lane — the Bout law applies; run ALONE, box state recorded, engagement proof first).
+**Status:** IN PROGRESS — T1 + T2a LANDED 2026-11-09 (this box); T2b/T3/T4 open. Execution routes 4090 (league lane — the Bout law applies; run ALONE, box state recorded, engagement proof first).
+**Claimed:** zed-m3-cq3@0, 1794167021, expires 2026-11-10T19:43:41+00:00
 
 ## What the lead asks (from 987)
 
