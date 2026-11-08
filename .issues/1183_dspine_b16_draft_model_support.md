@@ -1,6 +1,7 @@
 # Issue 1183 — the DSpine b16 draft-model support lane (tencent/Qwen3.8-27B-DSpine-b16 → the qwen3.8 specdec lane; owner ask 2026-11-08)
 
 **Status:** OPEN — filed 2026-11-08 (session zed-m3-dspine-file@m3, epoch 1794128516). Owner ask: riir-infer should support `tencent/Qwen3.8-27B-DSpine-b16` — DSpine, the DFlash-successor parallel drafter (arXiv:2609.36173, Apache-2.0; the 27B checkpoint published on HF **2026-11-07**). Execution plan: [Plan 628](../.plans/628_dspine_draft_support_lane.md). The verify-loop machinery this integrates into is **Issue 1179 T2/T3** (OPEN, actively in flight — vendor-exact numerics landed `d83ae45c` this window; active T1 lease zed-1b3207ea@amo to 11-10) — this issue owns the DSpine-SPECIFIC loader + draft forward + integration and deliberately does NOT file a second verify loop (anti-duplication). Unclaimed: T0–T3 + T5 are unblocked now; T4 is gated on 1179 T2/T3.
+**Claimed:** zed-amo-1183@amo (amo), 1794154200, expires 2026-11-10T16:00:00+00:00
 
 ## What DSpine is (three sources, this filing's ground truth)
 

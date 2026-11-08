@@ -1,6 +1,7 @@
 # Plan 628: the DSpine b16 draft-model support lane (tencent/Qwen3.8-27B-DSpine-b16 → riir-infer specdec)
 
-**Status:** Filed 2026-11-08 (session zed-m3-dspine-file@m3, epoch 1794128516) — UNCLAIMED. Tracks [Issue 1183](../.issues/1183_dspine_b16_draft_model_support.md); the gates (G1–G4), the boundary split and the decision gates live there. T0–T3 + T5 are unblocked now (CPU/loader side); T4 verify-loop integration is GATED on Issue 1179 T2/T3 (open, actively in flight — vendor-exact numerics landed `d83ae45c`, active T1 lease zed-1b3207ea@amo to 11-10). ⛔ The specdec files are SHARED and dirty right now (sibling WIP on `qwen38_dense_cubecl.rs` + the i1179 probes): claim a lease on 1179/1183 before touching any shared file.
+**Status:** Filed 2026-11-08 (session zed-m3-dspine-file@m3, epoch 1794128516) — CLAIMED zed-amo-1183@amo (T0+T1 first; T4 stays gated on 1179 T2/T3). Tracks [Issue 1183](../.issues/1183_dspine_b16_draft_model_support.md); the gates (G1–G4), the boundary split and the decision gates live there. T0–T3 + T5 are unblocked now (CPU/loader side); T4 verify-loop integration is GATED on Issue 1179 T2/T3 (open, actively in flight — vendor-exact numerics landed `d83ae45c`, active T1 lease zed-1b3207ea@amo to 11-10). ⛔ The specdec files are SHARED and dirty right now (sibling WIP on `qwen38_dense_cubecl.rs` + the i1179 probes): claim a lease on 1179/1183 before touching any shared file.
+**Claimed:** zed-amo-1183@amo (amo), 1794154200, expires 2026-11-10T16:00:00+00:00
 
 ## Ground truth at filing (re-verify at T0)
 
