@@ -19,7 +19,7 @@ uzu 0.6.17 vendor-method reads **121.1 tok/s median** vs the published 129 (M5 M
 
 **Why this lane exists (the arithmetic gate):**
 - Specdec alone on our serial: 12.17 × ~2.5-3 net ≈ **30-36 tok/s** — 3-4× under the bar.
-- Serial alone (Issue 1178's full prize, ~38-55): still under the bar without the multiplier.
+- Serial alone (Issue 1178's full prize, ~38-55): still under the bar without the multiplier. **⚠ 2026-11-08 STATUS UPDATE (Bench 955, 1178 T2/T3 closed): the T2 price cells came back NEGATIVE-to-flat — T2a routed-factored FLAT (951, validity RESOLVED: 951 STANDS), T2b lanesliced +33% over packed (8.77→11.66) but −3.1% e2e vs league f16 (production NO); decode is byte-class-flat (8.8→11.7→12.0 while bytes/step differ 3.6×). The named serial levers are now ONLY: (a) the packed Q4 GEMV kernel lifted off its ALU bound (~0.30 TB/s measured vs f16's ~0.80 — the biggest single gap), (b) the GDN ffn_gate_up decode fold (28.1%), (c) K-i1 inflight-chaining (host floor 0.4% says kernel-side, not sync-side). The ≥~40 serial precondition is NOT met by the T2 lane — the beat bar keeps its dependency, Path B (distillation) is the serial lever that does not wait on it.
 - **Only serial × specdec together reach >121.** Beat arithmetic: serial 45-55 + acceptance ≥3.2 + draft cost ≤6-8 ms/cycle → cycle ≈ 25-33 ms → 3.2-3.8/0.025-0.033 ≈ **100-135 tok/s**. The beat bar therefore DEPENDS on 1178 T2/T3 landing serial ≥ ~40 (soft dependency — T1 acceptance pricing below unblocks immediately; the e2e bar does not).
 
 ## Why the 4090 chat specdec closure does NOT block this (the reopen record)

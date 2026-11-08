@@ -1,7 +1,7 @@
 # Issue 1184 — run the i1178 T2b price cell (lane-sliced Q4 decode GEMV) on bmo — delegated execution vehicle
 
-**Status:** OPEN — filed 2026-11-08 (session zed-m3-i1178t2b@m3, epoch 1794146120). Owner call: the amo rig session executes the bmo benchmark; the m3 session filed this issue and folded its 1178 lease. **CLAIMED — executing session below.**
-**Claimed:** zed-amo-1184@amo (amo), 1794147545, expires 2026-11-10T14:19:05+00:00
+**Status:** CLOSED 2026-11-08 — executed by zed-amo-1184@amo (amo). Run 1 (rig job `01a1bb89`) **VOID** per the preregistered engagement gate (root cause: the script's `env $ENVSET` under zsh does not word-split — the demote literal never arrived; disclosed in the record). Run 2 (`.issues/t2b_job_v2.sh`, rig job `01a1bbbe`) **ALL GATES ADJUDICATED — [`.benchmarks/955_i1178_t2b_lanesliced_price_cell_bmo.md`](../.benchmarks/955_i1178_t2b_lanesliced_price_cell_bmo.md)**: G1 PASS bit-identical; **951 STANDS** (packedOFF 8.77 ∈ 951's band — no correction filed); T2b price **−3.1% e2e vs league** = production NO, the twin stays opt-in; the 1184 posture decomposition CONFIRMED (decode flat across byte classes → the packed GEMV kernel is the lever). Parent 1178: T2+T3 closed, lease folded.
+**Lease closed:** zed-amo-1184@amo (amo), 1794147545, was expires 2026-11-10T14:19:05+00:00 (the run + record landed same lease — Bench 955; run 1 VOID + v2 correction both in the record)
 Parent: riir-infer **Issue 1178 T2b** (the implementation `5674cef4` + engagement instrument `fd8ecac7` are already LANDED on origin/develop — nothing to write, this is a RUN-and-RECORD issue). Cross-links: 1179 (the beat arithmetic's serial half), Bench 1167 (the uzu bar), Bench 951 (validity question below), 1177 item 2 (f16 payload class — see finding).
 
 ## The posture finding (settled by code-reading + the GGUF header probe, 2026-11-08)
@@ -122,13 +122,13 @@ echo "== i1178 T2b job end $(date -u +%FT%TZ) =="
 - **Load-cost disclosure:** packedON's `[bench] loaded in Ns` vs packedOFF's (the CPU repack, ~0.3-0.5 s/100 MB single-thread) + the ~1.44× quant-weight memory — both go in the record.
 - **G3:** leagueOFF must reproduce ~12.05 (±drift band) — it is also the same-window f16 datum the record needs.
 
-## Deliverables (same session as the run)
+## Deliverables (same session as the run) — ALL LANDED 2026-11-08
 
-- [ ] Bench record at the next `.benchmarks` number (read `.benchmarks/.highwater` at write time; 955 expected) — cells, engagement proofs, md5 pins, box state (uptime/AC + the rig's QUIET status + job id), PROVENANCE lines, the 951 discriminator verdict, the posture finding confirmed/corrected.
-- [ ] Issue 1178: T2b checkbox + status line update (the record number; the production verdict class; the 951 correction if it fired); fold the bench's lease row.
-- [ ] If the discriminator confirmed the 951 artifact: append the correction note to `.benchmarks/951_…md` (the record's verdict was measured at an unreachable arm; its "shape class doesn't transfer" conclusion is unsupplemented) — the T2a routed-factored price cell is UNMEASURED on the packed route, noted for a future re-run, never silently re-claimed.
-- [ ] Commit + push both (docs commits; `Session:` trailer with name + epoch).
-- [ ] Cross-link the record on 1179 (the serial half the beat arithmetic consumes) and in the league doc's uzu block ONLY as WATCH intel (the scored opponents stay llama.cpp + vLLM; uzu/splash stay format-crossed/non-scoring).
+- [x] Bench record — [`.benchmarks/955_i1178_t2b_lanesliced_price_cell_bmo.md`](../.benchmarks/955_i1178_t2b_lanesliced_price_cell_bmo.md) — cells, engagement proofs (432 twin lines, 8 shapes), md5 pins (`94e5afc2…c9c`), box state (uptime/AC/QUIET/job id), both runs disclosed (run 1 VOID + root cause), PROVENANCE lines, the 951 discriminator verdict (STANDS), the posture finding CONFIRMED with the plateau sharpened (decode flat across byte classes).
+- [x] Issue 1178: T2 + T3 checkboxes closed with the Bench-955 numbers; status line updated (production NO — the twin stays opt-in, no posture flip); the 1184 lease folded (Claimed → Lease closed).
+- [x] The 951 discriminator resolved in the NO-correction direction — packedOFF measured 8.77 tok/s (the pre-registered ≈8.6-9 band): 951 measured the real packed route, its verdict stands uncorrected; the T2a routed-factored price cell stays honestly measured at 8.6 (its own record), re-derived at 8.77 in 955.
+- [x] Commit + push (docs commits; `Session:` trailer).
+- [x] Cross-linked: 1179 (the serial-half consumption note — the decode plateau re-derived with engagement-proven arms) and the league doc's uzu block (Bench 955 as WATCH intel only; scored opponents unchanged).
 
 ## Boundary
 
