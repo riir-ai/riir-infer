@@ -285,7 +285,12 @@ pub struct Qwen38WgpuForward {
     /// only). The prefill attention routes through it when the shape is
     /// [`MetalTensorAttentionPrefill::routable`], else the tiled CubeCL arm
     /// — the fallback guard stays even though p=512 chunks never miss it.
+    /// Under the complement posture the field is always `None` (the
+    /// constructor's cfg twin) — qwen38_wgpu-only must still construct.
+    #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
     attn_tensor: Option<crate::attention_prefill_metal_tensor::MetalTensorAttentionPrefill>,
+    #[cfg(not(all(feature = "metal_tensor_gemm", target_os = "macos")))]
+    attn_tensor: Option<()>,
     /// Issue 1172: the GDN-bucket GPU-timestamp census, when
     /// `RIIR_QWEN38_GDN_CENSUS=1` armed it (macOS + metal_tensor_gemm
     /// only). Marker passes on the shared in-order queue; reads at ingest
@@ -2748,6 +2753,7 @@ impl Qwen38WgpuForward {
                 false
             } else {
                 match &self.attn_tensor {
+                    #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
                     Some(attn) if crate::attention_prefill_metal_tensor::MetalTensorAttentionPrefill::
                         routable(hd, base_pos, p) =>
                     {
