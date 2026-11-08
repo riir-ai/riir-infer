@@ -570,3 +570,342 @@ impl CqTensor {
         (n * f64::from(self.b) + (self.scales.len() as f64) * 16.0) / n
     }
 }
+
+/// SmoothQuant fold fitting (recipe step 1, the calibration half): per
+/// input channel `s_j = clip(diag(H)_j^α / wmax_j^(1−α), 1/8, 8)` with
+/// `diag(H)_j` the mean squared activation over the calibration rows and
+/// `wmax_j` the per-channel max-|w|. The fold migrates activation energy
+/// into the weights (`W' = W·diag(s)`, `x' = x/s` — the kernel side of the
+/// fold lives in [`CqTensor::rotate_activation`]). The paper's α = 0.25.
+///
+/// Order of operations (documented, load-bearing): RAW scales are
+/// MEDIAN-NORMALIZED first (the fold must not change the layer's effective
+/// gain), THEN clipped to `[1/8, 8]`. Degenerate channels (zero weight
+/// column or zero activation energy) take raw 1.0 / 0.0 respectively and
+/// ride the clip. The median is the UPPER median of the sorted raw scales
+/// (element `n/2` — the pinned tie rule).
+#[must_use]
+pub fn fit_smooth(
+    w: &[f32],
+    d_out: usize,
+    d_in: usize,
+    cal: &[f32],
+    n_cal: usize,
+    alpha: f32,
+) -> Vec<f32> {
+    assert_eq!(w.len(), d_out * d_in, "cq3 fit_smooth: w len mismatch");
+    assert_eq!(cal.len(), n_cal * d_in, "cq3 fit_smooth: cal len mismatch");
+    assert!(
+        (0.0..=1.0).contains(&alpha),
+        "cq3 fit_smooth: alpha in [0,1]"
+    );
+    // Per-channel weight max.
+    let mut wmax = vec![0.0_f32; d_in];
+    for row in w.chunks_exact(d_in) {
+        for (j, &v) in row.iter().enumerate() {
+            wmax[j] = wmax[j].max(v.abs());
+        }
+    }
+    // Per-channel activation second moment (diag(H)).
+    let mut diag_h = vec![0.0_f64; d_in];
+    for row in cal.chunks_exact(d_in) {
+        for (j, &v) in row.iter().enumerate() {
+            diag_h[j] += f64::from(v) * f64::from(v);
+        }
+    }
+    let inv_n = 1.0 / n_cal as f64;
+    let mut raw = Vec::with_capacity(d_in);
+    for j in 0..d_in {
+        let dh = diag_h[j] * inv_n;
+        let wm = wmax[j];
+        let r = if dh <= 0.0 {
+            0.0
+        } else if wm <= 0.0 {
+            1.0
+        } else {
+            let act = (dh as f32).powf(alpha);
+            let wgt = wm.powf(1.0 - alpha);
+            act / wgt
+        };
+        raw.push(r);
+    }
+    // Median-normalize, then clip.
+    let mut sorted = raw.clone();
+    sorted.sort_by(f32::total_cmp);
+    let median = sorted[d_in / 2];
+    let norm = if median > f32::EPSILON { median } else { 1.0 };
+    raw.iter()
+        .map(|r| (r / norm).clamp(1.0 / 8.0, 8.0))
+        .collect()
+}
+
+/// GPTQ-class BLOCKWISE Hessian residual (recipe step 5, the paper's
+/// "blockwise Hessian residual (damped Cholesky (H_s+λI)⁻¹)"): the column
+/// sweep runs PER (row, group) over that group's `g × g` Hessian slice,
+/// error feedback confined to the block. Two reasons the block is the
+/// right scope, not just the cheap one: the frozen FP16 group scale and
+/// the sweep scope then agree — a full-row sweep lets compensation drift
+/// later columns far from their frozen scale, where the FINITE-RANGE
+/// Lloyd–Max codebook has no centroid left to pick (uniform-grid GPTQ
+/// quantizers don't have this failure mode) — and the Cholesky cost drops
+/// from `O(d_in³)` to `(d_in/g)·g³`. Run in the KERNEL's basis:
+/// calibration activations carry the same SmoothQuant divide + blockwise
+/// rotation the GEMV applies, so `H' = 2·X'ᵀX'` weights quantization error
+/// where the kernel produces it. All f32, sequential, fixed order (the
+/// Issue-940 determinism law; derivation-time — a one-time quantize-tool
+/// cost). Damping `λ = 0.01·mean(diag(H'))` per the paper; a numerically
+/// dead pivot fails LOUD (no silent substitution).
+pub fn quantize_residual(
+    w: &[f32],
+    d_out: usize,
+    d_in: usize,
+    g: usize,
+    b: u32,
+    smooth: Option<&[f32]>,
+    cal: &[f32],
+    n_cal: usize,
+) -> CqTensor {
+    assert_eq!(
+        w.len(),
+        d_out * d_in,
+        "cq3 quantize_residual: w len mismatch"
+    );
+    assert_eq!(
+        cal.len(),
+        n_cal * d_in,
+        "cq3 quantize_residual: cal len mismatch"
+    );
+    assert_eq!(
+        d_in % g,
+        0,
+        "cq3 quantize_residual: d_in must be a multiple of g"
+    );
+    let rotation = Rotation::fixed(g);
+    let codebook = Codebook::build(g, b);
+    let groups_in = d_in / g;
+
+    // H' from the kernel-basis calibration activations.
+    let mut h = vec![0.0_f32; d_in * d_in];
+    let mut xr = vec![0.0_f32; d_in];
+    for row in cal.chunks_exact(d_in) {
+        xr.clear();
+        if let Some(s) = smooth {
+            xr.extend(row.iter().zip(s.iter()).map(|(&v, &s)| v / s));
+        } else {
+            xr.extend_from_slice(row);
+        }
+        for blk in xr.chunks_exact_mut(g) {
+            rotation.apply_block(blk);
+        }
+        for (a, &va) in h.chunks_exact_mut(d_in).zip(xr.iter()) {
+            for (av, &vb) in a.iter_mut().zip(xr.iter()) {
+                *av += va * vb;
+            }
+        }
+    }
+    for v in &mut h {
+        *v *= 2.0;
+    }
+    // Damp λ = 0.01·mean(diag).
+    let diag_mean = (0..d_in).map(|j| h[j * d_in + j]).sum::<f32>() / d_in as f32;
+    let lam = 0.01 * diag_mean;
+    for j in 0..d_in {
+        h[j * d_in + j] += lam;
+    }
+    // GPTQ's Cholesky chain per BLOCK (Frantar et al.): Hinv_full =
+    // (L·Lᵀ)⁻¹ = L⁻ᵀ·L⁻¹, then U = chol_upper(Hinv_full) = transpose(
+    // chol_lower(Hinv_full)). The tempting shortcut U = L⁻ᵀ gives
+    // UᵀU = (LᵀL)⁻¹ — the wrong matrix; the full inverse must be
+    // re-factorized.
+    let chol_chain = |hb: &[f32], d: usize| -> Vec<f32> {
+        let l1 = cholesky_lower(hb, d);
+        let linv = tri_inverse_lower(&l1, d);
+        // A = Linvᵀ·Linv, the full symmetric (L·Lᵀ)⁻¹: A[m][j] = Σ_k
+        // Linv[k][m]·Linv[k][j]. Lower triangle, mirrored.
+        let mut a = vec![0.0_f32; d * d];
+        for m in 0..d {
+            for j in 0..=m {
+                let mut s = 0.0_f32;
+                for k in j..d {
+                    s += linv[k * d + m] * linv[k * d + j];
+                }
+                a[m * d + j] = s;
+                a[j * d + m] = s;
+            }
+        }
+        let l2 = cholesky_lower(&a, d);
+        // U upper: U[j][k] = L2[k][j] for k ≥ j.
+        let mut u = vec![0.0_f32; d * d];
+        for j in 0..d {
+            for k in j..d {
+                u[j * d + k] = l2[k * d + j];
+            }
+        }
+        u
+    };
+
+    // Transform the weights once (the materialized kernel-basis matrix).
+    let mut wt = transform_full(w, d_out, d_in, g, &rotation, smooth);
+    // Frozen per-(row, group) norms from the PRE-sweep matrix, f16
+    // round-trip — identical to the plain quantize() rule.
+    let mut scales = vec![0_u16; d_out * groups_in];
+    for i in 0..d_out {
+        for grp in 0..groups_in {
+            let mut ss = 0.0_f32;
+            for m in 0..g {
+                let v = wt[i * d_in + grp * g + m];
+                ss += v * v;
+            }
+            let norm = if ss > f32::EPSILON { ss.sqrt() } else { 0.0 };
+            scales[i * groups_in + grp] = half::f16::from_f32(norm).to_bits();
+        }
+    }
+
+    // The sweep: per (row, group), over that group's Hessian slice with
+    // feedback confined to the block — then PASS 2 renormalizes: the
+    // compensation drifts block energy, and the FINITE-RANGE Lloyd–Max
+    // codebook has no centroid beyond its trained support (uniform-grid
+    // GPTQ quantizers don't saturate; this one does). Recomputing the
+    // group norm post-sweep pulls the drifted values back into the unit-
+    // sphere domain the codebook covers, and the stored scale/indices
+    // stay mutually consistent (dequant = centroid · stored scale).
+    let mut indices = vec![0_u8; d_out * d_in];
+    for grp in 0..groups_in {
+        let b0 = grp * g;
+        let mut hb = vec![0.0_f32; g * g];
+        for r in 0..g {
+            hb[r * g..(r + 1) * g]
+                .copy_from_slice(&h[(b0 + r) * d_in + b0..(b0 + r) * d_in + b0 + g]);
+        }
+        let u = chol_chain(&hb, g);
+        for jj in 0..g {
+            let j = b0 + jj;
+            let ujj = u[jj * g + jj];
+            assert!(
+                ujj > 1.0e-12,
+                "cq3 quantize_residual: dead pivot at col {j}"
+            );
+            for i in 0..d_out {
+                let sc = half::f16::from_bits(scales[i * groups_in + grp]).to_f32();
+                let v = wt[i * d_in + j] / sc;
+                let idx = codebook.nearest(v);
+                indices[i * d_in + j] = idx;
+                let q = codebook.centroids[idx as usize] * sc;
+                // Frantar's err1 = (w − q)/d, update W -= err1·U — the
+                // compensation is +(q − w)·U/U[j,j]. Getting the operand
+                // order wrong here INVERTS the compensation (it re-adds
+                // the error it should cancel).
+                let err = (q - wt[i * d_in + j]) / ujj;
+                if err != 0.0 {
+                    for kk in (jj + 1)..g {
+                        wt[i * d_in + b0 + kk] += err * u[jj * g + kk];
+                    }
+                }
+            }
+        }
+        // Pass 2 — renormalize + requantize the block. The isolation A/B
+        // (2026-11-09) measured it neutral on the fixture (held-out 0.135
+        // vs 0.137 with it off) but it is kept ON: it guarantees the
+        // stored scale matches the post-sweep block energy, so dequant =
+        // centroid · stored scale stays mutually consistent even where
+        // compensation moved energy between columns.
+        for i in 0..d_out {
+            let base = i * d_in + b0;
+            let mut ss = 0.0_f32;
+            for m in 0..g {
+                let v = wt[base + m];
+                ss += v * v;
+            }
+            let norm = if ss > f32::EPSILON { ss.sqrt() } else { 0.0 };
+            let norm_f16 = half::f16::from_f32(norm);
+            scales[i * groups_in + grp] = norm_f16.to_bits();
+            let sc = norm_f16.to_f32();
+            for m in 0..g {
+                indices[base + m] = codebook.nearest(wt[base + m] / sc);
+            }
+        }
+    }
+
+    CqTensor {
+        d_out,
+        d_in,
+        g,
+        b,
+        rotation,
+        codebook,
+        smooth: smooth.map(|s| s.to_vec()),
+        indices,
+        scales,
+    }
+}
+
+/// Materialize the kernel-basis weights: SmoothQuant fold (`w·s`) then
+/// blockwise structured rotation, per row.
+fn transform_full(
+    w: &[f32],
+    d_out: usize,
+    d_in: usize,
+    g: usize,
+    rotation: &Rotation,
+    smooth: Option<&[f32]>,
+) -> Vec<f32> {
+    let mut out = vec![0.0_f32; d_out * d_in];
+    let mut block = vec![0.0_f32; g];
+    for i in 0..d_out {
+        let row = &w[i * d_in..(i + 1) * d_in];
+        for grp in 0..(d_in / g) {
+            for m in 0..g {
+                let mut v = row[grp * g + m];
+                if let Some(s) = smooth {
+                    v *= s[grp * g + m];
+                }
+                block[m] = v;
+            }
+            rotation.apply_block(&mut block);
+            out[i * d_in + grp * g..i * d_in + (grp + 1) * g].copy_from_slice(&block);
+        }
+    }
+    out
+}
+
+/// Lower Cholesky (`L·Lᵀ = A`), f32 sequential. Fails loud on a
+/// numerically dead pivot (the caller's damping makes this unreachable
+/// for well-formed calibration sets).
+fn cholesky_lower(a: &[f32], d: usize) -> Vec<f32> {
+    let mut l = vec![0.0_f32; d * d];
+    for j in 0..d {
+        let mut s = a[j * d + j];
+        for k in 0..j {
+            s -= l[j * d + k] * l[j * d + k];
+        }
+        assert!(
+            s > 1.0e-12,
+            "cq3 cholesky: dead pivot at {j} (damping too weak or degenerate H)"
+        );
+        l[j * d + j] = s.sqrt();
+        for i in (j + 1)..d {
+            let mut s2 = a[i * d + j];
+            for k in 0..j {
+                s2 -= l[i * d + k] * l[j * d + k];
+            }
+            l[i * d + j] = s2 / l[j * d + j];
+        }
+    }
+    l
+}
+
+/// Inverse of a lower-triangular matrix, column-wise, f32 sequential.
+fn tri_inverse_lower(l: &[f32], d: usize) -> Vec<f32> {
+    let mut inv = vec![0.0_f32; d * d];
+    for j in 0..d {
+        inv[j * d + j] = 1.0 / l[j * d + j];
+        for i in (j + 1)..d {
+            let mut s = 0.0_f32;
+            for k in j..i {
+                s += l[i * d + k] * inv[k * d + j];
+            }
+            inv[i * d + j] = -s / l[i * d + i];
+        }
+    }
+    inv
+}
