@@ -50,9 +50,9 @@ fn run_case(client: &ComputeClient<ActiveRuntime>, blocks: &[BlockQ6K], x: &[f32
         client.create_from_slice(&vec![0u8; m * 4]),
     );
     unsafe {
-        GemvQ6KCubeCL::launch::<ActiveRuntime>(&client, w_h, d_h, x_h, out_h.clone(), m, n);
+        GemvQ6KCubeCL::launch::<ActiveRuntime>(client, w_h, d_h, x_h, out_h.clone(), m, n);
     }
-    let got = read(&client, &out_h, m);
+    let got = read(client, &out_h, m);
     let want = gemv_q6_k(blocks, x, m, n);
     let mut max_rel = 0.0f32;
     for (g, r) in got.iter().zip(&want) {
