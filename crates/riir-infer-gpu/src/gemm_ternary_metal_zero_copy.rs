@@ -462,7 +462,7 @@ impl MetalTensorZeroCopyGemm {
         let nsg = u64::from(self.config.nsg);
         let threads_per_sg: u64 = 32;
         let num_threads = threads_per_sg * nsg;
-        let threadgroup_mem_bytes = self.config.threadgroup_mem_bytes();
+        let threadgroup_mem_bytes = crate::gemm_ternary_metal_tensor::production_threadgroup_mem_bytes(self.config);
 
         // Grid: one workgroup per output tile.
         // NOTE: use `dispatch_thread_groups` (not `dispatch_threads`). The

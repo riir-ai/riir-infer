@@ -317,9 +317,6 @@ kv_eviction = [
 sink_audit = [
     "kv_eviction",
     "deltanet_ternary_inference",
-    # Issue 1180 T1: the dense-body census (gemma-2 f16 / llama) rides the
-    # m_Y probe's leading profile — `transformer::sink_audit_dense`.
-    "attention_to_answer",
 ]
 
 # fitted_v_tables (riir-infer Issue 013 T1, 2026-09-28): the model-bound P1
@@ -733,7 +730,7 @@ required-features = ["svd_lbit"]
 # protection (the green-zero law). OPT-IN, measurement-only.
 [[bin]]
 name = "needle_eviction_gate"
-path = "src/bin/needle_eviction_gate/main.rs"
+path = "src/bin/needle_eviction_gate.rs"
 required-features = ["kv_eviction"]
 
 # Issue 1117 — FlashMemory budget (top-rho) decode gate: teacher-forced NLL /

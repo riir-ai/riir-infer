@@ -26,7 +26,19 @@ fn main() {
             }
         }
     }
-    draft.accept(&packed, rows).unwrap();
+    let _ = &packed;
+    let kv_rows: usize = std::env::var("I1179_KV_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(rows);
+    if kv_rows > 0 {
+        let mut packed_k = vec![0.0f32; kv_rows * d * layers];
+        for li in 0..layers {
+            for r in 0..kv_rows {
+                for i in 0..d {
+                    packed_k[(r * layers + li) * d + i] = f32s[(li * rows + r) * d + i];
+                }
+            }
+        }
+        draft.accept(&packed_k, kv_rows).unwrap();
+    }
     println!("[cpu-probe] kv ctx_len = {}", draft.context_length());
 
     // Same t_prev: token 198, logical row (no embedding transform — matches

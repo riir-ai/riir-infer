@@ -25,10 +25,6 @@ pub mod attention_floor;
 // katgpt-rs Issue 882 P4 — the m_Y (attention-to-answer) probe, off the hot path.
 #[cfg(feature = "attention_to_answer")]
 pub mod attention_probe;
-// riir-infer Issue 1180 T1 — the sink-audit census on the dense bodies
-// (gemma-2 f16 / llama), riding the m_Y probe's leading profile.
-#[cfg(feature = "sink_audit")]
-pub mod sink_audit_dense;
 // Plan 622 Phase 7 — the scale-invariant attention lane: the affine-in-logit-
 // space kernel + the load-time σ probe + the armed-session vocabulary (the
 // G3 zero-shot vehicle on the packed Bonsai ternary decode path).
@@ -127,12 +123,6 @@ pub use gemma2::{
 };
 // Issue 013 T1: the hookable f16 forward (the lossy-V lane's entry point).
 pub use gemma2::forward_gemma2_f16_hk;
-// riir-infer Issue 1180 T2b — the gemma-2 f16 forward with an armed KV
-// evictor (the SinkHeavy protection half of the sink-audit T4 cell).
-#[cfg(feature = "kv_eviction")]
-mod gemma2_evict;
-#[cfg(feature = "kv_eviction")]
-pub use gemma2_evict::forward_gemma2_f16_evictable;
 
 // Issue 013 T1 (katgpt-rs Issue 883 P1 model-bound gate) — the lossy-V
 // seam state over the KVarN backend ± katgpt-core's `MeanRemovedValueCache`

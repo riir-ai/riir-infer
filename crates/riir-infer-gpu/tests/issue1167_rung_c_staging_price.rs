@@ -497,6 +497,15 @@ enum TwinKind {
     /// (c) the staged-tile stores removed (matmul reads stale threadgroup
     /// memory) — prices the stage-WRITE exposure.
     NoStage,
+    /// The DECIDER (round 3): a CORRECT double-buffered-staging variant —
+    /// output must equal the baseline (G1), timing decides rung C. Ping-pong
+    /// smem tiles: dequant(k+1) writes tile B while matmul reads tile A (no
+    /// shared memory → no race → no barrier between them); ONE barrier per
+    /// K-tile (vs the incumbent's two) makes dequant(k+1) visible before
+    /// run(k+1). The dequant→run serialization the incumbent pays per tile
+    /// is what this variant removes; +K_TILE×NRA halves of smem per
+    /// threadgroup is the cost (threadgroup_mem_bytes ×2).
+    DoubleBuffer,
 }
 
 /// The exact string each twin patches, with the occurrence count the patch
@@ -535,6 +544,7 @@ struct ServingTwin {
     queue: CommandQueue,
     pipeline: ComputePipelineState,
     config: MetalTileConfig,
+    kind: TwinKind,
 }
 
 impl ServingTwin {
@@ -546,6 +556,9 @@ impl ServingTwin {
             TwinKind::NoBarriers => source.push_str(&patch(serving, 0..1)),
             TwinKind::ConstDequant => source.push_str(&patch(serving, 1..4)),
             TwinKind::NoStage => source.push_str(&patch(serving, 4..6)),
+            TwinKind::DoubleBuffer => {
+                source.push_str(&double_buffer_rewrite(serving, config)?);
+            }
         }
         let device = Device::system_default().ok_or("No Metal device found")?;
         let library = device
@@ -563,6 +576,7 @@ impl ServingTwin {
             queue,
             pipeline,
             config,
+            kind,
         })
     }
 
@@ -590,8 +604,18 @@ impl ServingTwin {
         )
     }
 
+    fn read_f32(&self, buf: &Buffer, len: usize) -> Vec<f32> {
+        let ptr = buf.contents() as *const f32;
+        unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
+    }
+
     fn launch(&self, io: &GemmIo, fx: &TernaryFixture, p: usize) {
         let cfg = self.config;
+        // The double-buffer variant needs twice the smem (two tiles).
+        let smem = match self.kind {
+            TwinKind::DoubleBuffer => cfg.threadgroup_mem_bytes() * 2,
+            _ => cfg.threadgroup_mem_bytes(),
+        };
         let grid = MTLSize {
             width: p.div_ceil(cfg.nrb as usize) as u64,
             height: fx.rows.div_ceil(cfg.nra as usize) as u64,
@@ -623,7 +647,7 @@ impl ServingTwin {
         enc.set_bytes(7, 4, (fx.cols as u32).to_ne_bytes().as_ptr() as *const _);
         enc.set_bytes(8, 4, (fx.rows as u32).to_ne_bytes().as_ptr() as *const _);
         enc.set_bytes(9, 4, (p as u32).to_ne_bytes().as_ptr() as *const _);
-        enc.set_threadgroup_memory_length(0, cfg.threadgroup_mem_bytes());
+        enc.set_threadgroup_memory_length(0, smem);
         for b in [io.pos, io.neg, io.scale, io.input] {
             enc.use_resource(b, MTLResourceUsage::Read);
         }
@@ -669,6 +693,142 @@ fn patch(source: &str, patch_range: std::ops::Range<usize>) -> String {
     out
 }
 
+/// The double-buffer rewrite (round-3 DECIDER): the serving kernel's K-loop
+/// rebuilt as a one-tile-ahead ping-pong. BIT-EXACT by construction — every
+/// element is dequanted with the SAME arithmetic into the same logical
+/// tile; only the staging RE-TIMES (dequant k+1 overlaps run k; one barrier
+/// per tile instead of two). The rewrite is anchored on exact substrings
+/// of the serving loop so a source drift fails loud, like `patch`.
+fn double_buffer_rewrite(serving: &str, _cfg: MetalTileConfig) -> Result<String, String> {
+    // The serving .metal now carries BOTH K-loops (the incumbent behind
+    // `#else`, the promoted-shape variant behind `#if SWEEP_DOUBLE_BUFFER`).
+    // The test twin compiles the INCUMBENT branch (no define), so rewrite
+    // THAT one: preamble = file head through the `#else` (declarations incl.
+    // the smem alias), loop = `#else` through `#endif`. Drift fails here.
+    let else_pos = serving
+        .find("#else\n")
+        .ok_or("double-buffer: #else anchor drifted")?;
+    let endif_pos = serving
+        .find("#endif // SWEEP_DOUBLE_BUFFER")
+        .ok_or("double-buffer: #endif anchor drifted")?;
+    let out_head = serving[..else_pos].to_string();
+    let incumbent_loop = serving[else_pos + "#else\n".len()..endif_pos].to_string();
+    // Anchor 1: the smem declaration (double it).
+    let smem_anchor = "    threadgroup half* sa = (threadgroup half*)(shmem);";
+    assert_eq!(serving.matches(smem_anchor).count(), 1, "smem anchor drifted");
+    // Anchor 2: the full K-loop body, from the loop opening to its closing
+    // barrier (the exact text at the promoted source; a drift fails here).
+    let loop_start = "    for (int loop_k = 0; loop_k < (int)k_input_dim; loop_k += K_TILE) {";
+    let loop_end_marker = "        threadgroup_barrier(mem_flags::mem_threadgroup);\n    }";
+    let ls = incumbent_loop
+        .find(loop_start)
+        .ok_or("double-buffer: K-loop anchor (start) drifted")?;
+    let le_end = incumbent_loop
+        .find(loop_end_marker)
+        .ok_or("double-buffer: K-loop anchor (end) drifted")?;
+    let original_loop = &incumbent_loop[ls..le_end + loop_end_marker.len()];
+
+    // The dequant phase-1 inner block is everything from "for (int work" to
+    // the close of the V2/fallback if-chain — reuse it verbatim by slicing
+    // the original loop between its own anchors.
+    let work_start = original_loop
+        .find("        for (int work = tiitg; work < A_WORK_ITEMS; work += NUM_THREADS) {")
+        .ok_or("double-buffer: work-loop anchor drifted")?;
+    let dequant_body = &original_loop[work_start..];
+    // dequant_body ends right before the first barrier inside the loop.
+    let dequant_body = dequant_body
+        .split("\n\n        threadgroup_barrier")
+        .next()
+        .ok_or("double-buffer: dequant-body slice drifted")?;
+
+    // Parameterize the dequant body: (loop_k -> k_deq, tile selector sa -> t).
+    // The body addresses `sa` directly; rename per-tile via a local alias.
+    let dequant_param = dequant_body
+        .replacen(
+            "            const int k_pos     = loop_k + k_base;",
+            "            const int k_pos     = k_deq + k_base;",
+            1,
+        )
+        .replacen(
+            "            const int k_pos     = loop_k + k_base;       // [0, 32) in steps of 16",
+            "            const int k_pos     = k_deq + k_base;       // [0, K_TILE) in steps of 16",
+            1,
+        );
+    let dequant_fn = format!(
+        "\n    // One K-tile's dequant into the NAMED tile (double-buffer variant).\n    // Same arithmetic as the serving Phase 1, addresses `t` instead of `sa`.\n    auto dequant_tile = [&](threadgroup half* t, int k_deq) {{\n        device const uint* pw_base = pos_bits_u32;\n        device const uint* nw_base = neg_bits_u32;\n        (void)pw_base; (void)nw_base;\n        {dequant_param}\n    }};\n"
+    );
+    // Inside the body, `sa` still names the global alias — retarget it to `t`.
+    let dequant_fn = retarget_sa(&dequant_fn);
+
+    let new_loop = format!(
+        r#"    // ── double-buffer variant (Issue 1167 rung C DECIDER) ──
+    // Ping-pong tiles: tile[k%2] holds the dequanted tile for run k while
+    // tile[(k+1)%2] is being dequanted for run k+1 — disjoint memory, no
+    // race, no barrier between the dequant and the matmul. ONE barrier per
+    // tile (after each dequant, before the NEXT run) replaces the
+    // incumbent's two; the dequant→run serialization is what this removes.
+    // BIT-EXACT: same dequant arithmetic, same tile contents, same matmul
+    // sequence — only the staging is re-timed. smem cost: 2× (the launch
+    // site doubles threadgroup_mem_bytes for this twin).
+    {{
+        threadgroup half* tile0 = (threadgroup half*)(shmem);
+        threadgroup half* tile1 = (threadgroup half*)(shmem) + (size_t)(K_TILE * NRA);
+{dequant_fn}
+        auto run_tile = [&](threadgroup half* t, int k_run) {{
+            auto mA = tensor(t, dextents<int32_t, 2>(K_TILE, NRA)).slice(0, 0);
+            auto mB = tB.slice(k_run, rb);
+            mm.run(mB, mA, cT);
+        }};
+
+        dequant_tile(tile0, 0);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        int tk = 0;
+        for (int loop_k = 0; loop_k < (int)k_input_dim; loop_k += K_TILE) {{
+            threadgroup half* cur = (tk % 2 == 0) ? tile0 : tile1;
+            threadgroup half* nxt = (tk % 2 == 0) ? tile1 : tile0;
+            const int k_next = loop_k + K_TILE;
+            if (k_next < (int)k_input_dim) {{
+                dequant_tile(nxt, k_next);
+            }}
+            run_tile(cur, loop_k);
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            tk += 1;
+        }}
+    }}
+"#,
+        dequant_fn = dequant_fn,
+    );
+
+    let mut out = String::with_capacity(out_head.len() + incumbent_loop.len() + new_loop.len());
+    // The test twin compiles ONE branch only: drop the `#if` line from the
+    // head and the `#else` marker itself, swap in the rewritten ping-pong
+    // loop (the variant body, unconditioned), then everything after #endif.
+    let if_line_pos = serving
+        .rfind("#if SWEEP_DOUBLE_BUFFER\n")
+        .ok_or("double-buffer: #if anchor drifted")?;
+    // The #if may carry a preceding comment block naming the variant — keep
+    // comments, drop ONLY the directive line.
+    let if_line_end = if_line_pos + "#if SWEEP_DOUBLE_BUFFER\n".len();
+    out.push_str(&serving[..if_line_pos]);
+    out.push_str(&serving[if_line_end..else_pos]);
+    out.push_str(&incumbent_loop[..ls]); // the loop's preceding lines (threadgroup half* sa decl etc.)
+    out.push_str(&new_loop); // the rewritten ping-pong loop
+    out.push_str(&incumbent_loop[le_end + loop_end_marker.len()..]); // loop tail + post-loop store
+    out.push_str(&serving[endif_pos + "#endif // SWEEP_DOUBLE_BUFFER".len()..]); // everything after #endif
+    // The doubled smem alias: the variant allocates its own tiles from shmem
+    // directly, so the ORIGINAL `sa` alias (declared at the smem_anchor) is
+    // unused in this variant — keep it (harmless) to stay textually minimal.
+    let _ = smem_anchor;
+    Ok(out)
+}
+
+/// Retarget the dequant body's `sa` writes to the named tile `t`.
+fn retarget_sa(body: &str) -> String {
+    body.replace("sa + (size_t)k_base + (size_t)row_local * K_TILE", "t + (size_t)k_base + (size_t)row_local * K_TILE")
+        .replace("sa[(size_t)(k_base + i) + (size_t)row_local * K_TILE] = val;", "t[(size_t)(k_base + i) + (size_t)row_local * K_TILE] = val;")
+}
+
 // ---------------------------------------------------------------------------
 // PROVENANCE (the box-state law — print, never gate)
 // ---------------------------------------------------------------------------
@@ -700,7 +860,9 @@ fn print_provenance(when: &str) {
 
 // ---------------------------------------------------------------------------
 // G1 — the incumbent pipeline must match the CPU decode; the probe must write
-// every tile (liveness, the loud-zero defence)
+// every tile (liveness, the loud-zero defence); the double-buffer DECIDER
+// must be bit-identical to the baseline kernel (correct-output requirement,
+// verdict round 3)
 // ---------------------------------------------------------------------------
 
 /// (rows, cols, p) — ragged coverage on every axis (edge tiles exercise the
@@ -800,6 +962,121 @@ fn g1_incumbent_and_probe_fixture_gates() {
             assert!(g.is_finite(), "probe tile {i} wrote a non-finite consume");
         }
         println!("  G1 probe {rows}x{cols} p={p}: {tiles}/{tiles} tiles live PASS");
+    }
+}
+
+/// The DECIDER's correctness gate (verdict round 3): the double-buffered
+/// staging variant must produce output BIT-IDENTICAL to the baseline kernel
+/// — same dequant arithmetic, same tile contents, same matmul sequence; only
+/// the staging is re-timed. Runs at the BIT-EXACT posture (the same pin G1
+/// uses). A failure here is not a tolerance event: the variant is wrong and
+/// its timing is meaningless.
+#[test]
+#[ignore = "requires macOS Metal + a GPU; run explicitly with --release"]
+fn g1b_double_buffer_variant_bit_exact() {
+    riir_infer_gpu::gemm_ternary_metal_tensor::set_metal_tensor_relaxed_precision(false);
+    let baseline = ServingTwin::new(MetalTileConfig::KTILE64, TwinKind::Baseline)
+        .expect("baseline twin must compile");
+    let dbl = ServingTwin::new(MetalTileConfig::KTILE64, TwinKind::DoubleBuffer)
+        .expect("double-buffer twin must compile (the source rewrite is anchored)");
+
+    for &(rows, cols, p) in G1_CASES {
+        let fx = TernaryFixture::build(rows, cols, 0x1167 ^ rows as u64 ^ (cols as u64) << 8);
+        let input = random_input(p * cols, 0xBEEF ^ p as u64);
+        let want = fx.cpu_reference(&input, p);
+
+        // Warm both once (the correctness reads then run on a warm GPU path).
+        {
+            let (wpos, wneg, wscale) = baseline.upload_weights(&fx);
+            let winput = baseline.upload_f32(&input);
+            let woutput = baseline
+                .device
+                .new_buffer((p * rows * 4) as u64, MTLResourceOptions::StorageModeManaged);
+            baseline.launch(
+                &GemmIo {
+                    pos: &wpos,
+                    neg: &wneg,
+                    scale: &wscale,
+                    input: &winput,
+                    output: &woutput,
+                },
+                &fx,
+                p,
+            );
+        }
+        let (bpos, bneg, bscale) = baseline.upload_weights(&fx);
+        let binput = baseline.upload_f32(&input);
+        let boutput = baseline
+            .device
+            .new_buffer((p * rows * 4) as u64, MTLResourceOptions::StorageModeManaged);
+        baseline.launch(
+            &GemmIo {
+                pos: &bpos,
+                neg: &bneg,
+                scale: &bscale,
+                input: &binput,
+                output: &boutput,
+            },
+            &fx,
+            p,
+        );
+        let bhost = baseline.read_f32(&boutput, p * rows);
+
+        let (dpos, dneg, dscale) = dbl.upload_weights(&fx);
+        let dinput = dbl.upload_f32(&input);
+        let doutput = dbl
+            .device
+            .new_buffer((p * rows * 4) as u64, MTLResourceOptions::StorageModeManaged);
+        dbl.launch(
+            &GemmIo {
+                pos: &dpos,
+                neg: &dneg,
+                scale: &dscale,
+                input: &dinput,
+                output: &doutput,
+            },
+            &fx,
+            p,
+        );
+        let dhost = dbl.read_f32(&doutput, p * rows);
+
+        // (1) the variant must be bit-identical to the baseline kernel.
+        let mut mismatches = 0usize;
+        let mut first = 0usize;
+        for (i, (b, d)) in bhost.iter().zip(dhost.iter()).enumerate() {
+            if b.to_bits() != d.to_bits() {
+                mismatches += 1;
+                if mismatches == 1 {
+                    first = i;
+                }
+            }
+        }
+        assert_eq!(
+            mismatches, 0,
+            "double-buffer variant is NOT bit-identical to the baseline at {rows}x{cols} \
+             p={p}: {mismatches} mismatched element(s), first at [{first}] (baseline {} vs \
+             variant {})",
+            bhost[first], dhost[first]
+        );
+
+        // (2) and both must match the CPU decode at the G1 bar.
+        let ref_scale = want.iter().fold(0.0f32, |a, b| a.max(b.abs())).max(1e-6);
+        for (host, name) in [(&bhost, "baseline"), (&dhost, "double_buffer")] {
+            let mut worst = 0.0f64;
+            for (g, w) in host.iter().zip(want.iter()) {
+                let rel = ((g - w).abs() / ref_scale) as f64;
+                if rel > worst {
+                    worst = rel;
+                }
+            }
+            assert!(
+                worst < G1_REL_LIMIT,
+                "{name} arm worst_rel={worst:.3e} >= {G1_REL_LIMIT} at {rows}x{cols} p={p}"
+            );
+        }
+        println!(
+            "  G1b double-buffer {rows}x{cols} p={p}: bit-identical to baseline + CPU PASS"
+        );
     }
 }
 
@@ -1031,6 +1308,7 @@ fn g3_insitu_ablation_twins_at_serving_posture() {
         (TwinKind::NoBarriers, "no_barriers"),
         (TwinKind::ConstDequant, "const_dequant"),
         (TwinKind::NoStage, "no_stage"),
+        (TwinKind::DoubleBuffer, "double_buffer"),
     ];
     let rounds_rep: usize = std::env::var("BENCH1167_REPS")
         .ok()

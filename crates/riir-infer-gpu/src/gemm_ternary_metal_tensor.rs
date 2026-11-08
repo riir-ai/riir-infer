@@ -284,6 +284,24 @@ pub fn production_relaxed_precision() -> bool {
 
 static PROD_DEQUANT_V2_ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
+/// Issue 1167 rung C (round 3): whether the next context compiles the
+/// double-buffered staging variant. PROMOTE-ONLY: arms on the exact literal
+/// `RIIR_METAL_TENSOR_DOUBLE_BUFFER=1`; absent (or any other value) keeps the
+/// incumbent two-barrier loop byte-identically (the env-switch law). The
+/// launch sites double the threadgroup memory when this is on (two tiles).
+/// Bit-exact vs the incumbent by construction (G1b: variant == baseline
+/// bit-identical + CPU 1e-5 at the ragged cases).
+static PROD_DOUBLE_BUFFER_ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+pub fn production_double_buffer() -> bool {
+    *PROD_DOUBLE_BUFFER_ENV.get_or_init(|| {
+        let on = std::env::var("RIIR_METAL_TENSOR_DOUBLE_BUFFER").as_deref() == Ok("1");
+        if on {
+            eprintln!("[Issue 1167] tensor GEMM double-buffer staging ARMED (promote-only)");
+        }
+        on
+    })
+}
+
 /// Issue 1146 rung 2b (H4): whether the next context compiles the hoisted-load
 /// dequant (`SWEEP_DEQUANT_V2`). PROMOTED default-ON (Bench 921: +9% e2e dist
 /// prefill at pp512/pp4096, G1 max_abs 0 cold-pool at P=512/1024 + identical
@@ -313,7 +331,21 @@ pub fn compose_msl_source(config: MetalTileConfig, body: &str) -> String {
         true => "#define SWEEP_DEQUANT_V2 1\n",
         false => "#define SWEEP_DEQUANT_V2 0\n",
     };
-    format!("{}{relaxed}{dequant}{body}", config.defines())
+    // Issue 1167 rung C: the double-buffer staging variant (promote-only).
+    let dbl = match production_double_buffer() {
+        true => "#define SWEEP_DOUBLE_BUFFER 1\n",
+        false => "",
+    };
+    format!("{}{relaxed}{dequant}{dbl}{body}", config.defines())
+}
+
+/// The threadgroup memory a context needs: two tiles when the double-buffer
+/// variant is compiled (tile ping + tile pong), the incumbent tile otherwise.
+pub fn production_threadgroup_mem_bytes(config: MetalTileConfig) -> u64 {
+    match production_double_buffer() {
+        true => config.threadgroup_mem_bytes() * 2,
+        false => config.threadgroup_mem_bytes(),
+    }
 }
 
 /// The geometry the next integration context compiles with: the explicit
@@ -540,7 +572,7 @@ impl MetalTensorGemm {
         let nra = cfg.nra;
         let nrb = cfg.nrb;
         let num_threads = u64::from(32 * cfg.nsg);
-        let threadgroup_mem_bytes = cfg.threadgroup_mem_bytes();
+        let threadgroup_mem_bytes = crate::gemm_ternary_metal_tensor::production_threadgroup_mem_bytes(cfg);
 
         // Grid: one workgroup per output tile
         let grid = MTLSize {
@@ -572,7 +604,9 @@ impl MetalTensorGemm {
         encoder.set_bytes(8, 4, m.to_ne_bytes().as_ptr() as *const _);
         encoder.set_bytes(9, 4, p.to_ne_bytes().as_ptr() as *const _);
 
-        // Allocate threadgroup memory for the dequanted weight tile (index 0 = [[threadgroup(0)]])
+        // Allocate threadgroup memory for the dequanted weight tile(s)
+        // (index 0 = [[threadgroup(0)]]); two tiles when the double-buffer
+        // variant is compiled (Issue 1167 rung C).
         encoder.set_threadgroup_memory_length(0, threadgroup_mem_bytes);
 
         encoder.use_resource(pos_buf, metal::MTLResourceUsage::Read);

@@ -677,6 +677,15 @@ pub struct DFlashCpu {
     kv: Vec<Vec<f32>>,
     ctx_len: usize,
     capacity: usize,
+    /// Vendor-exact numerics (`I1179_VENDOR_NUMERICS=1`): the prefix cache
+    /// as the vendor stores it — int8 codes in the H128·signs basis plus
+    /// per-(row, kv-head) bf16 scales ([layer][row·groups·head_dim] codes,
+    /// [layer][row·groups] scales; V codes carry no bias here).
+    kv_kcodes: Vec<Vec<i32>>,
+    kv_vcodes: Vec<Vec<i32>>,
+    kv_kscales: Vec<Vec<f32>>,
+    kv_vscales: Vec<Vec<f32>>,
+    vendor_numerics: bool,
 }
 
 impl DFlashCpu {
@@ -764,6 +773,11 @@ impl DFlashCpu {
             kv: (0..DRAFT_LAYERS).map(|_| Vec::new()).collect(),
             ctx_len: 0,
             capacity: 0,
+            kv_kcodes: (0..DRAFT_LAYERS).map(|_| Vec::new()).collect(),
+            kv_vcodes: (0..DRAFT_LAYERS).map(|_| Vec::new()).collect(),
+            kv_kscales: (0..DRAFT_LAYERS).map(|_| Vec::new()).collect(),
+            kv_vscales: (0..DRAFT_LAYERS).map(|_| Vec::new()).collect(),
+            vendor_numerics: std::env::var("I1179_VENDOR_NUMERICS").as_deref() == Ok("1"),
         })
     }
 
@@ -1176,6 +1190,12 @@ impl DFlashCpu {
         let (cos, sin) = rope_tables(&positions);
         let coef_count = 2 * (d / 16);
         let mut dump = DraftLayersDump::default();
+        let stage_dump = std::env::var("I1179_MY_STAGE_DUMP").as_deref() == Ok("1");
+        let stage_write = |tag: &str, vals: &[f32]| {
+            if stage_dump {
+                std::fs::write(format!("/tmp/i1179_my_stage_{tag}.bin"), bytemuck::cast_slice(vals)).ok();
+            }
+        };
         for (li, lw) in self.w.layers.iter().enumerate() {
             if li == 0 {
                 shortcut.copy_from_slice(&hidden);
@@ -1186,31 +1206,64 @@ impl DFlashCpu {
             }
             let mut h = hidden.clone();
             rmsnorm(&mut h, rows, d, &lw.pre_mixer_norm);
+            if li == 0 {
+                stage_write("premix", &h);
+            }
             let mut coefs_raw = lw.mixer_kernel_proj.rows(&h, rows);
             let coefs = ConvCoefs {
                 raw: std::mem::take(&mut coefs_raw),
                 coef_count,
             };
+            if li == 0 {
+                stage_write("kcoef", &coefs.raw);
+            }
             conv_forward(&mut h, rows, d, &lw.mixer_conv_pre, 2, &coefs, false);
+            if li == 0 {
+                stage_write("convpre", &h);
+            }
             dump.conv_pre.push(h.clone());
+            if li == 0 {
+                let qkvg = lw.qkvg.rows(&h, rows);
+                stage_write("qkvg", &qkvg);
+            }
             let (q, k, v) = self.dump_prepare_qkv(li, &h, rows, &cos, &sin);
+            if li == 0 {
+                stage_write("q", &q);
+                stage_write("k", &k);
+                stage_write("v", &v);
+            }
             dump.q.push(q);
             dump.k.push(k);
             dump.v.push(v);
             let attn = self.attention_block(li, &h, rows, &cos, &sin);
             let mut ha = attn;
+            if li == 0 {
+                stage_write("attnout", &ha);
+            }
             conv_forward(&mut ha, rows, d, &lw.mixer_conv_post, 2, &coefs, true);
+            if li == 0 {
+                stage_write("postconv", &ha);
+            }
             for i in 0..ha.len() {
                 shortcut[i] = ha[i] + shortcut[i];
             }
             let mut h2 = shortcut.clone();
             rmsnorm(&mut h2, rows, d, &lw.pre_mlp_norm);
+            if li == 0 {
+                stage_write("premlp", &h2);
+            }
             let mut coefs_raw2 = lw.mlp_kernel_proj.rows(&h2, rows);
             let coefs2 = ConvCoefs {
                 raw: std::mem::take(&mut coefs_raw2),
                 coef_count,
             };
+            if li == 0 {
+                stage_write("mlpkcoef", &coefs2.raw);
+            }
             conv_forward(&mut h2, rows, d, &lw.mlp_conv_pre, 2, &coefs2, false);
+            if li == 0 {
+                stage_write("mlpconvpre", &h2);
+            }
             let up = lw.mlp_up.rows(&h2, rows);
             let hidden_dim = lw.mlp_up.out / 2;
             let mut act = vec![0.0f32; rows * hidden_dim];
@@ -1222,7 +1275,13 @@ impl DFlashCpu {
                 }
             }
             let mut h3 = lw.mlp_down.rows(&act, rows);
+            if li == 0 {
+                stage_write("mlpout", &h3);
+            }
             conv_forward(&mut h3, rows, d, &lw.mlp_conv_post, 2, &coefs2, true);
+            if li == 0 {
+                stage_write("mlppostconv", &h3);
+            }
             dump.shortcut.push(shortcut.clone());
             dump.layer_out.push(h3.clone());
             hidden = h3;
@@ -1247,6 +1306,9 @@ impl DFlashCpu {
         cos: &[f32],
         sin: &[f32],
     ) -> Vec<f32> {
+        if self.vendor_numerics {
+            return self.attention_block_vendor(li, h, rows, cos, sin);
+        }
         let (q, k, v) = self.prepare_qkv(li, h, rows, cos, sin);
         let lw = &self.w.layers[li];
         let hd = DRAFT_HEAD_DIM;
@@ -1316,6 +1378,127 @@ impl DFlashCpu {
                     for v in acc.iter_mut() {
                         *v /= denom;
                     }
+                }
+                out[r * q_dim + head * hd..r * q_dim + (head + 1) * hd].copy_from_slice(&acc);
+            }
+        }
+        if std::env::var("I1179_MY_STAGE_DUMP").as_deref() == Ok("1") && li == 0 {
+            std::fs::write(
+                "/tmp/i1179_my_stage_attnctx.bin",
+                bytemuck::cast_slice(&out),
+            )
+            .ok();
+        }
+        lw.attn_out.rows(&out, rows)
+    }
+
+    /// Vendor-exact attention (I1179_VENDOR_NUMERICS=1): int8 q/k/v codes in
+    /// the H128·signs basis, i32 score dots × bf16 scales, context from
+    /// dequantized V codes, then the S⊙H128 out-transform back to the
+    /// logical basis (the exact round trip the vendor kernel runs; verified
+    /// against their kernelout at cos 1.0000 in the issue-1179 python sim).
+    fn attention_block_vendor(
+        &self,
+        li: usize,
+        h: &[f32],
+        rows: usize,
+        cos: &[f32],
+        sin: &[f32],
+    ) -> Vec<f32> {
+        let lw = &self.w.layers[li];
+        let hd = DRAFT_HEAD_DIM;
+        let qh = DRAFT_HEADS;
+        let kvh_n = DRAFT_GROUPS;
+        let layer_kv_dim = 2 * kvh_n * hd;
+        let gqa = qh / kvh_n;
+        let prefix = self.ctx_len;
+        let half_win = DRAFT_WINDOW / 2;
+        let q_dim = qh * hd;
+        let kv_dim = kvh_n * hd;
+        let (q, k, v) = self.prepare_qkv(li, h, rows, cos, sin);
+
+        // Prepare codes per (row, head): logical → H128·signs → int8.
+        let mut q_codes = vec![(Vec::<i32>::new(), 1.0f32); rows * qh];
+        let mut k_codes = vec![(Vec::<i32>::new(), 1.0f32); rows * kvh_n];
+        let mut v_codes = vec![(Vec::<i32>::new(), 1.0f32); rows * kvh_n];
+        for r in 0..rows {
+            for head in 0..qh {
+                let mut t = q[r * q_dim + head * hd..r * q_dim + (head + 1) * hd].to_vec();
+                q_codes[r * qh + head] = vendor_quantize(&mut t);
+            }
+            for head in 0..kvh_n {
+                let mut t = k[r * kv_dim + head * hd..r * kv_dim + (head + 1) * hd].to_vec();
+                k_codes[r * kvh_n + head] = vendor_quantize(&mut t);
+                let mut t2 = v[r * kv_dim + head * hd..r * kv_dim + (head + 1) * hd].to_vec();
+                v_codes[r * kvh_n + head] = vendor_quantize(&mut t2);
+            }
+        }
+
+        let mut out = vec![0.0f32; rows * q_dim];
+        for r in 0..rows {
+            let q_pos = self.ctx_len + r;
+            for head in 0..qh {
+                let kv_head = head / gqa;
+                let (q_c, q_s) = &q_codes[r * qh + head];
+                // Online softmax over prefix + suffix keys (the vendor mask:
+                // is_causal=false sliding window band).
+                let mut max_s = f32::NEG_INFINITY;
+                let mut scores: Vec<(usize, f32)> = Vec::new();
+                for key in 0..prefix + rows {
+                    let (k_pos, in_prefix) = if key < prefix {
+                        (key as i64, true)
+                    } else {
+                        ((self.ctx_len + (key - prefix)) as i64, false)
+                    };
+                    if (q_pos as i64 - k_pos).abs() > half_win as i64 {
+                        continue;
+                    }
+                    let dot: i64 = if in_prefix {
+                        let base = key * kvh_n * hd + kv_head * hd;
+                        let kc = &self.kv_kcodes[li][base..base + hd];
+                        kc.iter().zip(q_c.iter()).map(|(a, b)| (*a as i64) * (*b as i64)).sum::<i64>()
+                    } else {
+                        let sr = key - prefix;
+                        let (kc, _) = &k_codes[sr * kvh_n + kv_head];
+                        kc.iter().zip(q_c.iter()).map(|(a, b)| (*a as i64) * (*b as i64)).sum::<i64>()
+                    };
+                    let k_s = if in_prefix {
+                        self.kv_kscales[li][key * kvh_n + kv_head]
+                    } else {
+                        k_codes[(key - prefix) * kvh_n + kv_head].1
+                    };
+                    let s = (dot as f32) * q_s * k_s * DRAFT_SCALE;
+                    scores.push((key, s));
+                    if s > max_s {
+                        max_s = s;
+                    }
+                }
+                let mut denom = 0.0f32;
+                let mut acc = vec![0.0f32; hd];
+                for &(key, s) in &scores {
+                    let w = (s - max_s).exp();
+                    denom += w;
+                    let (vc, v_s) = if key < prefix {
+                        let base = key * kvh_n * hd + kv_head * hd;
+                        (&self.kv_vcodes[li][base..base + hd], self.kv_vscales[li][key * kvh_n + kv_head])
+                    } else {
+                        let sr = key - prefix;
+                        let pair = &v_codes[sr * kvh_n + kv_head];
+                        (&pair.0, pair.1)
+                    };
+                    for c in 0..hd {
+                        acc[c] += w * (vc[c] as f32 * v_s);
+                    }
+                }
+                if denom > 0.0 {
+                    for a in acc.iter_mut() {
+                        *a /= denom;
+                    }
+                }
+                // Out-transform: S⊙H128 back to the logical basis.
+                hadamard128(&mut acc);
+                for (c, a) in acc.iter_mut().enumerate() {
+                    *a *= vendor_sign(c);
                 }
                 out[r * q_dim + head * hd..r * q_dim + (head + 1) * hd].copy_from_slice(&acc);
             }
@@ -1419,6 +1602,85 @@ fn head_rmsnorm(head: &mut [f32], scales: &[f32]) {
     let inv = 1.0 / (sum / head.len() as f32 + DRAFT_EPS).sqrt();
     for (i, v) in head.iter_mut().enumerate() {
         *v = *v * inv * scales[i];
+    }
+}
+
+// ── vendor-exact numerics emulation (I1179_VENDOR_NUMERICS=1) ───────────────
+// The vendor CPU engine quantizes every q/k/v head per (head, token) to
+// symmetric int8 IN THE H128·signs basis (scale = bf16(max/127),
+// round-ties-even, ±127 clamp), computes scores as i32 code dots × bf16
+// scales × 1/√128, accumulates the context from dequantized V codes, and
+// rounds every activation-stage boundary to bf16. The draft weights were
+// distilled against THAT runtime, so the T1 acceptance cell emulates it
+// (issue 1179: the f32-exact path measured mean_j 1.20 vs their 2.882 —
+// quantization-chaos, not a semantic divergence; every stage verified
+// cos ≥ 0.95 at the real context and the code-level sim reproduced their
+// kernel output at cos 1.0000).
+
+fn bf16_round(x: f32) -> f32 {
+    if x == 0.0 || !x.is_finite() {
+        return x;
+    }
+    f32::from_bits((x.to_bits() + 0x8000) & 0xFFFF_0000)
+}
+
+const VENDOR_ROTATION_SIGN_BITS: [u32; 8] = [
+    0x9e37_79b9, 0x85eb_ca6b, 0xc2b2_ae35, 0x27d4_eb2f, 0x1656_67b1, 0xbf58_476d, 0x94d0_49bb, 0xd6e8_feb8,
+];
+
+fn vendor_sign(channel: usize) -> f32 {
+    let word = VENDOR_ROTATION_SIGN_BITS[channel / 32 % 8];
+    if (word >> (channel % 32)) & 1 != 0 {
+        -1.0
+    } else {
+        1.0
+    }
+}
+
+fn hadamard128(values: &mut [f32]) {
+    let mut stride = 1usize;
+    while stride < values.len() {
+        for lane in 0..values.len() {
+            if lane & stride == 0 {
+                let a = values[lane];
+                let b = values[lane | stride];
+                values[lane] = a + b;
+                values[lane | stride] = a - b;
+            }
+        }
+        stride <<= 1;
+    }
+    let scale = 1.0 / (values.len() as f32).sqrt();
+    for v in values.iter_mut() {
+        *v *= scale;
+    }
+}
+
+/// uzu `quantize` (cpu attention compute.rs): sign-flip, H128, symmetric
+/// int8 with a bf16 scale. Returns (codes, scale).
+fn vendor_quantize(values: &mut [f32]) -> (Vec<i32>, f32) {
+    for (c, v) in values.iter_mut().enumerate() {
+        *v *= vendor_sign(c);
+    }
+    hadamard128(values);
+    let max = values.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    let scale = if max > 0.0 {
+        bf16_round(max / 127.0)
+    } else {
+        1.0
+    };
+    let codes = values
+        .iter()
+        .map(|v| (v / scale).round_ties_even().clamp(-127.0, 127.0) as i32)
+        .collect();
+    (codes, scale)
+}
+
+/// Round a whole stage vector to bf16 (uzu stores every activation buffer
+/// in bf16 between stages).
+fn bf16_round_vec(v: &mut [f32]) {
+    for x in v.iter_mut() {
+        *x = bf16_round(*x);
     }
 }
 
