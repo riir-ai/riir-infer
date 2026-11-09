@@ -1404,21 +1404,13 @@ impl DspineDrafter {
                 let p = anchor_pos + i;
                 for h in 0..nh {
                     let base = i * nh * hd + h * hd;
-                    normed.copy_from_slice(&rn(
-                        &q[base..base + hd],
-                        &layer.q_norm,
-                        cfg.rms_eps,
-                    ));
+                    normed.copy_from_slice(&rn(&q[base..base + hd], &layer.q_norm, cfg.rms_eps));
                     apply_rope(&mut normed, p, &self.rope_freqs);
                     q[base..base + hd].copy_from_slice(&normed);
                 }
                 for h in 0..kvh {
                     let base = i * n_kv + h * hd;
-                    normed.copy_from_slice(&rn(
-                        &k[base..base + hd],
-                        &layer.k_norm,
-                        cfg.rms_eps,
-                    ));
+                    normed.copy_from_slice(&rn(&k[base..base + hd], &layer.k_norm, cfg.rms_eps));
                     apply_rope(&mut normed, p, &self.rope_freqs);
                     k[base..base + hd].copy_from_slice(&normed);
                 }
@@ -1545,8 +1537,18 @@ impl DspineDrafter {
             let mut ffn_u_all = vec![0.0f32; t * cfg.n_ff];
             for i in 0..t {
                 let hf = rn(&h[i * e..(i + 1) * e], &layer.ffn_norm, cfg.rms_eps);
-                let g = gemv_bf16(&layer.gate_proj, &hf, cfg.n_ff);
-                let u = gemv_bf16(&layer.up_proj, &hf, cfg.n_ff);
+                // The MLP projections ride the SAME plain-aware gemv as
+                // every other draft projection. gemv_bf16 rounds
+                // UNCONDITIONALLY, so the old call sites kept a bf16
+                // staircase in the training-only plain posture — violating
+                // the field's contract ("skips every bf16 boundary") at
+                // exactly the two ops the distill backward models as
+                // unrounded gemvs: an eps-independent analytic-vs-FD
+                // asymmetry in the trainer's gradient probes (plan 492
+                // T1's residual; riir-train issue 683). Default posture is
+                // byte-identical (gv applies bf16r here).
+                let g = gv(&layer.gate_proj, &hf, cfg.n_ff);
+                let u = gv(&layer.up_proj, &hf, cfg.n_ff);
                 ffn_g_all[i * cfg.n_ff..(i + 1) * cfg.n_ff].copy_from_slice(&g);
                 ffn_u_all[i * cfg.n_ff..(i + 1) * cfg.n_ff].copy_from_slice(&u);
                 for (o_i, (m_o, mg)) in mid.iter_mut().zip(g.iter()).enumerate() {
@@ -1597,9 +1599,13 @@ impl DspineDrafter {
                 let (rms, normed_in) = if self.plain_numerics {
                     let nn = raw_row.len();
                     let mut ss = 0.0f32;
-                    for &v in raw_row { ss += v * v; }
+                    for &v in raw_row {
+                        ss += v * v;
+                    }
                     let rms = (ss / nn as f32).max(f32::MIN_POSITIVE).sqrt();
-                    let normed: Vec<f32> = (0..nn).map(|i2| raw_row[i2] / (rms + cfg.bridge_eps)).collect();
+                    let normed: Vec<f32> = (0..nn)
+                        .map(|i2| raw_row[i2] / (rms + cfg.bridge_eps))
+                        .collect();
                     (rms, normed)
                 } else {
                     bridge_read_norm(raw_row, cfg.bridge_eps)
@@ -2541,5 +2547,104 @@ mod tests {
         assert_eq!(tr.tail.idx.len(), cfg.trained_block_size - 1);
         // The tail base rows carry γ·k entries; every candidate is covered.
         assert_eq!(tr.tail.base.len(), tr.tail.idx.len() * cfg.head_topk);
+    }
+
+    /// The plain posture's MLP boundary pin: the gate/up projections MUST
+    /// skip the bf16 rounding in plain mode (the distill backward models
+    /// them as unrounded gemvs — a bf16 staircase here is an
+    /// analytic-vs-FD asymmetry, riir-train issue 683 / plan 492 T1), and
+    /// MUST keep it in the vendor-exact default (byte-identical to the old
+    /// unconditional gemv_bf16 call sites).
+    #[test]
+    fn plain_numerics_skips_the_mlp_gemv_boundary() {
+        let cfg = test_tiny_cfg();
+        let (w, _drafter, lm_head, tables, embed) = test_tiny_world(&cfg);
+        let anchor = 3u32;
+        let nf = cfg.target_layer_ids.len();
+        let e = cfg.n_embd;
+        let nff = cfg.n_ff;
+        let ctx_rows = 8usize;
+        let feats: Vec<f32> = (0..ctx_rows * nf * e)
+            .map(|i| bf16r((((i * 7) % 11) as f32 - 5.0) * 0.125))
+            .collect();
+
+        // The plain gemv the backward models: sequential f32 acc, no
+        // rounding (the same fold order as the draft's gv closure).
+        let plain_gemv = |wr: &[f32], x: &[f32]| -> Vec<f32> {
+            wr.chunks_exact(x.len())
+                .map(|row| {
+                    let mut acc = 0.0f32;
+                    for (i, &v) in x.iter().enumerate() {
+                        acc += row[i] * v;
+                    }
+                    acc
+                })
+                .collect()
+        };
+
+        let run = |plain: bool| -> DspineBlockTrace {
+            let mut d = DspineDrafter::new(cfg.clone(), w.clone());
+            if plain {
+                d = d.with_plain_numerics();
+            }
+            d.append_context(&feats, 0).unwrap();
+            let (_draft, tr) = d
+                .draft_block_trace(anchor, ctx_rows, &embed, &lm_head, &tables)
+                .unwrap();
+            tr
+        };
+
+        for (mode, tr) in [("plain", run(true)), ("default", run(false))] {
+            let rnd: fn(f32) -> f32 = if mode == "plain" { |v| v } else { bf16r };
+            let mut checked = 0usize;
+            let mut boundary_differs = 0usize;
+            for (li, layer) in w.layers.iter().enumerate() {
+                let lt = &tr.layers[li];
+                for i in 0..cfg.trained_block_size {
+                    // hf = the ffn-norm output the gemvs consume (plain
+                    // rmsnorm: x·inv·γ — the trace's h is bf16-valued in
+                    // default mode, so recompute from the stored h).
+                    let h_row = &lt.h[i * e..(i + 1) * e];
+                    let mut ss = 0.0f32;
+                    for &v in h_row {
+                        ss += v * v;
+                    }
+                    let inv = 1.0 / (ss / e as f32 + cfg.rms_eps).sqrt();
+                    let hf: Vec<f32> = (0..e)
+                        .map(|j| rnd(h_row[j] * inv * layer.ffn_norm[j]))
+                        .collect();
+                    for (name, wr, captured) in [
+                        ("gate", &layer.gate_proj, &lt.ffn_g[i * nff..(i + 1) * nff]),
+                        ("up", &layer.up_proj, &lt.ffn_u[i * nff..(i + 1) * nff]),
+                    ] {
+                        let unrounded = plain_gemv(wr, &hf);
+                        let expect: Vec<f32> = if mode == "plain" {
+                            unrounded.clone()
+                        } else {
+                            unrounded.iter().map(|&v| bf16r(v)).collect()
+                        };
+                        for (k, (&got, &want)) in captured.iter().zip(expect.iter()).enumerate() {
+                            assert_eq!(
+                                got, want,
+                                "{mode} mode {name}_proj[{li}][{i}][{k}]: captured {got} vs expected {want}"
+                            );
+                        }
+                        boundary_differs += usize::from(
+                            unrounded.iter().zip(captured.iter()).any(|(&u, &c)| u != c),
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+            // Non-vacuity: the fixture must EXERCISE the boundary — in
+            // default mode at least one gemv output must actually be
+            // rounded (otherwise the pin proves nothing about skipping).
+            if mode == "default" {
+                assert!(
+                    boundary_differs > 0,
+                    "default mode never exercised the bf16 boundary — fixture too smooth"
+                );
+            }
+        }
     }
 }
