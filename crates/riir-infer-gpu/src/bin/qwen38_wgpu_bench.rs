@@ -280,6 +280,16 @@ fn main() {
             .collect();
         println!("[walk] text: {}", text.join(""));
     }
+
+    // Issue 1182: the drift-guard census — one line at process end when
+    // the guard env armed (samples/fallbacks/latches per family). The
+    // unarmed build prints nothing (the cfg keeps the default posture
+    // byte-identical).
+    #[cfg(feature = "drift_guard")]
+    eprintln!(
+        "[drift-guard] {}",
+        riir_infer_gpu::drift_guard::guard().summary()
+    );
 }
 
 /// The dense-f16 lane's raw dispatch counter — the engagement instrument

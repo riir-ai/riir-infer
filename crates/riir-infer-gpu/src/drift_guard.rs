@@ -400,6 +400,20 @@ pub mod metal {
         EXACT_MM.get().is_some_and(|o| o.is_some())
     }
 
+    /// One-line-per-process skip-reason disclosure (the failure taxonomy
+    /// is first-class — a silent skip would read as "guard idle" in a
+    /// cell log when the sampler never measured). Env-gated:
+    /// `RIIR_DRIFT_GUARD_DEBUG=1`.
+    fn debug_skip(reason: &str) {
+        static DONE: OnceLock<()> = OnceLock::new();
+        static DEBUG: OnceLock<bool> = OnceLock::new();
+        if *DEBUG.get_or_init(|| std::env::var("RIIR_DRIFT_GUARD_DEBUG").as_deref() == Ok("1")) {
+            if DONE.set(()).is_ok() {
+                eprintln!("[drift-guard] first skip: {reason}");
+            }
+        }
+    }
+
     /// The guard-aware prefill gemm dispatch. `false` = not handled —
     /// the caller MUST fall through to the incumbent path
     /// byte-identically (the unarmed fast path declines before touching
@@ -429,6 +443,7 @@ pub mod metal {
             }
             // Exact twin missing or refused: fall through to the
             // incumbent rather than silently dropping the dispatch.
+            debug_skip("latched family but exact twin missing/refused — incumbent served");
             return false;
         }
 
@@ -437,10 +452,15 @@ pub mod metal {
         // latch), then the exact twin into guard scratch, then a bounded
         // strided compare.
         if g.should_sample() {
-            if mm_prod.dispatch(client, w, m, n, input, output, p).is_err() {
+            if mm_prod
+                .dispatch(client, w, m, n, input, output, p)
+                .is_err()
+            {
+                debug_skip("production dispatch errored — incumbent path reports it");
                 return false; // incumbent path reports the failure its way
             }
             let Some(exact) = EXACT_MM.get().and_then(|o| o.as_ref()) else {
+                debug_skip("sampled but exact twin not installed");
                 return true; // sampled, no twin: measurement skipped, result stands
             };
             let bytes = p * m * std::mem::size_of::<f32>();
@@ -452,18 +472,20 @@ pub mod metal {
                     .clone()
             };
             if exact.dispatch(client, w, m, n, input, &scratch, p).is_err() {
+                debug_skip("exact-twin dispatch errored — measurement skipped");
                 return true; // measurement failed, lossy result stands
             }
             // In-order shared queue (the dense module's law): production
             // committed before the exact twin's command buffer, so
             // waiting the twin's last buffer settles both.
             exact.wait_last();
-            let (prod, exac) = match (
-                client.read_one(output.clone()),
-                client.read_one(scratch.clone()),
-            ) {
+            let (prod, exac) = match (client.read_one(output.clone()), client.read_one(scratch.clone()))
+            {
                 (Ok(p), Ok(e)) if !p.is_empty() && p.len() == e.len() => (p, e),
-                _ => return true, // readback mismatch: disclosed, never latched blind
+                _ => {
+                    debug_skip("readback mismatch/empty — never latched blind");
+                    return true; // readback mismatch: disclosed, never latched blind
+                }
             };
             let prod_f: &[f32] = bytemuck::cast_slice(&prod);
             let exac_f: &[f32] = bytemuck::cast_slice(&exac);
