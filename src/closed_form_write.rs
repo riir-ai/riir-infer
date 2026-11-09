@@ -88,10 +88,22 @@ impl WriteOverlays {
             if *l != layer {
                 continue;
             }
+            #[cfg(test)]
+            eprintln!(
+                "[i1189-probe] apply() matched layer {layer}: pairs {} key_norm2 {:.3e}",
+                pairs.len(),
+                key.iter().map(|v| *v as f64 * *v as f64).sum::<f64>()
+            );
             for pair in pairs.iter() {
                 debug_assert!(pair.rank <= self.max_rank, "pair rank past the mount bound");
                 debug_assert!(scratch.len() >= pair.rank, "fold scratch too narrow");
                 pair.apply_correction_into(key, y, scratch);
+                #[cfg(test)]
+                eprintln!(
+                    "[i1189-probe] applied rank {} -> y[0..2] bits {:?}",
+                    pair.rank,
+                    y.iter().take(2).map(|v| v.to_bits()).collect::<Vec<_>>()
+                );
             }
             break;
         }
