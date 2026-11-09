@@ -1,6 +1,7 @@
 # Issue 1199 — the CPU-stage alternation tax: tail fwd inflates 2.6–2.9× when the multi-stream round-robin alternates per-stream stage instances (riir-infer 1198's measured root cause; the loopback overlap win the scheduler was built for is real once the tax is gone)
 
-**Status:** OPEN — filed 2026-11-09 (zed-aac1c647@amo) out of 1198's T1 evidence. **Claimed:** zed-aac1c647@amo (amo), 1794250000, expires 2026-11-11T18:30:00+00:00.
+**Status:** OPEN — filed 2026-11-09 (zed-aac1c647@amo) out of 1198's T1 evidence.
+**Claimed:** zed-aac1c647@amo (amo), 1794250000, expires 2026-11-11T18:30:00+00:00
 
 ## The measured fact
 
