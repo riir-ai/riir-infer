@@ -1,6 +1,7 @@
 # Issue 1187 — needle_eviction_gate `upsert_report` cannot re-read its own mid-run file (delta_nll NaN→null)
 
 **Status:** OPEN — found during the Bench 958 smoke cell (issue 1185 T3, 2026-11-09); pre-existing lane defect, not introduced by T3.
+**Claimed:** zed-8f7b6203@amo, 1794189900, expires 2026-11-11T02:05:00+00:00
 
 ## The defect
 
