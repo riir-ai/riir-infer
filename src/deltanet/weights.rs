@@ -297,12 +297,11 @@ pub struct QwenDeltaNetWeights {
     pub layer_types: Vec<DeltaNetLayerType>,
     /// Issue 1189 (`closed_form_write`): the mounted fact-write overlay
     /// table, folded after every down-proj matvec/matmat. `None` = the
-    /// demote posture — every forward is byte-identical to the incumbent
-    /// (the apply helper's `if let` compiles to a predictable not-taken
-    /// branch; the type is a few Vecs, never allocated by any loader). The
-    /// ENVELOPE mount + the `FactWriteModel` adapter are the feature-gated
-    /// halves (`closed_form_write` implies katgpt-core's constructor
-    /// feature); arming requires a sealed, digest-verified envelope.
+    /// demote posture — every forward is byte-identical to the incumbent.
+    /// Cfg-gated (the sink_audit precedent): a flag-off build compiles the
+    /// field out entirely — `QuantErrorLora` is feature-gated katgpt-core-
+    /// side, so the type cannot exist in a default build.
+    #[cfg(feature = "closed_form_write")]
     pub closed_form_overlays: Option<crate::closed_form_write::WriteOverlays>,
 }
 
@@ -1162,6 +1161,7 @@ pub fn load_qwen_deltanet_weights(model_dir: &Path) -> Result<(Config, QwenDelta
         lm_head,
         layers,
         layer_types,
+        #[cfg(feature = "closed_form_write")]
         closed_form_overlays: None,
     };
 
@@ -1337,6 +1337,7 @@ impl QwenDeltaNetWeights {
             lm_head,
             layers,
             layer_types,
+            #[cfg(feature = "closed_form_write")]
             closed_form_overlays: None,
         }
     }

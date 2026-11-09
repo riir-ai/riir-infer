@@ -70,11 +70,11 @@ pub mod deltanet;
 
 /// Issue 1189 — the closed-form fact-write lane: overlay-at-dequant apply,
 /// the teacher-forced capture sink, and the `FactWriteModel` adapter over
-/// katgpt-core's constructor (consumed, never forked). The apply types are
-/// always compiled (they are structurally `Option`-None in every default
-/// build — one dead branch per MLP block); the envelope mount + the adapter
-/// gate on katgpt-core's `closed_form_weight_write` via the opt-in
-/// `closed_form_write` feature. Empty overlays = byte-identical demote.
+/// katgpt-core's constructor (consumed, never forked). Gated wholesale:
+/// `QuantErrorLora` itself is feature-gated katgpt-core-side, so the module
+/// cannot resolve in a default build. Default builds compile it out
+/// entirely (the sink_audit precedent); empty overlays = byte-identical demote.
+#[cfg(feature = "closed_form_write")]
 pub mod closed_form_write;
 
 /// Ternary-weight transformer structs — only compiles with the ternary

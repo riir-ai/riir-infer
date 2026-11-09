@@ -30,12 +30,14 @@ use crate::types::Config;
 use katgpt_core::quant_error_lora::QuantErrorLora;
 
 /// The mounted overlay table: per-EDITED-layer rank-r pairs in the sealed
-/// envelope's canonical order, plus the shared rank-wide scratch (one buffer
-/// reused across pairs — `apply_correction_into` needs `[rank]`).
+/// envelope's canonical order. The fold scratch is CALLER-owned (the
+/// forward's reused buffers — the G4 scratch discipline).
 ///
-/// Mounted once at load ([`mount`]); the forward reads `Option<&WriteOverlays>`
-/// off the weights struct. Empty per-layer pair lists are legal (a no-op
-/// layer) — the envelope records which layers carry pairs.
+/// The forward reads `Option<&WriteOverlays>` off the weights struct (decode)
+/// and off the prefill context (batched MLP — the adapter arms the ctx field
+/// from the weights table before each teacher-forced pass). Empty per-layer
+/// pair lists are legal (a no-op layer).
+#[derive(Clone)]
 pub struct WriteOverlays {
     /// `(edited_layer, pairs)` ascending by layer. Pairs in canonical
     /// (fact-asc) order — the envelope's `pairs_all` order.
@@ -139,9 +141,10 @@ pub fn mount(pairs: Vec<(usize, QuantErrorLora)>) -> WriteOverlays {
         layers.windows(2).all(|w| w[0].0 < w[1].0),
         "mount: layer rows must ascend (canonical envelope order)"
     );
+    let edited: Vec<usize> = layers.iter().map(|(l, _)| *l).collect();
     WriteOverlays {
         layers,
-        edited: layers.iter().map(|(l, _)| *l).collect(),
+        edited,
         max_rank,
     }
 }
@@ -163,9 +166,13 @@ pub fn weights_digest(weights: &QwenDeltaNetWeights) -> [u8; 32] {
     feed(&mut h, &weights.wte);
     feed(&mut h, &weights.final_norm);
     // lm_head is tied to wte for Qwen 3.5 — feed it anyway so a future untie
-    // is caught by the digest, not by a silent provenance hole.
-    if let crate::deltanet::weights::Proj::Dense { data, .. } = &weights.lm_head {
-        feed(&mut h, data);
+    // is caught by the digest, not by a silent provenance hole. A cfg-aware
+    // match, not `if let` — with the ternary arm compiled out the single
+    // Dense variant makes `if let` irrefutable (clippy irrefutable_let_patterns).
+    match &weights.lm_head {
+        crate::deltanet::weights::Proj::Dense { data, .. } => feed(&mut h, data),
+        #[cfg(feature = "deltanet_ternary_inference")]
+        crate::deltanet::weights::Proj::Ternary(_) => {}
     }
     for layer in &weights.layers {
         feed_layer(h.by_ref(), layer);
@@ -174,12 +181,14 @@ pub fn weights_digest(weights: &QwenDeltaNetWeights) -> [u8; 32] {
 }
 
 fn feed_layer(h: &mut blake3::Hasher, layer: &crate::deltanet::weights::DeltaNetLayerWeights) {
-    let feed = |h: &mut blake3::Hasher, p: &crate::deltanet::weights::Proj| {
-        if let crate::deltanet::weights::Proj::Dense { data, .. } = p {
+    let feed = |h: &mut blake3::Hasher, p: &crate::deltanet::weights::Proj| match p {
+        crate::deltanet::weights::Proj::Dense { data, .. } => {
             for v in data.iter() {
                 h.update(&v.to_le_bytes());
             }
         }
+        #[cfg(feature = "deltanet_ternary_inference")]
+        crate::deltanet::weights::Proj::Ternary(_) => {}
     };
     feed(h, &layer.in_proj_qkv);
     feed(h, &layer.in_proj_z);
@@ -253,7 +262,7 @@ pub fn apply_down_proj(
 /// the solve reads. Only the whole-prompt prefill path captures (chunked
 /// prefill never mounts the sink — `capture_at` is a one-shot teacher-forced
 /// pass).
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct CaptureSink {
     /// Edited layers to capture (ascending; the adapter's `edited_layers`).
     pub layers: Vec<usize>,
@@ -420,11 +429,15 @@ impl<'a> QwenFactWriteModel<'a> {
     }
 
     /// Teacher-forced prefill over `seq`; returns the last-position logits.
+    /// Arms the prefill context's overlay + scratch fields from the weights
+    /// table (the batched MLP fold reads the ctx, not the weights — the
+    /// params-free gated plumbing), disarms after.
     fn prefill_logits(&mut self, seq: &[u32]) -> Vec<f32> {
         let tokens: Vec<usize> = seq.iter().map(|&t| t as usize).collect();
         let v = self.config.vocab_size;
         let mut logits = vec![0.0f32; v];
         self.prefill_ctx.closed_form_capture = None;
+        self.prefill_ctx.closed_form_overlays = self.weights.closed_form_overlays.clone();
         crate::deltanet::forward::prefill_qwen_deltanet_into(
             self.weights,
             self.config,
@@ -436,6 +449,7 @@ impl<'a> QwenFactWriteModel<'a> {
             &mut logits,
             None,
         );
+        self.prefill_ctx.closed_form_overlays = None;
         logits
     }
 }
@@ -470,7 +484,10 @@ impl katgpt_core::closed_form_weight_write::FactWriteModel for QwenFactWriteMode
                 }
                 acc.sqrt()
             }
-            _ => panic!("fact-write: the dense lane requires dense down_proj"),
+            #[cfg(feature = "deltanet_ternary_inference")]
+            crate::deltanet::weights::Proj::Ternary(_) => {
+                panic!("fact-write: the dense lane requires dense down_proj")
+            }
         }
     }
 
@@ -506,6 +523,7 @@ impl katgpt_core::closed_form_weight_write::FactWriteModel for QwenFactWriteMode
         let mut logits = vec![0.0f32; v];
         let edited = self.edited.clone();
         self.prefill_ctx.closed_form_capture = Some(CaptureSink::new(edited));
+        self.prefill_ctx.closed_form_overlays = self.weights.closed_form_overlays.clone();
         crate::deltanet::forward::prefill_qwen_deltanet_into(
             self.weights,
             self.config,
@@ -517,6 +535,7 @@ impl katgpt_core::closed_form_weight_write::FactWriteModel for QwenFactWriteMode
             &mut logits,
             None,
         );
+        self.prefill_ctx.closed_form_overlays = None;
         let sink = self.prefill_ctx.closed_form_capture.take().unwrap();
         sink.harvest(positions)
     }

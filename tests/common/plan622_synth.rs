@@ -175,6 +175,7 @@ pub fn synth_hybrid_weights(cfg: &Config, seed: u64) -> QwenDeltaNetWeights {
             attention_layer(&mut sm),
         ],
         layer_types,
+        #[cfg(feature = "closed_form_write")]
         closed_form_overlays: None,
     }
 }

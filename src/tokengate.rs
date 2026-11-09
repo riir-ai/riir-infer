@@ -713,6 +713,7 @@ mod tests {
             lm_head: crate::deltanet::weights::Proj::empty(),
             layers,
             layer_types: Vec::new(),
+            #[cfg(feature = "closed_form_write")]
             closed_form_overlays: None,
         }
     }

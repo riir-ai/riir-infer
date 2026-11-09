@@ -1973,6 +1973,7 @@ pub fn load_qwen_deltanet_weights_gguf(
         lm_head,
         layers,
         layer_types,
+        #[cfg(feature = "closed_form_write")]
         closed_form_overlays: None,
     };
 
