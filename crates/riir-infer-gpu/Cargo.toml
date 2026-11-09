@@ -835,6 +835,12 @@ required-features = ["flashmemory_budget_metal_t2"]
 name = "i1196_stage_attribution"
 required-features = ["flashmemory_budget_metal_t2"]
 
+# Issue 1197 — the plain-fixture divergence-growth attribution (Metal; the
+# same posture family — the synth kit + the decode forward + the census).
+[[test]]
+name = "i1197_amplifier_attribution"
+required-features = ["flashmemory_budget_metal_t2"]
+
 
 
 [dev-dependencies]

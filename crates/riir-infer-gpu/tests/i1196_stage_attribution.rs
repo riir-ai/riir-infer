@@ -197,12 +197,14 @@ fn agreement(a: &[Vec<f32>], b: &[Vec<f32>]) -> (f64, f32) {
 /// The standing hd-128 baseline gate (T3): on the CONVENTION-CORRECT
 /// FOLDED fixture (the decode posture serving runs), Metal dense vs CPU
 /// dense must agree at the measured synth baseline. The PLAIN fixture runs
-/// REPORT-ONLY beside it: its Metal-vs-CPU divergence GROWS with position
-/// (|Δ|/range 2e-3 at steps 0–1 → 1.6 by step 27 — fp reduction-order noise
-/// amplified through the untrained random network's direct path; the folded
-/// staging chain is ~10× tighter). That amplification is a separate
-/// accuracy study, filed forward — not this gate's law (see the issue's
-/// follow-up row).
+/// REPORT-ONLY beside it: its Metal-vs-CPU divergence is a TOKEN-DETERMINED
+/// SPIKE TRAIN (baseline noise 0.0015–0.008, deterministic spikes 0.15–1.66
+/// at specific tokens; state map contractive at 0.650 per head, attention
+/// exonerated by the zero-W_o surgery — issue 1197's study, resolved: the
+/// fp-difference × nonlinearity-cliff class on untrained weights, no
+/// position growth, no numerics change warranted). Re-run
+/// `i1197_amplifier_attribution` after any decode-kernel change: a NEW
+/// growth trend or folded-fixture spikes would be a real regression signal.
 #[test]
 fn i1196_hd128_dense_metal_vs_cpu_parity() {
     let (config, weights) = build_synth(true, true);
