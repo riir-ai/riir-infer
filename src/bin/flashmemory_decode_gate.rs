@@ -28,10 +28,10 @@
 //! no bin at all) also rewrites its bin every `--bucket` steps as a
 //! complete=0 prefix, temp+rename atomic, so a mid-arm kill keeps the
 //! counted prefix readable post-hoc. On startup a COMPLETE bin whose digest
-//! matches the current inputs is LOADED instead of recomputed (a complete=0
-//! prefix is refused by the loader — it is collection value, not a resume
-//! point; resuming mid-arm would need the GDN cache + selection state
-//! serialized). The digest pins ctx/steps/block/refresh/rho/compare-from +
+//! matches the current inputs is LOADED instead of recomputed; since Issue
+//! 1191 T3 a complete=0 prefix is ALSO loadable under `--resume` (the arm
+//! continues from its cursor — the state rebuild is the deterministic
+//! replay, no serialization needed). The digest pins ctx/steps/block/refresh/rho/compare-from +
 //! the corpus bytes + the first 64 MiB of the gguf — a changed corpus or
 //! model at the same paths refuses the stale bin loud (`--fresh` recomputes
 //! anyway). Forward code paths are untouched by this layer.
@@ -78,6 +78,14 @@ use riir_infer_core::quant::kvq_harness::nll;
 use riir_infer_core::rope::RopeFreqTable;
 use riir_infer_core::tokenizer::BpeTokenizer;
 
+fn hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
+}
+
 const DEFAULT_GGUF: &str = "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
 
 struct Args {
@@ -93,6 +101,9 @@ struct Args {
     retain_every: usize,
     out: PathBuf,
     fresh: bool,
+    /// Issue 1191 T3: continue incomplete arms from their prefix-bin
+    /// cursor (the rows recovered; the skipped steps replay for state).
+    resume: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -109,8 +120,12 @@ fn parse_args() -> Result<Args> {
         compare_from: 0,
         max_steps: 0,
         retain_every: 16,
-        out: PathBuf::from("/tmp/fm_decode_gate"),
+        // Issue 1191 T3 — the DURABLE default (the Bench-893-v1 failure
+        // class: the recipe + partials lost WITH /tmp). NEVER /tmp.
+        out: PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+            .join(".cache/i1117"),
         fresh: false,
+        resume: false,
     };
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -137,6 +152,10 @@ fn parse_args() -> Result<Args> {
             "--out" => a.out = value().into(),
             "--fresh" => {
                 a.fresh = true;
+                step = 1;
+            }
+            "--resume" => {
+                a.resume = true;
                 step = 1;
             }
             _ => anyhow::bail!("unknown arg {name} (see the module doc)"),
@@ -245,11 +264,14 @@ fn write_arm_bin(
     Ok(())
 }
 
-fn load_arm_bin(
+/// Load a bin; `allow_prefix` accepts complete=0 bins and returns the
+/// cursor (the strict form rejects them — the completed-bin reload law).
+fn load_arm_bin_opts(
     path: &std::path::Path,
     digest: &[u8; 32],
     expected_steps: usize,
-) -> Result<ArmScore> {
+    allow_prefix: bool,
+) -> Result<(ArmScore, usize)> {
     let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
     let bad = |why: &str| anyhow::anyhow!("{}: {}", path.display(), why);
     if bytes.len() < 4 + 32 + 8 + 1 + 8 + 8 + 8 {
@@ -265,12 +287,18 @@ fn load_arm_bin(
     if steps != expected_steps {
         return Err(bad(&format!("steps {steps} != expected {expected_steps}")));
     }
-    if bytes[44] != 1 {
-        return Err(bad("in-flight prefix (complete=0)"));
-    }
+    let complete = bytes[44] == 1;
     let n = u64::from_le_bytes(bytes[45..53].try_into().unwrap()) as usize;
-    if n != steps {
+    if complete && n != steps {
         return Err(bad(&format!("n_written {n} != steps {steps}")));
+    }
+    if !complete {
+        if !allow_prefix {
+            return Err(bad("in-flight prefix (complete=0; pass --resume)"));
+        }
+        if n > steps {
+            return Err(bad(&format!("prefix n_written {n} > steps {steps}")));
+        }
     }
     let mean_sel = f64::from_le_bytes(bytes[53..61].try_into().unwrap());
     let wall = f64::from_le_bytes(bytes[61..69].try_into().unwrap());
@@ -288,12 +316,23 @@ fn load_arm_bin(
         nll.push(f32::from_le_bytes(row[..4].try_into().unwrap()));
         argmax.push(u64::from_le_bytes(row[4..12].try_into().unwrap()) as usize);
     }
-    Ok(ArmScore {
+    let rows = ArmScore {
         nll,
         argmax,
         mean_selected_fraction: mean_sel,
         wall_secs: wall,
-    })
+    };
+    let cursor = if complete { steps } else { n };
+    Ok((rows, cursor))
+}
+
+/// The strict completed-bin form (the incumbent call sites).
+fn load_arm_bin(
+    path: &std::path::Path,
+    digest: &[u8; 32],
+    expected_steps: usize,
+) -> Result<ArmScore> {
+    load_arm_bin_opts(path, digest, expected_steps, false).map(|(rows, _)| rows)
 }
 
 fn arm_bin_path(out: &std::path::Path, name: &str) -> std::path::PathBuf {
@@ -372,6 +411,38 @@ fn main() -> Result<()> {
 
     let digest = inputs_digest(&args)?;
 
+    // Issue 1191 T3 — the corpus recipe record: the v1 failure class (the
+    // corpus file list lost with /tmp) is impossible by construction —
+    // the recipe lands at startup, before any compute.
+    {
+        let corpus_bytes = std::fs::read(&args.corpus_file).unwrap_or_default();
+        let recipe = serde_json::json!({
+            "digest_hex": hex(&digest),
+            "gguf": args.gguf.display().to_string(),
+            "corpus_file": args.corpus_file.display().to_string(),
+            "corpus_len": corpus_bytes.len(),
+            "corpus_blake3": blake3::hash(&corpus_bytes).to_string(),
+            "ctx": args.ctx,
+            "max_steps": args.max_steps,
+            "block": args.block,
+            "refresh": args.refresh,
+            "bucket": args.bucket,
+            "compare_from": args.compare_from,
+            "rho_list": args.rho_list,
+            "written_at": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        });
+        let recipe_path = args.out.join("recipe.json");
+        let tmp = recipe_path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_vec_pretty(&recipe).unwrap())
+            .with_context(|| format!("write {}", tmp.display()))?;
+        std::fs::rename(&tmp, &recipe_path)
+            .with_context(|| format!("rename into {}", recipe_path.display()))?;
+        println!("# recipe → {}", recipe_path.display());
+    }
+
     // ── Dense reference arm (load-or-compute; the bin persists progressively) ─
     let dense_bin = arm_bin_path(&args.out, "dense");
     let dense = if !args.fresh
@@ -383,6 +454,75 @@ fn main() -> Result<()> {
             loaded.wall_secs
         );
         loaded
+    } else if args.resume
+        && let Ok((prefix, cursor)) = load_arm_bin_opts(&dense_bin, &digest, steps, true)
+        && cursor > 0
+        && cursor < steps
+    {
+        // --resume: replay 0..cursor through a fresh cache (deterministic —
+        // the state rebuild costs the skipped steps' compute, never their
+        // wall), then continue from the cursor.
+        println!(
+            "# arm: dense (reference) — RESUME from cursor {cursor}/{} ({} rows recovered)",
+            steps, cursor
+        );
+        let t0 = Instant::now();
+        let mut cache =
+            HybridCache::with_layer_types_bounded(&config, &weights.layer_types, steps + 2);
+        let mut scratch = HybridForwardScratch::new(&config);
+        let mut x = vec![0.0f32; x_len];
+        let mut dense_nll = prefix.nll.clone();
+        dense_nll.resize(steps, 0.0);
+        let mut dense_argmax = prefix.argmax.clone();
+        dense_argmax.resize(steps, 0);
+        for pos in cursor..steps {
+            let logits = forward_qwen_deltanet_ternary(
+                &mut x,
+                &weights,
+                &mut cache,
+                tokens[pos],
+                pos,
+                &config,
+                &mut scratch,
+                &rope,
+            );
+            dense_nll[pos] = nll(logits, tokens[pos + 1]) as f32;
+            dense_argmax[pos] = argmax(logits);
+            if pos > cursor && pos % args.bucket == 0 {
+                let meta = ArmBinMeta {
+                    expected_steps: steps,
+                    complete: false,
+                    mean_selected_fraction: 1.0,
+                    wall_secs: prefix.wall_secs + t0.elapsed().as_secs_f64(),
+                };
+                let _ = write_arm_bin(
+                    &dense_bin,
+                    &digest,
+                    &meta,
+                    &dense_nll[..pos],
+                    &dense_argmax[..pos],
+                );
+            }
+        }
+        let dense_wall = prefix.wall_secs + t0.elapsed().as_secs_f64();
+        drop(cache);
+        let meta = ArmBinMeta {
+            expected_steps: steps,
+            complete: true,
+            mean_selected_fraction: 1.0,
+            wall_secs: dense_wall,
+        };
+        write_arm_bin(&dense_bin, &digest, &meta, &dense_nll, &dense_argmax)?;
+        println!(
+            "#   dense arm (resumed) persisted → {}",
+            dense_bin.display()
+        );
+        ArmScore {
+            nll: dense_nll,
+            argmax: dense_argmax,
+            mean_selected_fraction: 1.0,
+            wall_secs: dense_wall,
+        }
     } else {
         println!("# arm: dense (reference)");
         let t0 = Instant::now();
@@ -468,6 +608,13 @@ fn main() -> Result<()> {
             arms.push((rho, loaded));
             continue;
         }
+        let resumed = if args.resume {
+            load_arm_bin_opts(&rho_bin, &digest, steps, true)
+                .ok()
+                .filter(|(_, cursor)| *cursor > 0 && *cursor < steps)
+        } else {
+            None
+        };
         println!(
             "# arm: flashmemory rho={rho} (block {} refresh {})",
             args.block, args.refresh
@@ -492,7 +639,22 @@ fn main() -> Result<()> {
         let mut arm_argmax = vec![0usize; steps];
         let mut selected_sum = 0f64;
         let mut selected_n = 0f64;
-        for pos in 0..steps {
+        let start_pos = if let Some((prefix, cursor)) = resumed.as_ref() {
+            // --resume: replay 0..cursor (state rebuild — deterministic),
+            // keep the recovered rows, continue from the cursor.
+            println!(
+                "# arm: flashmemory rho={rho} — RESUME from cursor {cursor}/{} ({} rows recovered, sel frac {:.4} so far)",
+                steps, cursor, prefix.mean_selected_fraction
+            );
+            arm_nll[..*cursor].copy_from_slice(&prefix.nll[..*cursor]);
+            arm_argmax[..*cursor].copy_from_slice(&prefix.argmax[..*cursor]);
+            selected_sum = prefix.mean_selected_fraction * (*cursor as f64);
+            selected_n = *cursor as f64;
+            *cursor
+        } else {
+            0
+        };
+        for pos in start_pos..steps {
             if pos > 0 && pos % 64 == 0 {
                 let el = t0.elapsed().as_secs_f64();
                 eprintln!(
@@ -552,7 +714,8 @@ fn main() -> Result<()> {
                 );
             }
         }
-        let wall = t0.elapsed().as_secs_f64();
+        let this_wall = t0.elapsed().as_secs_f64();
+        let wall = this_wall + resumed.as_ref().map_or(0.0, |(p, _)| p.wall_secs);
         drop(cache);
         let mean_frac = if selected_n > 0.0 {
             selected_sum / selected_n
@@ -560,7 +723,7 @@ fn main() -> Result<()> {
             1.0
         };
         println!(
-            "#   wall {:.1}s — {:.1} tok/s — mean selected fraction {:.4} (last attn layer, sampled every {})",
+            "#   wall {:.1}s — {:.1} tok/s (effective) — mean selected fraction {:.4} (last attn layer, sampled every {})",
             wall,
             steps as f64 / wall,
             mean_frac,
