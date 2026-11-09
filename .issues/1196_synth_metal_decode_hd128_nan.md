@@ -2,6 +2,8 @@
 
 **Status:** OPEN — found by issue 1191 T2's first parity-cell run (2026-11-09); NOT a 1191 defect (its parity pivoted to the real model; the bisect below PROVES the 1191 arm clean on the league posture).
 
+**Claimed:** zed-fd805f52@m3, 1794232800, expires 2026-11-11T22:00:00+00:00
+
 ## The finding
 
 `tests/common/synth_bonsai2.rs` (4 layers: 3 DeltaNet + 1 Attention, hd 128, folded) driven through `TernaryDeltanetGpuForward` (the METAL decode forward, feature `flashmemory_budget_metal_t2` posture, DISARMED — the incumbent dense path) produces **NaN logits from step 16** and every step after: teacher-forced walk vs the CPU dense lane on the identical stream agrees bit-clean for steps 0–15, then `top1 = 255` with NaN logits at step 16 and beyond (agreement 16/40, worst |Δlogit| 4.02 over the 40-step window; measured 2026-11-09, amo M5 Ultra).
