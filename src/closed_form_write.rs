@@ -26,6 +26,7 @@
 //! in-lattice pair on Cell A is T4's one honest fragility measurement.
 
 use crate::deltanet::weights::QwenDeltaNetWeights;
+use crate::types::Config;
 use katgpt_core::quant_error_lora::QuantErrorLora;
 
 /// The mounted overlay table: per-EDITED-layer rank-r pairs in the sealed
@@ -365,8 +366,8 @@ impl CaptureSink {
 /// The adapter that lets katgpt-core's closed-form constructor drive THIS
 /// repo's dense qwen35-hybrid forward. Owns the model state for the
 /// construction session (weights stay shared — the base artifact never
-/// moves; overlays mount/demount through [`QwenDeltaNetWeights::
-closed_form_overlays`]).
+/// moves; overlays mount/demount through the weights struct's
+/// `closed_form_overlays` field).
 ///
 /// Gated with the constructor itself (`closed_form_write` ⇒
 /// `katgpt-core/closed_form_weight_write`) — without the feature this type
