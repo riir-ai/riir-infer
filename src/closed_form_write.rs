@@ -769,25 +769,33 @@ mod tests {
                 crate::types::DeltaNetLayerType::Attention,
             ],
         );
-        // Deterministic small-magnitude filler over every dense surface the
-        // forward reads (an LCG walk — seeded, no RNG dep). Zeros would make
-        // the engagement arm vacuous (see the doc comment).
+        // Deterministic HEALTHY filler over every dense surface the forward
+        // reads: weights POSITIVE in [0.125, 0.375) and norm gammas pinned to
+        // 1.0. An all-signed random seed drove the residual stream into a
+        // degenerate denormal state by layer 1's MLP (key_norm2 ~ 1e-63 — the
+        // gate round 9/10 probes caught it: sign cancellation through the
+        // norm/recurrence stack), which made the engagement arm vacuous — the
+        // correction B·(A·~0) is ~0 no matter the pair. A positive-bounded
+        // fixture keeps the stream O(1) so the fold's delta lands.
         fn seeded(w: &mut QwenDeltaNetWeights) {
             let mut s = 0x9E3779B97F4A7C15u64;
             let fill = |buf: &mut [f32], s: &mut u64| {
                 for v in buf.iter_mut() {
                     *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                    *v = ((*s >> 40) as f32 / (u32::MAX as f32)) - 0.5;
+                    *v = 0.125 + ((*s >> 40) as f32 / (u32::MAX as f32)) * 0.25;
+                }
+            };
+            let fill_norm_ones = |buf: &mut [f32]| {
+                for v in buf.iter_mut() {
+                    *v = 1.0;
                 }
             };
             use crate::deltanet::weights::Proj;
-            let fill_proj = |p: &mut Proj, s: &mut u64| {
-                if let Proj::Dense { data, .. } = p {
-                    fill(data, s);
-                }
+            let fill_proj = |p: &mut Proj, s: &mut u64| match p {
+                Proj::Dense { data, .. } => fill(data, s),
             };
             fill(&mut w.wte, &mut s);
-            fill(&mut w.final_norm, &mut s);
+            fill_norm_ones(&mut w.final_norm);
             fill_proj(&mut w.lm_head, &mut s);
             for layer in w.layers.iter_mut() {
                 fill_proj(&mut layer.in_proj_qkv, &mut s);
@@ -799,17 +807,22 @@ mod tests {
                 fill_proj(&mut layer.up_proj, &mut s);
                 fill_proj(&mut layer.down_proj, &mut s);
                 fill(&mut layer.conv1d_weight, &mut s);
-                fill(&mut layer.a_log, &mut s);
+                // The GDN decay: a_log NEGATIVE small (decay < 1 — the state
+                // forgets slowly instead of blowing up); dt_bias positive
+                // small; per-head norm 1.
+                for v in layer.a_log.iter_mut() {
+                    *v = -0.5;
+                }
                 fill(&mut layer.dt_bias, &mut s);
-                fill(&mut layer.linear_norm, &mut s);
+                fill_norm_ones(&mut layer.linear_norm);
                 fill_proj(&mut layer.attn_wq, &mut s);
                 fill_proj(&mut layer.attn_wk, &mut s);
                 fill_proj(&mut layer.attn_wv, &mut s);
                 fill_proj(&mut layer.attn_wo, &mut s);
-                fill(&mut layer.attn_q_norm, &mut s);
-                fill(&mut layer.attn_k_norm, &mut s);
-                fill(&mut layer.input_norm, &mut s);
-                fill(&mut layer.post_attn_norm, &mut s);
+                fill_norm_ones(&mut layer.attn_q_norm);
+                fill_norm_ones(&mut layer.attn_k_norm);
+                fill_norm_ones(&mut layer.input_norm);
+                fill_norm_ones(&mut layer.post_attn_norm);
             }
         }
 
