@@ -100,6 +100,12 @@ cargo build --release --features scale_invariant_attn,bonsai2_hadamard --bin si_
 # flag loud). Instrument-grade — never a serving path:
 #   cargo run --release --features scale_invariant_attn,bonsai2_hadamard,golden_nll \
 #     --bin si_zero_shot_ppl -- --gguf <model> --corpus <text> --arms base --golden-nll
+# Issue 1188 extends the same lane: `--family-census` (the qwen35-hybrid tensor-family
+# census over the GGUF header — no corpus, refuses unclassified names loud) and
+# `--family-ablate <family> --family-posture q8` (the paired per-family Q8_0 requant
+# cell — pooled golden Δ-NLL + argmax flips over ONE frozen read; `family_census.rs`
+# is the ungated classifier, the committed census fixture pins the Bonsai-2 taxonomy;
+# the ranked 27B cell is Issue 1190):
 # The encoder-lane crate (features mirror the names consumers forward):
 cargo check -p riir-infer-laya --features laya-riir
 cargo clippy -p riir-infer-laya --all-targets --features laya-riir-metal -- -D warnings
