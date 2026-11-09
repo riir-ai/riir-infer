@@ -994,6 +994,12 @@ pub struct DspineDrafter {
     ring_v: Vec<Vec<f32>>,
     ring_pos: VecDeque<usize>,
     rope_freqs: Vec<f32>,
+    /// TRAINING-ONLY unrounded mode (plan 492 T1): the block forward +
+    /// tail skip every bf16 boundary round — the smooth surrogate the
+    /// distill loss/gradFD optimize. The vendor-exact path (default) is
+    /// pinned bit-identical by test; the eval harness NEVER constructs
+    /// this mode.
+    pub plain_numerics: bool,
 }
 
 /// The last write's stash (the tail's inputs): `raw [T, H]` (bf16-valued),
@@ -1081,6 +1087,9 @@ pub struct DspineTailTrace {
     /// `[γ·r]` the tail's `q` (`stash.packed_q[1..]` — the gate_w half of
     /// the last write's packed).
     pub packed_q: Vec<f32>,
+    /// `[γ][k]` the candidate matrix (ascending ids — duplicated from the
+    /// draft so the trace alone is self-contained for the trainer).
+    pub candidates: Vec<Vec<u32>>,
     /// `[γ][k]` first-index argmax lanes (the runtime walk's routing).
     pub idx: Vec<Vec<usize>>,
     /// `[γ][k]` the confidence masses.
@@ -1092,6 +1101,10 @@ pub struct DspineTailTrace {
 #[derive(Debug, Clone, Default)]
 pub struct DspineBlockTrace {
     pub anchor_token: u32,
+    /// The draft's absolute anchor position (== the context length at
+    /// draft time; the rope base and the attention visibility rule derive
+    /// from it).
+    pub anchor_pos: usize,
     /// One entry per draft layer (n_layer of them, draft order).
     pub layers: Vec<DspineLayerTrace>,
     pub tail: DspineTailTrace,
@@ -1116,7 +1129,14 @@ impl DspineDrafter {
             ring_v,
             ring_pos: VecDeque::with_capacity(sw + 8),
             rope_freqs,
+            plain_numerics: false,
         }
+    }
+
+    /// The training-only unrounded posture (see the field's docs).
+    pub fn with_plain_numerics(mut self) -> Self {
+        self.plain_numerics = true;
+        self
     }
 
     /// Serve `2..=trained` rows per block (the vendor `set_block_size`; the
@@ -1274,6 +1294,32 @@ impl DspineDrafter {
         tables: &SerialTables,
         mut tr: Option<&mut DspineBlockTrace>,
     ) -> Result<DspineDraft, String> {
+        // The rounding mode: the training-only plain posture skips every
+        // bf16 boundary (the smooth surrogate); the default is the
+        // vendor-exact path, pinned bit-identical by test.
+        let rnd: fn(f32) -> f32 = if self.plain_numerics { |v| v } else { bf16r };
+        let gv = |w: &[f32], x: &[f32], n: usize| -> Vec<f32> {
+            let inn = x.len();
+            let mut dst = vec![0.0f32; n];
+            for (o, d) in dst.iter_mut().enumerate() {
+                let row = &w[o * inn..(o + 1) * inn];
+                let mut acc = 0.0f32;
+                for (i, &v) in x.iter().enumerate() {
+                    acc += row[i] * v;
+                }
+                *d = rnd(acc);
+            }
+            dst
+        };
+        let rn = |x: &[f32], gamma: &[f32], eps: f32| -> Vec<f32> {
+            let n = x.len();
+            let mut ss = 0.0f32;
+            for &v in x {
+                ss += v * v;
+            }
+            let inv = 1.0 / (ss / n as f32 + eps).sqrt();
+            (0..n).map(|i| rnd(x[i] * inv * gamma[i])).collect()
+        };
         let cfg = &self.cfg;
         let t = self.block_size;
         let e = cfg.n_embd;
@@ -1287,10 +1333,10 @@ impl DspineDrafter {
         // ── the block input: anchor + masks, TARGET embeddings ──
         // (the draft binds the target's embed_tokens; the checkpoint ships
         // none.) bf16-rounded: the vendor's table was bf16.
-        let anchor_emb: Vec<f32> = embed_row(anchor_token).iter().map(|&x| bf16r(x)).collect();
+        let anchor_emb: Vec<f32> = embed_row(anchor_token).iter().map(|&x| rnd(x)).collect();
         let mask_emb: Vec<f32> = embed_row(cfg.mask_token_id)
             .iter()
-            .map(|&x| bf16r(x))
+            .map(|&x| rnd(x))
             .collect();
         let mut x = vec![0.0f32; t * e];
         x[..e].copy_from_slice(&anchor_emb);
@@ -1312,7 +1358,7 @@ impl DspineDrafter {
         // Layer 0 input norm (every row); residual stream = x.
         let mut x_in = vec![0.0f32; t * e];
         for i in 0..t {
-            let normed = rmsnorm_std(
+            let normed = rn(
                 &x[i * e..(i + 1) * e],
                 &self.w.layers[0].input_norm,
                 cfg.rms_eps,
@@ -1321,6 +1367,7 @@ impl DspineDrafter {
         }
         if let Some(tr) = tr.as_deref_mut() {
             tr.anchor_token = anchor_token;
+            tr.anchor_pos = anchor_pos;
         }
         let mut stash = LastWriteStash {
             raw: vec![0.0f32; t * e],
@@ -1346,10 +1393,10 @@ impl DspineDrafter {
             let mut vv = vec![0.0f32; t * n_kv];
             for i in 0..t {
                 let seg = &x_in[i * e..(i + 1) * e];
-                let q_o = gemv_bf16(&layer.q_proj, seg, nh * hd);
+                let q_o = gv(&layer.q_proj, seg, nh * hd);
                 q[i * nh * hd..(i + 1) * nh * hd].copy_from_slice(&q_o);
-                k[i * n_kv..(i + 1) * n_kv].copy_from_slice(&gemv_bf16(&layer.k_proj, seg, n_kv));
-                vv[i * n_kv..(i + 1) * n_kv].copy_from_slice(&gemv_bf16(&layer.v_proj, seg, n_kv));
+                k[i * n_kv..(i + 1) * n_kv].copy_from_slice(&gv(&layer.k_proj, seg, n_kv));
+                vv[i * n_kv..(i + 1) * n_kv].copy_from_slice(&gv(&layer.v_proj, seg, n_kv));
             }
             // Per-head q/k norms + rope at absolute positions.
             let mut normed = vec![0.0f32; hd];
@@ -1357,7 +1404,7 @@ impl DspineDrafter {
                 let p = anchor_pos + i;
                 for h in 0..nh {
                     let base = i * nh * hd + h * hd;
-                    normed.copy_from_slice(&rmsnorm_std(
+                    normed.copy_from_slice(&rn(
                         &q[base..base + hd],
                         &layer.q_norm,
                         cfg.rms_eps,
@@ -1367,7 +1414,7 @@ impl DspineDrafter {
                 }
                 for h in 0..kvh {
                     let base = i * n_kv + h * hd;
-                    normed.copy_from_slice(&rmsnorm_std(
+                    normed.copy_from_slice(&rn(
                         &k[base..base + hd],
                         &layer.k_norm,
                         cfg.rms_eps,
@@ -1479,16 +1526,16 @@ impl DspineDrafter {
             for i in 0..t {
                 let row_in: Vec<f32> = attn_out[i * nh * hd..(i + 1) * nh * hd]
                     .iter()
-                    .map(|&v| bf16r(v))
+                    .map(|&v| rnd(v))
                     .collect();
-                let o = gemv_bf16(&layer.o_proj, &row_in, e);
+                let o = gv(&layer.o_proj, &row_in, e);
                 ao[i * e..(i + 1) * e].copy_from_slice(&o);
             }
 
             // Residual: h = bf16(x + attn_out).
             let mut h = vec![0.0f32; t * e];
             for j in 0..t * e {
-                h[j] = bf16r(x[j] + ao[j]);
+                h[j] = rnd(x[j] + ao[j]);
             }
 
             // MLP: norm → SwiGLU → down, bf16 at every boundary.
@@ -1497,23 +1544,23 @@ impl DspineDrafter {
             let mut ffn_g_all = vec![0.0f32; t * cfg.n_ff];
             let mut ffn_u_all = vec![0.0f32; t * cfg.n_ff];
             for i in 0..t {
-                let hf = rmsnorm_std(&h[i * e..(i + 1) * e], &layer.ffn_norm, cfg.rms_eps);
+                let hf = rn(&h[i * e..(i + 1) * e], &layer.ffn_norm, cfg.rms_eps);
                 let g = gemv_bf16(&layer.gate_proj, &hf, cfg.n_ff);
                 let u = gemv_bf16(&layer.up_proj, &hf, cfg.n_ff);
                 ffn_g_all[i * cfg.n_ff..(i + 1) * cfg.n_ff].copy_from_slice(&g);
                 ffn_u_all[i * cfg.n_ff..(i + 1) * cfg.n_ff].copy_from_slice(&u);
                 for (o_i, (m_o, mg)) in mid.iter_mut().zip(g.iter()).enumerate() {
-                    let s = bf16r(mg / (1.0 + (-mg).exp()));
-                    *m_o = bf16r(s * u[o_i]);
+                    let s = rnd(mg / (1.0 + (-mg).exp()));
+                    *m_o = rnd(s * u[o_i]);
                 }
-                let d = gemv_bf16(&layer.down_proj, &mid, e);
+                let d = gv(&layer.down_proj, &mid, e);
                 mlp_out[i * e..(i + 1) * e].copy_from_slice(&d);
             }
 
             // out = bf16(h + mlp_out) — the new residual stream.
             let mut out = vec![0.0f32; t * e];
             for j in 0..t * e {
-                out[j] = bf16r(h[j] + mlp_out[j]);
+                out[j] = rnd(h[j] + mlp_out[j]);
             }
             if let Some(tr) = tr.as_deref_mut() {
                 let lt = tr.layers.last_mut().unwrap();
@@ -1547,10 +1594,19 @@ impl DspineDrafter {
             for i in 0..t {
                 let raw_row = &out[i * e..(i + 1) * e];
                 // raw is already bf16-valued (out is). The read norm.
-                let (rms, normed_in) = bridge_read_norm(raw_row, cfg.bridge_eps);
+                let (rms, normed_in) = if self.plain_numerics {
+                    let nn = raw_row.len();
+                    let mut ss = 0.0f32;
+                    for &v in raw_row { ss += v * v; }
+                    let rms = (ss / nn as f32).max(f32::MIN_POSITIVE).sqrt();
+                    let normed: Vec<f32> = (0..nn).map(|i2| raw_row[i2] / (rms + cfg.bridge_eps)).collect();
+                    (rms, normed)
+                } else {
+                    bridge_read_norm(raw_row, cfg.bridge_eps)
+                };
                 rms_all[i] = rms;
                 normed_all[i * e..(i + 1) * e].copy_from_slice(&normed_in);
-                let projected = gemv_bf16(read_w, &normed_in, cfg.code_size);
+                let projected = gv(read_w, &normed_in, cfg.code_size);
                 projected_all[i * cfg.code_size..(i + 1) * cfg.code_size]
                     .copy_from_slice(&projected);
                 // codes: anchor row ← sqrt(C)·codebook[anchor]; else the
@@ -1559,7 +1615,7 @@ impl DspineDrafter {
                 if i % t == 0 {
                     let cb = anchor_token as usize * cfg.code_size;
                     for (j, cv) in codes.iter_mut().enumerate() {
-                        *cv = bf16r(sqrt_c * self.w.bridge.codebook[cb + j]);
+                        *cv = rnd(sqrt_c * self.w.bridge.codebook[cb + j]);
                     }
                 } else {
                     let mut nrm = 0.0f32;
@@ -1568,11 +1624,11 @@ impl DspineDrafter {
                     }
                     let nrm = nrm.sqrt();
                     for (j, cv) in codes.iter_mut().enumerate() {
-                        *cv = bf16r(sqrt_c * projected[j] / (nrm + cfg.bridge_eps));
+                        *cv = rnd(sqrt_c * projected[j] / (nrm + cfg.bridge_eps));
                     }
                 }
                 codes_all[i * cfg.code_size..(i + 1) * cfg.code_size].copy_from_slice(&codes);
-                let packed = gemv_bf16(&packed_w, &codes, 3 * cfg.rank);
+                let packed = gv(&packed_w, &codes, 3 * cfg.rank);
                 packed_all[i * 3 * cfg.rank..(i + 1) * 3 * cfg.rank].copy_from_slice(&packed);
                 if li + 1 == cfg.n_layer {
                     stash.raw[i * e..(i + 1) * e].copy_from_slice(raw_row);
@@ -1597,10 +1653,10 @@ impl DspineDrafter {
                         let sv = packed_all[pbase + cfg.rank + j];
                         let vv_ = packed_all[pbase + 2 * cfg.rank + j];
                         let gate = 1.0 / (1.0 + (-(qv + sv + self.w.bridge.gate_b[j]).exp()));
-                        message[j] = bf16r(gate * vv_);
+                        message[j] = rnd(gate * vv_);
                     }
                 }
-                delta = gemv_bf16(write_w, &message, e);
+                delta = gv(write_w, &message, e);
                 message_all[i * cfg.rank..(i + 1) * cfg.rank].copy_from_slice(&message);
                 delta_all[i * e..(i + 1) * e].copy_from_slice(&delta);
                 // out_row = bf16(f + rms·delta) at non-anchor rows — the
@@ -1608,7 +1664,7 @@ impl DspineDrafter {
                 let mut out_row = vec![0.0f32; e];
                 for (j, ov) in out_row.iter_mut().enumerate() {
                     let upd = if i % t != 0 { rms * delta[j] } else { 0.0 };
-                    *ov = bf16r(raw_row[j] + upd);
+                    *ov = rnd(raw_row[j] + upd);
                 }
                 // The fused next norm (finish form: variance + eps).
                 let mut ss = 0.0f32;
@@ -1617,8 +1673,8 @@ impl DspineDrafter {
                 }
                 let inv = 1.0 / (ss / e as f32 + cfg.rms_eps).sqrt();
                 for (j, ov) in next_x_in[i * e..(i + 1) * e].iter_mut().enumerate() {
-                    let y = bf16r(out_row[j] * inv);
-                    *ov = bf16r(y * next_norm_w[j]);
+                    let y = rnd(out_row[j] * inv);
+                    *ov = rnd(y * next_norm_w[j]);
                 }
                 next_x[i * e..(i + 1) * e].copy_from_slice(&out_row);
             }
@@ -1668,6 +1724,7 @@ impl DspineDrafter {
         tables: &SerialTables,
         mut tr: Option<&mut DspineTailTrace>,
     ) -> Result<DspineDraft, String> {
+        let rnd: fn(f32) -> f32 = if self.plain_numerics { |v| v } else { bf16r };
         let cfg = &self.cfg;
         let t = self.block_size;
         let e = cfg.n_embd;
@@ -1684,8 +1741,8 @@ impl DspineDrafter {
             }
             let inv = 1.0 / (ss / e as f32 + cfg.rms_eps).sqrt();
             for (j, rv) in rows[i * e..(i + 1) * e].iter_mut().enumerate() {
-                let y = bf16r(raw_row[j] * inv);
-                *rv = bf16r(y * self.w.model_norm[j]);
+                let y = rnd(raw_row[j] * inv);
+                *rv = rnd(y * self.w.model_norm[j]);
             }
         }
 
@@ -1717,6 +1774,7 @@ impl DspineDrafter {
             tr.base = extras.0;
             tr.rms = stash.rms[1..].to_vec();
             tr.packed_q = stash.packed_q[cfg.rank..].to_vec();
+            tr.candidates = candidates.clone();
             tr.idx = idx.clone();
             tr.probs = probs.clone();
         }
