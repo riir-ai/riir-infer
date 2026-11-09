@@ -468,7 +468,15 @@ pub fn synth_tensors_bonsai2_typed(ternary_id: u32) -> Vec<TensorSpec> {
                 ggml_type: 0,
                 data: f32_payload(&vec![0.1f32; (CONV_K * conv_dim) as usize]),
             });
-            // dt bias + a (F32)
+            // dt bias + a (F32). `ssm_a` carries the Issue-594 loader
+            // convention: `a_log = −exp(A_log_raw)` (NEGATIVE, so decay =
+            // exp(a_log·softplus) ∈ (0,1]). The kit historically wrote a raw
+            // +1.0 here — decay ≥ 1 on every lane, the recurrence state grew
+            // without bound, and the first Metal decode walk over it NaN'd
+            // mid-walk (issue 1196: growth surfacing as a "mystery NaN"; the
+            // per-step buffer census named the decay sign, and the
+            // fixed-fixture legs in the finding's gate exonerate every
+            // kernel). −exp(1.0) = the converter's form for a raw A of +1.0.
             t.push(TensorSpec {
                 name: format!("blk.{i}.ssm_dt.bias"),
                 ne: vec![N_V],
@@ -479,7 +487,7 @@ pub fn synth_tensors_bonsai2_typed(ternary_id: u32) -> Vec<TensorSpec> {
                 name: format!("blk.{i}.ssm_a"),
                 ne: vec![N_V],
                 ggml_type: 0,
-                data: f32_payload(&vec![1.0f32; N_V as usize]),
+                data: f32_payload(&vec![-2.718_281_7f32; N_V as usize]),
             });
             // ssm_norm: per-head [head_dim]
             t.push(TensorSpec {

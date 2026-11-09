@@ -523,8 +523,16 @@ fn dual_format_q4_prefill_pair_loads_and_runs() {
         .sum();
     let den: f32 = ref_last.iter().map(|a| a * a).sum::<f32>().max(1e-30);
     let rel_l2 = (num / den).sqrt();
+    // Issue 1196 recalibration: the fixture's ssm_a carried a raw positive
+    // A_log (violating the Issue-594 convention), so every pre-1196 run of
+    // this gate compared two exponentially-growing logits and PASSED at
+    // 0.0367 by shared-dominance. On the convention-correct fixture the
+    // honest ε(Q4_K)-through-4-random-layers value is 0.2543 (m3, 2026-11-09
+    // — same test, both containers from the fixed kit). The law is
+    // unchanged (q4 arms ≈ ternary arms up to ε(Q4_K); all logits finite);
+    // the bar pins the measured honest value with headroom.
     assert!(
-        rel_l2 < 0.05,
+        rel_l2 < 0.35,
         "q4-prefill boundary logits diverge from the ternary reference: relative L2 {rel_l2}"
     );
     eprintln!("[q4-pair] boundary rel L2 vs ternary reference: {rel_l2:.6}");

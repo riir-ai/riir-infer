@@ -1,27 +1,29 @@
-# Issue 1196 — the synth Bonsai-2 fixture's METAL dense decode NaNs at step 16 (an unexercised hd-128 baseline path)
+# Issue 1196 — the synth Bonsai-2 fixture's METAL dense decode NaNs at step 16 — RESOLVED: a fixture bug (raw-positive ssm_a), every kernel exonerated
 
-**Status:** OPEN — found by issue 1191 T2's first parity-cell run (2026-11-09); NOT a 1191 defect (its parity pivoted to the real model; the bisect below PROVES the 1191 arm clean on the league posture).
-**Claimed:** zed-34912c3b@amo, 1794237218, expires 2026-11-11T15:13:38Z
+**Status:** RESOLVED 2026-11-09 (m3, zed-fd805f52@m3) — the finding's premise is overturned. The NaN was the synth kit's `ssm_a = +1.0` violating the Issue-594 loader convention, not an hd-128 Metal kernel assumption. Fixed in the kit; the standing hd-128 baseline gate landed; a follow-up accuracy observation filed (issue 1197).
 
-## The finding
+**Lease closed:** zed-fd805f52@m3, epoch 1794232800, exp 2026-11-11T22:00:00+00:00 — resolution landed (the fix commit). A later claim by zed-34912c3b@amo (epoch 1794237218, exp 2026-11-11T15:13:38Z) was filed against the ORIGINAL finding and is superseded by this resolution — the issue is closed; the T2/T3 that claim re-scoped are moot (the kernels are exonerated; nothing to fix).
 
-`tests/common/synth_bonsai2.rs` (4 layers: 3 DeltaNet + 1 Attention, hd 128, folded) driven through `TernaryDeltanetGpuForward` (the METAL decode forward, feature `flashmemory_budget_metal_t2` posture, DISARMED — the incumbent dense path) produces **NaN logits from step 16** and every step after: teacher-forced walk vs the CPU dense lane on the identical stream agrees bit-clean for steps 0–15, then `top1 = 255` with NaN logits at step 16 and beyond (agreement 16/40, worst |Δlogit| 4.02 over the 40-step window; measured 2026-11-09, amo M5 Ultra).
+## Resolution (the evidence chain, in order)
 
-The CPU dense lane on the same fixture is clean throughout (the G1 battery's lane). So the defect is in the METAL decode stack at the synth's geometry — most plausibly an hd-128-specific kernel assumption: the synth carries `attention.key_length = 128` while the league posture (Bonsai-2-27B, the only decode-verified Metal posture) carries head_dim 256, and several decode kernels carry hd-256-shaped constants (the shared-memory reduction trees, the split-K geometry, `Shared::<[f32]>::new_slice(256)` sizing). The first-16-steps-clean-then-NaN shape points at a state/stage that crosses a threshold at step 16 (the DeltaNet conv kernel is 4; the first block boundary is 64 — 16 matches neither), so the stage attribution needs the decode-stage census (`DECODE_STAGE_MASK` per-stage masking, `set_decode_stage_mask`) run per stage.
+1. **T1 stage attribution** (`tests/i1196_stage_attribution.rs`, the `DECODE_STAGE_MASK` census): producer = the DeltaNet region (mask-off deltanet kills the NaN; attention/ffn/tail_norm do not; tail_lm_head is the disclosure point). Sub-bit split bounded it to [pre_betal2, recurrence]; skipping pre_conv / out_zgate / out_rot left the NaN (their absence changes the values but the NaN persisted).
+2. **Unfolded fixture CLEAN** — same geometry, no folding: the defect was never "the plain kernels at hd 128".
+3. **Default-on folded rungs exonerated**: `RIIR_NORM_ROT_MULTI=0` and `RIIR_GDN_DENSE_PAIR_FUSED=0` both byte-identical NaN at step 14.
+4. **The per-step buffer census** (`state_readback::read_decode_diagnostic_buffers`, a new diagnostic seam — readbacks only, never a hot path): at the onset step, L0.state held FINITE values up to 4.05e34 — unbounded GROWTH, then Inf → NaN; L1/L2 all-NaN downstream were victims of the poisoned residual. And L0.decay_buf at STEP 0 read `[1.002, 1.002, 1.014, 1.056, 2.465, 63.8, 1066.1, 924.1]` — decay > 1, impossible under the convention (decay = exp(a_log·softplus) ∈ (0,1] with a_log NEGATIVE).
+5. **Root cause**: the kit wrote `ssm_a = +1.0` — a RAW positive A_log — while the loader contract (Issue 594) carries `a_log = −exp(A_log_raw)` (the converter applied −exp once). With a_log = +1, decay = exp(+softplus(·)) ≥ 1 on EVERY lane; the state grows without bound; Metal's fp path crossed the overflow cliff first (seed-dependent onset: 14 here, 16 in the original finding), CPU's later — the "bit-clean prefix then NaN, Metal-only" shape was the growth surfacing.
+6. **The decisive legs**: Metal on a convention-correct fixture (a_log = −exp(1.0)) — CLEAN, 40 steps, bounded logits. The "hd-128 unexercised kernel path" hypothesis is doubly dead: hd 128 is the CANONICAL decode geometry (both recurrence kernels require exactly head_dim == 128; the league model's GDN head_dim is 128 — its ATTENTION head_dim is 256).
 
-## Evidence
+## Landed
 
-- Repro: construct `TernaryDeltanetGpuForward::new` on the synth folded file (the plan-622 kit), walk 40 xorshift tokens, compare logits vs `forward_qwen_deltanet_ternary`. Steps 0–15: bit-clean agreement. Step 16: NaN. (The bisect lived in the 1191 T2 session's temp probe — re-derivable from this text + the kit in ~10 min.)
-- The same fixture on the CPU lane: clean (the G1 battery runs 700 steps).
-- The league model on Metal dense: the SHIPPED posture (Issue 1151) — unaffected; this is a synth-geometry baseline defect, never hit by serving.
+- Kit fix: `ssm_a` payload → `−exp(1.0)` (the converter's form for a raw A of +1.0), with the convention documented at the write site. Consumers assert internal consistency, not absolute pins — no pin moved (measured: all root-manifest consumer gates re-run green; `issue028`'s q4-pair bar RECALIBRATED — see below).
+- `state_readback::read_decode_diagnostic_buffers` — the per-step value-level diagnostic seam (1196 T1/T2's instrument; the manifest's values-half).
+- `tests/i1196_stage_attribution.rs` — T1 attribution gate + the T3 standing baseline: folded hd-128 Metal-vs-CPU dense parity on the corrected fixture (measured top-1 0.95, worst |Δ|/range 1.0e-1 — an untrained random network's near-tie flips, bars pinned at 0.90 / 0.15 with the measurement recorded) + the a_log-convention regression tooth (a deliberately-bad fixture must produce decay > 1 — the kit bug can never silently return).
+- `issue028_disaggregated_handoff` q4-pair bar recalibrated 0.05 → 0.35 with the honest history in the comment: the old pass read 0.0367 because both containers ran exponentially-growing logits (shared dominance); on the correct fixture the true ε(Q4_K)-through-4-random-layers value is 0.2543. Same law, honestly calibrated.
 
-## Why it matters
+## Follow-up filed
 
-- The synth kit is the workspace's standing small-model fixture; any future Metal-decode test on it silently inherits this (the 1191 T2 first run lost a cell to it).
-- The hd-128 decode path may share the defect shape with other non-256 geometries (a shape-generalness audit of the decode kernels' hd constants is the real deliverable).
+- **Issue 1197** — the plain-fixture Metal-vs-CPU divergence grows with position (|Δ|/range 2e-3 at steps 0–1 → 1.6 by step 27; folded is ~10× tighter at 1.0e-1): fp reduction-order noise amplified through the untrained random network's direct path — which stage amplifies (attention 8q/2kv/hd128 shape? the plain GEMV chain? norm eps at this scale?) needs its own controlled study. Report-only row in the 1196 gate.
 
-## Tasks
+## Non-goals (original — now moot in the original framing)
 
-- [x] T1 — stage attribution: per-`DECODE_STAGE_MASK` masking runs (attention-only, deltanet-only, ffn-only, tail-only) on the synth walk; the NaN's stage named. **DONE (`tests/i1196_stage_attribution.rs`, `[[test]]` row + required-features, m3 Metal, `--release`): repro leg pins the SHAPE (finite prefix → NaN from a small step, stays NaN to the end; onset step is seed-dependent — this run's seed NaNs at 14, the T2 session's saw 16). COARSE verdict: masking OFF deltanet kills the NaN; masking OFF attention/ffn/tail_norm leaves it at step 14; masking OFF tail_lm_head also kills it (disclosure point — with the head skipped the walk emits the finite residual stream). PRODUCER = the DeltaNet region. SUB-BIT split (parent ON, each sub OFF): skipping proj/prerec/recurrence/outproj/concat/dense-escape/pre_betal2/out_gemv kills the NaN (the chain starves downstream); skipping **pre_conv (15), out_zgate (17), out_rot (18) leaves the NaN at step 14** — with rot skipped the out_gemv STILL NaNs, which is the stale/pad-read signature (the plan-622 arm-3 class: one NaN pad read poisons the logits; at hd-128 some buffer sized/strided for hd-256 leaves half a row NaN and a kernel reads past the valid region). Bounded: producer sits in the DeltaNet out leg at-or-before `gdn_out_gemv`, with `gdn_pre_betal2` or `gdn_recurrence` as the write-side candidates — T2's hd-constant hunt targets exactly those kernels.
-- [ ] T2 — root cause in the named stage's kernels at hd 128 (the hd-256 constant hunt: `Shared::new_slice` sizings, reduction-tree start strides, split-K geometry guards).
-- [ ] T3 — fix + a hd-128 Metal dense-vs-CPU parity gate on the synth fixture (the missing baseline gate this finding exposes); flag-off byte-identity unchanged (the league hd-256 posture pinned bit-identical by its existing anchors).
+- The hd-256-constant hunt: no kernel defect existed; the hunt is closed with the kernels exonerated by the fixed-fixture legs.

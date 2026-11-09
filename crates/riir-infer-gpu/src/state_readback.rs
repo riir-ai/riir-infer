@@ -162,3 +162,39 @@ pub fn manifest(fwd: &TernaryDeltanetGpuForward) -> Vec<StateBufferEntry> {
     }
     out
 }
+
+/// Issue 1196 T2 — the per-step NaN diagnostic: read the LIVE per-GDN-layer
+/// decode buffers back as VALUES (not digests) — beta/decay, the expanded
+/// QKV, the recurrence state, the conv window, and the a/b raw projections
+/// — so a probe can name the first buffer-step that goes non-finite and
+/// attribute it to the kernel that wrote it. Same lane constraint as
+/// [`manifest`]: reads the CubeCL handles directly, read the WHOLE handle,
+/// diagnostic tooling only, never a hot path (each call is one readback per
+/// buffer per layer). Returns `(name, values)` pairs in the same
+/// layer-major, field order as [`manifest`].
+pub fn read_decode_diagnostic_buffers(fwd: &TernaryDeltanetGpuForward) -> Vec<(String, Vec<f32>)> {
+    let client = &fwd.client;
+    let mut out = Vec::new();
+    let read = |name: &str, h: &Handle, out: &mut Vec<(String, Vec<f32>)>| {
+        let bytes = client
+            .read_one(h.clone())
+            .unwrap_or_else(|e| panic!("i1196 diagnostic: {name} readback failed: {e}"));
+        let vals: Vec<f32> = f32::from_bytes(&bytes).to_vec();
+        out.push((name.to_string(), vals));
+    };
+    for (i, ty) in fwd.layer_types.iter().enumerate() {
+        if matches!(ty, DeltaNetLayerType::DeltaNet) {
+            read(&format!("L{i}.beta_buf"), &fwd.beta_buf, &mut out);
+            read(&format!("L{i}.decay_buf"), &fwd.decay_buf, &mut out);
+            read(&format!("L{i}.qkv_expanded"), &fwd.qkv_expanded, &mut out);
+            if let Some(h) = &fwd.deltanet_states[i] {
+                read(&format!("L{i}.state"), h, &mut out);
+            }
+            if let Some(h) = &fwd.conv_states[i] {
+                read(&format!("L{i}.conv_state"), h, &mut out);
+            }
+            read(&format!("L{i}.recurrent_out"), &fwd.recurrent_out, &mut out);
+        }
+    }
+    out
+}
