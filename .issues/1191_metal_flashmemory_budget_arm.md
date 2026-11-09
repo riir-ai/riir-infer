@@ -2,7 +2,7 @@
 
 **Status:** OPEN — `- [ ]` tasks below. Claimed lane; forward-only per the compute law (2026-11-09): the T4 measured cell runs on METAL, never a long CPU cell. CPU stays as the short parity snapshot only.
 
-**Claimed:** zed-m3-metal-law@m3, 1794220073, expires 2026-11-11T00:00Z
+**Claimed:** amo-zed-1191metal@amo, 1794220517, expires 2026-11-11T10:35:17+00:00
 
 ## Why
 
