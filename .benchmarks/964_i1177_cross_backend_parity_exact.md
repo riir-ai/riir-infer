@@ -13,7 +13,7 @@ One GGUF on both backends, verified by hash on each box:
 - **amo** (`~/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf`, 16,810,714,336 B): sha256 `e00082f779fa385cee8c68a3ec8833a75778cc87272240b942f74e0b8243e520`
 - **4090** (`F:/models/qwen3.8-27b-Q4_K_M.amo-copy.gguf`, chunked-shipped copy, 16,810,714,336 B): sha256 `e00082f779fa385cee8c68a3ec8833a75778cc87272240b942f74e0b8243e520` — **byte-exact** (Get-FileHash on arrival, printed in the job log beside the walk).
 
-The 4090's pre-existing `qwen38-27b-dbirks-Q4_K_M.gguf` was REJECTED for this cell: 16,810,714,848 B (a 512-byte delta — different bytes = different file, never a parity input).
+The 4090's pre-existing `qwen38-27b-dbirks-Q4_K_M.gguf` was REJECTED for this cell — at TWO evidence levels: (1) 16,810,714,848 B (a 512-byte header delta; 7 extra provenance kvs — metadata only, `add_bos_token` unread by riir-infer either way); (2) the byte-level proof (`16111d0`, this thread's parallel continuation): same 866 tensors, same dims/types/offsets, tokenizer arrays hash-identical, but **438 of 866 per-tensor SHA256 digests differ over the data regions** — dbirks Q4_K_M is a different quantization run whose walk would have been non-comparable (and had ids coincidentally matched, falsely reassuring). Never a parity input.
 
 ## The two legs
 
