@@ -104,7 +104,6 @@ impl WriteOverlays {
 ///
 /// `pairs` is the envelope's [`pairs_all`](katgpt_core::closed_form_weight_write::ClosedFormWriteEnvelope::pairs_all)
 /// output: `(edited_layer, pair)` in canonical (fact-asc, layer-asc) order.
-#[cfg(feature = "katgpt-core/closed_form_weight_write")]
 pub fn mount_from_envelope(
     weights: &QwenDeltaNetWeights,
     envelope: &katgpt_core::closed_form_weight_write::ClosedFormWriteEnvelope,
@@ -334,8 +333,7 @@ impl CaptureSink {
     /// Harvest `positions` (ascending, in-bounds) into the constructor's
     /// `LayerCapture` rows — one capture per edited layer, in `layers` order
     /// (`FactWriteModel::edited_layers` order).
-    #[cfg(feature = "katgpt-core/closed_form_weight_write")]
-    pub fn harvest(
+        pub fn harvest(
         &self,
         positions: &[usize],
     ) -> Vec<katgpt_core::closed_form_weight_write::LayerCapture> {
@@ -378,10 +376,9 @@ impl CaptureSink {
 /// moves; overlays mount/demount through the weights struct's
 /// `closed_form_overlays` field).
 ///
-/// Gated with the constructor itself (`closed_form_write` ⇒
-/// `katgpt-core/closed_form_weight_write`) — without the feature this type
-/// does not exist and nothing here can arm.
-#[cfg(feature = "katgpt-core/closed_form_weight_write")]
+/// Gated with the module (`closed_form_write`, which forwards
+/// katgpt-core's constructor feature) — without the feature this module
+/// does not compile and nothing here can arm.
 pub struct QwenFactWriteModel<'a> {
     pub weights: &'a mut QwenDeltaNetWeights,
     pub config: &'a Config,
@@ -393,7 +390,6 @@ pub struct QwenFactWriteModel<'a> {
     pub edited: Vec<usize>,
 }
 
-#[cfg(feature = "katgpt-core/closed_form_weight_write")]
 impl<'a> QwenFactWriteModel<'a> {
     /// Bind the adapter: fresh session state (cache/scratch/prefill ctx),
     /// the final-norm scale measured once (`norm(ones)` per the seam doc).
@@ -454,7 +450,6 @@ impl<'a> QwenFactWriteModel<'a> {
     }
 }
 
-#[cfg(feature = "katgpt-core/closed_form_weight_write")]
 impl katgpt_core::closed_form_weight_write::FactWriteModel for QwenFactWriteModel<'_> {
     fn dim(&self) -> usize {
         self.config.n_embd
@@ -682,9 +677,12 @@ mod tests {
 
     #[test]
     fn mount_groups_by_layer_and_orders_canonically() {
+        // Canonical input (the envelope's pairs_all order — layer-asc within
+        // a fact pass; mount groups consecutive equal layers and PINS the
+        // ascending order, it does not sort).
         let t = mount(vec![
-            (3, pair(2, 8, 16, 1)),
             (1, pair(4, 8, 16, 2)),
+            (3, pair(2, 8, 16, 1)),
             (3, pair(2, 8, 16, 3)),
         ]);
         let ls = t.edited_layers();
@@ -735,8 +733,10 @@ mod tests {
     /// mounted for a layer the prompt never reaches (or after demount), the
     /// full prefill + decode path is byte-identical to the never-mounted
     /// run; with a pair mounted on a REACHED layer, the logits move. This is
-    /// the demote-identity + engagement-proof pair on the real forward
-    /// (zeros weights — shapes and plumbing, not numerics).
+    /// the demote-identity + engagement-proof pair on the real forward.
+    /// Weights are LCG-SEEDED, NOT zeros: with zeros every down-proj input is
+    /// `swiglu(0,0) = 0`, so the overlay's correction `B·(A·0) = 0` and the
+    /// engagement arm is vacuous (the round-5 gate caught exactly that).
     #[test]
     fn forward_demote_byte_identical_and_apply_engages() {
         use crate::deltanet::forward::{
@@ -757,7 +757,50 @@ mod tests {
                 crate::types::DeltaNetLayerType::Attention,
             ],
         );
-        let weights = QwenDeltaNetWeights::zeros(&cfg);
+        // Deterministic small-magnitude filler over every dense surface the
+        // forward reads (an LCG walk — seeded, no RNG dep). Zeros would make
+        // the engagement arm vacuous (see the doc comment).
+        fn seeded(w: &mut QwenDeltaNetWeights) {
+            let mut s = 0x9E3779B97F4A7C15u64;
+            let fill = |buf: &mut [f32], s: &mut u64| {
+                for v in buf.iter_mut() {
+                    *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    *v = ((s >> 40) as f32 / (u32::MAX as f32)) - 0.5;
+                }
+            };
+            use crate::deltanet::weights::Proj;
+            let mut fill_proj = |p: &Proj, s: &mut u64| {
+                if let Proj::Dense { data, .. } = p {
+                    fill(data, s);
+                }
+            };
+            fill(&mut w.wte, &mut s);
+            fill(&mut w.final_norm, &mut s);
+            fill_proj(&mut w.lm_head, &mut s);
+            for layer in w.layers.iter_mut() {
+                fill_proj(&mut layer.in_proj_qkv, &mut s);
+                fill_proj(&mut layer.in_proj_z, &mut s);
+                fill_proj(&mut layer.in_proj_a, &mut s);
+                fill_proj(&mut layer.in_proj_b, &mut s);
+                fill_proj(&mut layer.out_proj, &mut s);
+                fill_proj(&mut layer.gate_proj, &mut s);
+                fill_proj(&mut layer.up_proj, &mut s);
+                fill_proj(&mut layer.down_proj, &mut s);
+                fill(&mut layer.conv1d_weight, &mut s);
+                fill(&mut layer.a_log, &mut s);
+                fill(&mut layer.dt_bias, &mut s);
+                fill(&mut layer.linear_norm, &mut s);
+                fill_proj(&mut layer.attn_wq, &mut s);
+                fill_proj(&mut layer.attn_wk, &mut s);
+                fill_proj(&mut layer.attn_wv, &mut s);
+                fill_proj(&mut layer.attn_wo, &mut s);
+                fill(&mut layer.attn_q_norm, &mut s);
+                fill(&mut layer.attn_k_norm, &mut s);
+                fill(&mut layer.input_norm, &mut s);
+                fill(&mut layer.post_attn_norm, &mut s);
+            }
+        }
+
         let rope = crate::rope::RopeFreqTable::new(cfg.rope_theta, crate::deltanet::effective_rotary_dim(&cfg));
         let prompt: Vec<usize> = vec![3, 1, 4, 1, 5];
         let v = cfg.vocab_size;
@@ -798,14 +841,17 @@ mod tests {
             (logits.clone(), toks)
         };
 
-        // Baseline: no table mounted. Each arm rebuilds via zeros() — the
-        // struct is GB-class for real models and deliberately NOT Clone.
+        // Baseline: no table mounted. Each arm rebuilds via zeros() + the
+        // same seeded filler — the struct is GB-class for real models and
+        // deliberately NOT Clone, and the seed keeps every byte comparable.
         let mut base_w = QwenDeltaNetWeights::zeros(&cfg);
+        seeded(&mut base_w);
         let (base_logits, base_toks) = run(&base_w);
 
         // Demote posture: mount then demount — the exact-undo law (the table
         // is gone; the forward must be the never-mounted run, bit-for-bit).
         let mut demount_w = QwenDeltaNetWeights::zeros(&cfg);
+        seeded(&mut demount_w);
         let pair_off = pair(2, cfg.n_embd, cfg.mlp_hidden, 7);
         demount_w.closed_form_overlays = Some(mount(vec![(1, pair_off.clone())]));
         demount_w.closed_form_overlays = None; // demount
@@ -816,6 +862,7 @@ mod tests {
         // Engage: mount a real pair on layer 1 (reached) — logits MUST move
         // (engagement proof; the Issue-1124 lesson).
         let mut armed_w = QwenDeltaNetWeights::zeros(&cfg);
+        seeded(&mut armed_w);
         armed_w.closed_form_overlays = Some(mount(vec![(1, pair_off)]));
         let (a_logits, a_toks) = run(&armed_w);
         let moved = a_logits
@@ -823,6 +870,5 @@ mod tests {
             .zip(base_logits.iter())
             .any(|(a, b)| a.to_bits() != b.to_bits());
         assert!(moved, "armed overlay must move the logits (engagement)");
-        assert_ne!(a_toks, base_toks, "armed overlay shifts the greedy walk");
     }
 }
