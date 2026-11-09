@@ -57,6 +57,5 @@ fn main() {
     // cosine between the feat-normed direction and the forward's normed x
     // (the forward's norm_x is internal; compare the reconstructed logits
     // vector cosine instead)
-    let dot: f32 = top.iter().zip(actual.iter()).map(|(a, b)| a.1 * b.1).sum();
     println!("(top5 comparison — equal lists ⇒ capture semantics correct)");
 }

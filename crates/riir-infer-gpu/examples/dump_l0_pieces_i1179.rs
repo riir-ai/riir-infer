@@ -6,7 +6,7 @@ use riir_infer_gpu::qwen38_specdec::{DFlashCpu, StFile, parse_vendor_config};
 fn main() {
     let spec = StFile::open(std::path::Path::new("/Users/katopz/uzu27b/speculator/model.safetensors")).unwrap();
     let cfg = parse_vendor_config(&std::fs::read_to_string("/Users/katopz/uzu27b/speculator/config.json").unwrap()).unwrap();
-    let mut draft = DFlashCpu::load(&spec, &cfg).unwrap();
+    let draft = DFlashCpu::load(&spec, &cfg).unwrap();
     let kp = draft.dump_l0_mixer_kernel_proj().to_vec();
     std::fs::write("/tmp/i1179_l0_kernel_proj.f32", bytemuck::cast_slice(&kp)).unwrap();
     println!("kernel proj dumped ({} f32)", kp.len());

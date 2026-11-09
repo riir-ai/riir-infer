@@ -895,3 +895,54 @@ required-features = ["cubecl_runtime", "ternary_gemv", "ternary_gemm_batched", "
 name = "plan626_resident_g2_ab"
 path = "tests/plan626_resident_g2_ab.rs"
 required-features = ["cubecl_runtime", "ternary_gemv", "ternary_gemm_batched", "ternary_deltanet_chunked_prefill", "ternary_attention_batched_prefill", "deltanet_recurrence_rowpar", "params_handle_cache", "riir-infer-core/bonsai2_hadamard"]
+
+# Issue 1192 T1 — the i1179 probe/dump examples' manifest rows (the
+# green-zero/required-features trap class: cargo auto-discovers
+# examples/*.rs with no row and compiles them at EVERY posture, so the
+# --all-targets runs at postures lacking their gated imports failed E0432/
+# E0433/E0601 — 23 errors at the default posture, measured). Rows name
+# each file's REAL minimal feature set; a row must BUILD, not just exist
+# (the required_features_build_audit half).
+[[example]]
+name = "dump_l0_pieces_i1179"
+required-features = ["qwen38_specdec"]
+
+[[example]]
+name = "probe_attnmirror_i1179"
+required-features = ["qwen38_specdec"]
+
+[[example]]
+name = "probe_draft_i1179"
+required-features = ["qwen38_specdec"]
+
+[[example]]
+name = "probe_mycpu_i1179"
+required-features = ["qwen38_specdec"]
+
+[[example]]
+name = "probe_myl0_i1179"
+required-features = ["qwen38_specdec"]
+
+[[example]]
+name = "probe_trace_i1179"
+required-features = ["qwen38_specdec"]
+
+[[example]]
+name = "probe_feat_i1179"
+required-features = ["qwen38_wgpu"]
+
+# The crate-level #![cfg(feature = "qwen38_specdec")] file (the no-main
+# fragment at unarmed postures): its row MUST carry specdec, not just
+# wgpu — at wgpu-armed-only the file strips to an empty crate (E0601
+# again).
+[[example]]
+name = "probe_realctx_i1179"
+required-features = ["qwen38_specdec"]
+
+[[example]]
+name = "make_mini_target_i1179"
+required-features = ["cubecl_runtime"]
+
+[[example]]
+name = "dump_myrope_i1179"
+required-features = ["qwen38_specdec"]

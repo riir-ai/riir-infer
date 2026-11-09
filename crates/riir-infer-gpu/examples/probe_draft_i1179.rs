@@ -2,6 +2,9 @@
 //! synthetic embeddings (no KV), print max|v| per stage — finds where inf/NaN
 //! enters.
 
+// The whole file is an offline diagnostic instrument.
+#![allow(dead_code)]
+
 use riir_infer_core::gguf_loader::GgufFile;
 use riir_infer_gpu::qwen38_specdec::{DFlashCpu, StFile, parse_vendor_config};
 
@@ -72,7 +75,7 @@ fn main() {
     let hidden = hidden_trace.0;
     let (mx, inf, nan) = stats(&hidden);
     println!("draft_hidden max|.|={mx} inf={inf} nan={nan}");
-    for (r, row) in hidden.chunks_exact(5120).take(3).enumerate() {
+    for (r, row) in hidden.as_chunks::<5120>().0.iter().take(3).enumerate() {
         let (mx, inf, nan) = stats(row);
         println!("  row {r}: max={mx:.4} inf={inf} nan={nan} first3={:?}", &row[..3]);
     }

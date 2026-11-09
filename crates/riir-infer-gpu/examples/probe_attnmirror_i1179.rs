@@ -4,12 +4,11 @@
 //! untransform) on the dumped conv_pre output — compared against my
 //! attention result (77.28) and theirs (42.75).
 
-use riir_infer_gpu::qwen38_specdec::{StFile, parse_vendor_config};
+// The whole file is an offline diagnostic instrument: its geometry consts
+// and helper fns stay as the recorded mirror even when unreferenced.
+#![allow(dead_code)]
 
-const HEADS: usize = 32;
-const GROUPS: usize = 8;
-const HD: usize = 128;
-const SCALE: f32 = 0.08838834764831845;
+use riir_infer_gpu::qwen38_specdec::{StFile, parse_vendor_config};
 
 fn hadamard32(v: &mut [f32]) {
     let mut s = 1usize;
@@ -30,7 +29,7 @@ fn hadamard32(v: &mut [f32]) {
     }
 }
 
-fn sign(channel: usize) -> f32 {
+fn sign(_channel: usize) -> f32 {
     // kv_layout::ROTATION_SIGN_BITS — need the real table; start with +1 and
     // note the assumption.
     1.0
@@ -43,16 +42,26 @@ fn quantize(mut values: Vec<f32>) -> (Vec<i8>, f32) {
     hadamard32(&mut values);
     let max = values.iter().fold(0.0f32, |m, v| m.max(v.abs()));
     let scale = if max > 0.0 { max / 127.0 } else { 1.0 };
-    let codes = values.iter().map(|v| (v / scale).round_ties_even().clamp(-127.0, 127.0) as i8).collect();
+    let codes = values
+        .iter()
+        .map(|v| (v / scale).round_ties_even().clamp(-127.0, 127.0) as i8)
+        .collect();
     (codes, scale)
 }
 
 fn main() {
-    let _spec = StFile::open(std::path::Path::new("/Users/katopz/uzu27b/speculator/model.safetensors")).unwrap();
-    let _cfg = parse_vendor_config(&std::fs::read_to_string("/Users/katopz/uzu27b/speculator/config.json").unwrap()).unwrap();
+    let _spec = StFile::open(std::path::Path::new(
+        "/Users/katopz/uzu27b/speculator/model.safetensors",
+    ))
+    .unwrap();
+    let _cfg = parse_vendor_config(
+        &std::fs::read_to_string("/Users/katopz/uzu27b/speculator/config.json").unwrap(),
+    )
+    .unwrap();
 
     // The dumped conv_pre output (bf16-rounded by the uzu probe path, f32 here).
-    let conv: Vec<f32> = bytemuck::cast_slice(&std::fs::read("/tmp/i1179_uzu_s1_premix.f32").unwrap()).to_vec();
+    let conv: Vec<f32> =
+        bytemuck::cast_slice(&std::fs::read("/tmp/i1179_uzu_s1_premix.f32").unwrap()).to_vec();
     let _ = conv; // (the premix — conv applied below via the mirror? no: we feed MY conv out)
     let conv_out: Vec<f32> = {
         // Reconstruct: the uzu s3 fed THEIR premix + my conv... simplest: use
@@ -60,9 +69,12 @@ fn main() {
         // form — instead reuse the fact that my conv == their-premix-based
         // conv (verified 69.07 == 69.05). Recompute the conv here from the
         // premix + the kernel proj + weights dumps.
-        let premix: Vec<f32> = bytemuck::cast_slice(&std::fs::read("/tmp/i1179_uzu_s1_premix.f32").unwrap()).to_vec();
-        let kproj: Vec<f32> = bytemuck::cast_slice(&std::fs::read("/tmp/i1179_l0_kernel_proj.f32").unwrap()).to_vec();
-        let cw: Vec<f32> = bytemuck::cast_slice(&std::fs::read("/tmp/i1179_conv_weights.f32").unwrap()).to_vec();
+        let premix: Vec<f32> =
+            bytemuck::cast_slice(&std::fs::read("/tmp/i1179_uzu_s1_premix.f32").unwrap()).to_vec();
+        let kproj: Vec<f32> =
+            bytemuck::cast_slice(&std::fs::read("/tmp/i1179_l0_kernel_proj.f32").unwrap()).to_vec();
+        let cw: Vec<f32> =
+            bytemuck::cast_slice(&std::fs::read("/tmp/i1179_conv_weights.f32").unwrap()).to_vec();
         let pre_w = &cw[0..5120 * 2];
         let rows = 16usize;
         let d = 5120usize;
@@ -98,7 +110,10 @@ fn main() {
 
     // Load the L0 attention weights (qkvg + out_proj folded, query/key norm
     // scales) via the module loader.
-    let spec = StFile::open(std::path::Path::new("/Users/katopz/uzu27b/speculator/model.safetensors")).unwrap();
+    let _spec = StFile::open(std::path::Path::new(
+        "/Users/katopz/uzu27b/speculator/model.safetensors",
+    ))
+    .unwrap();
     let d = 5120usize;
     // qkvg folded W — recompute via the module's loader? private. Use the
     // dump: kernel proj was dumped; qkvg not. Load via a small inline fold:
@@ -106,12 +121,12 @@ fn main() {
         // inline: read raw quant + signs, dequant, fold — same as load_linear
         use std::collections::BTreeMap;
         let p = "/Users/katopz/uzu27b/speculator/model.safetensors";
-        let mut f = std::fs::File::open(p).unwrap();
+        let f = std::cell::RefCell::new(std::fs::File::open(p).unwrap());
         let mut lb = [0u8; 8];
-        std::io::Read::read_exact(&mut f, &mut lb).unwrap();
+        std::io::Read::read_exact(&mut *f.borrow_mut(), &mut lb).unwrap();
         let hl = u64::from_le_bytes(lb) as usize;
         let mut hb = vec![0u8; hl];
-        std::io::Read::read_exact(&mut f, &mut hb).unwrap();
+        std::io::Read::read_exact(&mut *f.borrow_mut(), &mut hb).unwrap();
         let hdr: serde_json::Value = serde_json::from_slice(&hb).unwrap();
         let data_start = 8 + hl;
         let mut files = BTreeMap::new();
@@ -127,12 +142,20 @@ fn main() {
             let (s, e) = files[name];
             let mut buf = vec![0u8; e - s];
             use std::io::{Read, Seek, SeekFrom};
-            f.seek(SeekFrom::Start(s as u64)).unwrap();
-            f.read_exact(&mut buf).unwrap();
+            f.borrow_mut().seek(SeekFrom::Start(s as u64)).unwrap();
+            f.borrow_mut().read_exact(&mut buf).unwrap();
             match hdr[name]["dtype"].as_str().unwrap() {
                 "F32" => bytemuck::cast_slice(&buf).to_vec(),
-                "BF16" => buf.chunks_exact(2).map(|b| half::bf16::from_le_bytes([b[0], b[1]]).to_f32()).collect(),
-                "I32" => bytemuck::cast_slice::<_, i32>(&buf).iter().map(|&x| x as f32).collect(),
+                "BF16" => buf
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|b| half::bf16::from_le_bytes(*b).to_f32())
+                    .collect(),
+                "I32" => bytemuck::cast_slice::<_, i32>(&buf)
+                    .iter()
+                    .map(|&x| x as f32)
+                    .collect(),
                 other => panic!("dtype {other}"),
             }
         };
@@ -140,8 +163,8 @@ fn main() {
             let (s, e) = files[name];
             let mut buf = vec![0u8; e - s];
             use std::io::{Read, Seek, SeekFrom};
-            f.seek(SeekFrom::Start(s as u64)).unwrap();
-            f.read_exact(&mut buf).unwrap();
+            f.borrow_mut().seek(SeekFrom::Start(s as u64)).unwrap();
+            f.borrow_mut().read_exact(&mut buf).unwrap();
             buf
         };
         let prefix = "speculator.draft_model.layers.0.mixer.qkvg_projection";
@@ -161,7 +184,11 @@ fn main() {
                 let scale = scales[g * out_dim + o];
                 let zp_flat = g * (out_dim / 2) + o / 2;
                 let zp_byte = zps[zp_flat];
-                let zp = if o % 2 == 0 { zp_byte & 0x0F } else { zp_byte >> 4 };
+                let zp = if o % 2 == 0 {
+                    zp_byte & 0x0F
+                } else {
+                    zp_byte >> 4
+                };
                 w[o * inn + i] = scale * (nib as f32 - zp as f32);
             }
         }
@@ -209,7 +236,8 @@ fn main() {
             for blk in 0..out_dim / 32 {
                 let r0 = blk * 32;
                 for r in 0..32 {
-                    block[r * inn..(r + 1) * inn].copy_from_slice(&w[(r0 + r) * inn..(r0 + r + 1) * inn]);
+                    block[r * inn..(r + 1) * inn]
+                        .copy_from_slice(&w[(r0 + r) * inn..(r0 + r + 1) * inn]);
                 }
                 for r in 0..32 {
                     for c in 0..inn {
@@ -262,7 +290,10 @@ fn main() {
         }
     }
     println!("[mirror] Q rows max|.| = {qmax:.3}");
-    println!("[mirror] V per-row max: {:?}", (0..4).map(|r| {
-        (0..1024).fold(0.0f32, |m, i| m.max(qkvg[r * 6144 + 5120 + i].abs()))
-    }).collect::<Vec<_>>());
+    println!(
+        "[mirror] V per-row max: {:?}",
+        (0..4)
+            .map(|r| { (0..1024).fold(0.0f32, |m, i| m.max(qkvg[r * 6144 + 5120 + i].abs())) })
+            .collect::<Vec<_>>()
+    );
 }
