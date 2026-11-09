@@ -819,6 +819,13 @@ required-features = ["flashmemory_budget_metal"]
 name = "flashmemory_budget_metal_t2"
 required-features = ["flashmemory_budget_metal_t2"]
 
+# Issue 1196 T1 — the hd-128 stage attribution (Metal; same posture family
+# as the T2 parity cell — the synth kit + the decode forward need the same
+# tree).
+[[test]]
+name = "i1196_stage_attribution"
+required-features = ["flashmemory_budget_metal_t2"]
+
 
 
 [dev-dependencies]
