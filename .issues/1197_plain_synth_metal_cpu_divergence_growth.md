@@ -2,6 +2,8 @@
 
 **Status:** OPEN — found by 1196 T3's plain-fixture leg (2026-11-09, m3, zed-fd805f52@m3); REPORT-ONLY row in the 1196 gate carries the baseline.
 
+**Claimed:** zed-fd805f52@m3, 1794239000, expires 2026-11-11T23:30:00+00:00
+
 ## The observation
 
 On the convention-correct synth fixture (post-1196, a_log = −exp(1.0), decay < 1 — a contractive recurrence), Metal dense decode vs CPU dense diverge with a position-growing profile:
