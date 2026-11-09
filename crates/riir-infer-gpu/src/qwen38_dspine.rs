@@ -1652,7 +1652,19 @@ impl DspineDrafter {
                         let qv = packed[j];
                         let sv = packed_all[pbase + cfg.rank + j];
                         let vv_ = packed_all[pbase + 2 * cfg.rank + j];
-                        let gate = 1.0 / (1.0 + (-(qv + sv + self.w.bridge.gate_b[j]).exp()));
+                        // Sigmoid — parenthesized BEFORE .exp(): `-(z).exp()`
+                        // binds as -(exp(z)) (unary minus under the method
+                        // call), which is 1/(1 − e^z) — a hyperbola, not the
+                        // vendor's mx.sigmoid. This line shipped the hyperbola
+                        // from the oracle birth (c8de365) — the Bench 959
+                        // golden diff drove the PIECE functions (correct
+                        // sigmoid) and never this inline loop, so the bug
+                        // survived every parity pin. Found by plan 492 T1's
+                        // FD residue: the trainer's backward (true sigmoid)
+                        // disagreed with forward-FD by ~100× on every
+                        // gate_b/packed gradient.
+                        let z = qv + sv + self.w.bridge.gate_b[j];
+                        let gate = 1.0 / (1.0 + (-z).exp());
                         message[j] = rnd(gate * vv_);
                     }
                 }
