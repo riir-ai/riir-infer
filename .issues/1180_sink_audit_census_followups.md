@@ -2,6 +2,9 @@
 
 **Status:** OPEN — T1 DONE 2026-11-06 ([Bench 953](../.benchmarks/953_i1180_t1_gemma2_ungated_sink_census.md): gemma-2-2b ungated reads 0.4071 → SinkHeavy, the gated Qwen3.5-0.8B 0.0764 → SinkFree on the same census code; cross-family caveat disclosed); T2 open. Filed 2026-11-06, handed over from katgpt-rs Issue 981 (closed there). The katgpt-rs side is complete (the audit vocabulary `SinkAuditProfile`/`SinkAuditVerdict::classify` + `SinkWindowPolicy::from_audit`, katgpt-rs `923aef6a4`, T3 synthetic GOAT all gates PASS). Everything left runs on the census lane this repo owns (`sink_audit` feature + bin, Benches 947/948).
 
+**Claimed:** zed-15be441a@amo, 1794200389, expires 2026-11-11T05:00:00Z
+(scope: T2a + T2b read-out — both cells already ran on amo 11-07 (`01a1b0e0` / `dc3d6de5`, outputs `~/i1180_data/out{,_t2b}/`); this lease adjudicates them against the pre-registered bars, writes the bench records, and ticks the tasks)
+
 ## Landed so far (do not redo)
 
 - Bench 947: census lane (cfg-gated Q capture on `HybridForwardScratch`, full-attention layers only, bounded cache per Issue 929) + the `sink_audit` bin + `needle_eviction_gate --sink-audit N`. Qwen3.5-0.8B-Base (gated) reads `f_attn_token0` 0.0764 → SinkFree → pin 4→1; G1 bit-identical. Reduced T4 cell (8k / 4-needle): 25% budget audited-vs-incumbent bit-identical (neutral), 2% budget differs (the wire-through is consumed).
