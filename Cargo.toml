@@ -352,6 +352,16 @@ vk_p3_tg = ["fitted_v_tables", "katgpt-core/fitted_v_reconstruct"]
 
 # katgpt-core forwards.
 sparse_mlp = ["katgpt-core/sparse_mlp"]
+# riir-infer Issue 1189 — the closed-form fact-write lane (Cells A/B):
+# overlay-at-dequant apply (`closed_form_write::WriteOverlays` folded after
+# the down-proj matvec/matmat at every dense MLP site), the teacher-forced
+# raw-row key/resid capture sink (`CaptureSink`, the sink_audit pattern),
+# and the `FactWriteModel` adapter consuming katgpt-core's
+# `closed_form_weight_write` constructor (NEVER forked). Opt-in; empty
+# overlays = byte-identical demote (the base artifact never moves; the
+# envelope pins the base BLAKE3). Serving-posture promotion is OWNER-GATED
+# (bench-946 league posture is not silently re-based).
+closed_form_write = ["deltanet_inference", "katgpt-core/closed_form_weight_write", "katgpt-core/subspace_phase_gate"]
 domain_latent = ["katgpt-core/domain_latent"]
 dllm = ["katgpt-core/dllm"]
 simd_lut_q4k = ["katgpt-core/simd_lut_dequant"]

@@ -1285,6 +1285,12 @@ pub struct HybridForwardScratch {
     /// never read or written, and the steady-state forward stays alloc-free
     /// (G4).
     pub rotation_buf: Vec<f32>,
+    /// Issue 1189 (`closed_form_write`): the `[rank]` fold scratch for the
+    /// mounted fact-write overlays, sized to the down_proj rank bound
+    /// `min(mlp_hidden, n_embd)`. Same posture as [`Self::rotation_buf`]:
+    /// construction-time allocation only, never read or written while no
+    /// table is mounted (the demote posture), allocation-free per token.
+    pub closed_form_rank_scratch: Vec<f32>,
     /// The sink-audit census capture (katgpt-rs Issue 981, `sink_audit`).
     /// `None` everywhere except the once-per-checkpoint census pass; the
     /// field is cfg-gated so a flag-off build compiles it out entirely (the
@@ -1308,6 +1314,10 @@ impl HybridForwardScratch {
             hidden_copy: vec![0.0; config.n_embd],
             residual: vec![0.0; config.n_embd],
             rotation_buf: vec![0.0; rotation_len],
+            closed_form_rank_scratch: vec![
+                0.0;
+                config.mlp_hidden.min(config.n_embd)
+            ],
             #[cfg(feature = "sink_audit")]
             sink_audit_q: None,
         }
@@ -1436,6 +1446,16 @@ fn forward_qwen_deltanet_body<'a>(
 
         // h. Down projection
         layer_weights.down_proj.matvec(&scratch.hidden, &mut x[..n]);
+        // i1189: the mounted fact-write overlays fold after the base matvec
+        // (overlay-at-dequant; None = byte-identical demote).
+        #[cfg(feature = "closed_form_write")]
+        crate::closed_form_write::apply_down_proj(
+            weights.closed_form_overlays.as_ref(),
+            layer_idx,
+            &scratch.hidden,
+            &mut x[..n],
+            &mut scratch.closed_form_rank_scratch,
+        );
 
         // i. Residual add
         for (xi, r) in x[..n].iter_mut().zip(&scratch.residual[..n]) {
@@ -1619,6 +1639,15 @@ fn forward_qwen_deltanet_pruned_body<'a>(
         layer_weights.up_proj.matvec(&x[..n], &mut scratch.up);
         swiglu(&mut scratch.hidden, &scratch.gate, &scratch.up);
         layer_weights.down_proj.matvec(&scratch.hidden, &mut x[..n]);
+        // i1189: overlay-at-dequant fold (None = byte-identical demote).
+        #[cfg(feature = "closed_form_write")]
+        crate::closed_form_write::apply_down_proj(
+            weights.closed_form_overlays.as_ref(),
+            layer_idx,
+            &scratch.hidden,
+            &mut x[..n],
+            &mut scratch.closed_form_rank_scratch,
+        );
         for (xi, r) in x[..n].iter_mut().zip(&scratch.residual[..n]) {
             *xi += *r;
         }
@@ -1723,6 +1752,15 @@ fn forward_qwen_deltanet_evictable_body<'a>(
         layer_weights.up_proj.matvec(&x[..n], &mut scratch.up);
         swiglu(&mut scratch.hidden, &scratch.gate, &scratch.up);
         layer_weights.down_proj.matvec(&scratch.hidden, &mut x[..n]);
+        // i1189: overlay-at-dequant fold (None = byte-identical demote).
+        #[cfg(feature = "closed_form_write")]
+        crate::closed_form_write::apply_down_proj(
+            weights.closed_form_overlays.as_ref(),
+            layer_idx,
+            &scratch.hidden,
+            &mut x[..n],
+            &mut scratch.closed_form_rank_scratch,
+        );
 
         for (xi, r) in x[..n].iter_mut().zip(&scratch.residual[..n]) {
             *xi += *r;
@@ -1816,6 +1854,12 @@ pub struct PrefillContext {
     dn_out: Vec<f32>,
     /// `out_proj` results: `[max_prompt_len * n_embd]`.
     dn_out_proj: Vec<f32>,
+
+    /// Issue 1189 T1 (`closed_form_write`): the mounted teacher-forced
+    /// capture sink. `None` everywhere except a `capture_at` pass (the
+    /// sink_audit pattern — the serving path constructs `None` and the
+    /// field is never read); captures ride the whole-prompt prefill only.
+    pub closed_form_capture: Option<crate::closed_form_write::CaptureSink>,
 }
 
 impl PrefillContext {
@@ -1857,6 +1901,7 @@ impl PrefillContext {
                     * config.deltanet_linear_head_dim
             ],
             dn_out_proj: vec![0.0f32; cap * n],
+            closed_form_capture: None,
         }
     }
 }
@@ -1877,6 +1922,10 @@ impl PrefillContext {
 ///   5. Batched `SwiGLU` on `[seq_len * mlp_hidden]`
 ///   6. Batched `down_proj.matmat` → overwrites `hidden`
 ///   7. Residual add: `hidden += mlp_residual`
+///
+/// i1189: between 6 and 7 the mounted fact-write overlays fold per position
+/// (`apply_correction_into` per slab row — the same fold the decode bodies
+/// run, so prefill and decode agree bit-for-bit on the armed posture).
 #[inline]
 fn batched_mlp(
     prefill_ctx: &mut PrefillContext,
@@ -1885,6 +1934,9 @@ fn batched_mlp(
     n: usize,
     mlp: usize,
     eps: f64,
+    cf_overlays: Option<&crate::closed_form_write::WriteOverlays>,
+    cf_layer: usize,
+    cf_scratch: &mut [f32],
 ) {
     // 1. Save residual.
     prefill_ctx.mlp_residual[..seq_len * n].copy_from_slice(&prefill_ctx.hidden[..seq_len * n]);
@@ -1921,9 +1973,32 @@ fn batched_mlp(
         &mut prefill_ctx.hidden[..seq_len * n],
         seq_len,
     );
+    // 6b. i1189: the mounted fact-write overlays fold per position, in
+    // position order (row 0 first) — the decode bodies' fold, batched.
+    if let Some(overlays) = cf_overlays {
+        for p in 0..seq_len {
+            overlays.apply(
+                cf_layer,
+                &prefill_ctx.mlp_hidden_buf[p * mlp..(p + 1) * mlp],
+                &mut prefill_ctx.hidden[p * n..(p + 1) * n],
+                cf_scratch,
+            );
+        }
+    }
     // 7. Residual add: hidden += mlp_residual.
     for i in 0..seq_len * n {
         prefill_ctx.hidden[i] += prefill_ctx.mlp_residual[i];
+    }
+
+    // 8. i1189 T1: the mounted capture sink observes this layer's slab (keys
+    // = the down-proj input captured at step 6's input; resids = the
+    // post-residual-add rows). `None` = never read or written.
+    if let Some(sink) = prefill_ctx.closed_form_capture.as_mut() {
+        let (keys, resids) = (
+            &prefill_ctx.mlp_hidden_buf[..seq_len * mlp],
+            &prefill_ctx.hidden[..seq_len * n],
+        );
+        sink.observe_layer(cf_layer, keys, resids, seq_len, mlp, n);
     }
 }
 
@@ -2050,6 +2125,7 @@ pub fn prefill_qwen_deltanet_into(
 
     for (layer_idx, layer_weights) in weights.layers.iter().enumerate() {
         let is_linear = weights.layer_types[layer_idx] == DeltaNetLayerType::DeltaNet;
+        let cf_overlays = weights.closed_form_overlays.as_ref();
 
         if is_linear {
             prefill_deltanet_branch(
@@ -2066,6 +2142,8 @@ pub fn prefill_qwen_deltanet_into(
                 n,
                 mlp,
                 eps,
+                cf_overlays,
+                layer_idx,
             );
         } else {
             prefill_attention_branch(
@@ -2087,6 +2165,9 @@ pub fn prefill_qwen_deltanet_into(
                 key_bias,
                 None,
                 None,
+                cf_overlays,
+                layer_idx,
+                &mut scratch.closed_form_rank_scratch,
             );
         }
     }
@@ -2170,6 +2251,8 @@ fn prefill_deltanet_branch(
     n: usize,
     mlp: usize,
     eps: f64,
+    cf_overlays: Option<&crate::closed_form_write::WriteOverlays>,
+    cf_layer: usize,
 ) {
     let (recurrent_state, conv_state) = state;
     debug_assert!(real_len <= seq_len, "real rows exceed the padded width");
@@ -2194,7 +2277,17 @@ fn prefill_deltanet_branch(
 
     // Phase 2 (batched MLP) — shared with attention layer below. Full padded
     // width: every row is row-local, pads included (their hidden is zeros).
-    batched_mlp(prefill_ctx, layer_weights, seq_len, n, mlp, eps);
+    batched_mlp(
+        prefill_ctx,
+        layer_weights,
+        seq_len,
+        n,
+        mlp,
+        eps,
+        cf_overlays,
+        cf_layer,
+        &mut scratch.closed_form_rank_scratch,
+    );
 }
 
 /// The per-head causal softmax row in the kernel's EXACT form (Plan 622
@@ -2362,6 +2455,9 @@ fn prefill_attention_branch(
     key_bias: Option<(&[f32], crate::transformer::KeyBiasLayout)>,
     mut mass_tap: Option<&mut [f32]>,
     tap_window: Option<usize>,
+    cf_overlays: Option<&crate::closed_form_write::WriteOverlays>,
+    cf_layer: usize,
+    cf_scratch: &mut [f32],
 ) {
     // Phase A (batched): pre-attn residual + input_norm + QKV proj +
     // QK-norm + RoPE + K,V cache write. All positions at once.
@@ -2535,7 +2631,17 @@ fn prefill_attention_branch(
     }
 
     // Phase D (batched MLP) — shared with DeltaNet layer above.
-    batched_mlp(prefill_ctx, layer_weights, seq_len, n, mlp, eps);
+    batched_mlp(
+        prefill_ctx,
+        layer_weights,
+        seq_len,
+        n,
+        mlp,
+        eps,
+        cf_overlays,
+        cf_layer,
+        cf_scratch,
+    );
 }
 
 /// Chunked causal prefill with a logical-position offset and the optional
@@ -2694,7 +2800,17 @@ pub fn prefill_qwen_deltanet_chunk_into(
                     *h += r;
                 }
             }
-            batched_mlp(prefill_ctx, layer_weights, seq_len, n, mlp, eps);
+            batched_mlp(
+                prefill_ctx,
+                layer_weights,
+                seq_len,
+                n,
+                mlp,
+                eps,
+                weights.closed_form_overlays.as_ref(),
+                layer_idx,
+                &mut scratch.closed_form_rank_scratch,
+            );
             if let (true, Some(t)) = (prof, t_layer) {
                 eprintln!(
                     "# [prof] chunk-pos0={pos0} deltanet layer {layer_idx}: total {:?}",
@@ -2857,7 +2973,17 @@ pub fn prefill_qwen_deltanet_chunk_into(
             }
 
             // Phase D (batched MLP).
-            batched_mlp(prefill_ctx, layer_weights, seq_len, n, mlp, eps);
+            batched_mlp(
+                prefill_ctx,
+                layer_weights,
+                seq_len,
+                n,
+                mlp,
+                eps,
+                weights.closed_form_overlays.as_ref(),
+                layer_idx,
+                &mut scratch.closed_form_rank_scratch,
+            );
             if let (true, Some(t)) = (prof, t_layer) {
                 eprintln!(
                     "# [prof] chunk-pos0={pos0} attention layer {layer_idx}: {:?}",
@@ -3084,6 +3210,8 @@ pub fn prefill_qwen_deltanet_pruned_into(
                 n,
                 mlp,
                 eps,
+                weights.closed_form_overlays.as_ref(),
+                layer_idx,
             );
         } else {
             let pos_at = if live_len == seq_len {
@@ -3117,6 +3245,9 @@ pub fn prefill_qwen_deltanet_pruned_into(
                 key_bias,
                 tap,
                 tap_window,
+                weights.closed_form_overlays.as_ref(),
+                layer_idx,
+                &mut scratch.closed_form_rank_scratch,
             );
         }
 

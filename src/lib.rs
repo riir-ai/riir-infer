@@ -68,6 +68,15 @@ pub mod transformer;
 #[cfg(feature = "deltanet_inference")]
 pub mod deltanet;
 
+/// Issue 1189 — the closed-form fact-write lane: overlay-at-dequant apply,
+/// the teacher-forced capture sink, and the `FactWriteModel` adapter over
+/// katgpt-core's constructor (consumed, never forked). The apply types are
+/// always compiled (they are structurally `Option`-None in every default
+/// build — one dead branch per MLP block); the envelope mount + the adapter
+/// gate on katgpt-core's `closed_form_weight_write` via the opt-in
+/// `closed_form_write` feature. Empty overlays = byte-identical demote.
+pub mod closed_form_write;
+
 /// Ternary-weight transformer structs — only compiles with the ternary
 /// substrate on (mirrors the engine-side gate + comment).
 #[cfg(feature = "ternary_inference")]
