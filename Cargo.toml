@@ -1070,6 +1070,42 @@ riir-infer-laya = { path = "crates/riir-infer-laya", features = [
 [workspace]
 members = ["crates/riir-infer-gpu", "crates/riir-infer-laya", "crates/riir-infer-ane", "crates/riir-infer-clef", "crates/riir-infer-audio", "crates/riir-infer-dist"]
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Build profiles — dev debuginfo budget (riir-infer Issue 1195; the proven
+# katgpt-rs shape from riir-ai .issues/723 Phase 1).
+# ─────────────────────────────────────────────────────────────────────────────
+# Dev builds emitted FULL debuginfo since birth (macOS split-debuginfo lands
+# DWARF in per-CGU .o files under target/debug/deps — the ~30 GB dirty-cache
+# class and the multi-GB test binaries past boundary rows keep LIST-ing).
+# Two dev-only levers, behavior-neutral by construction (debuginfo is not
+# codegen — binaries stay bit-identical; plain --release untouched, it is the
+# frozen league/bench posture):
+#
+#   [profile.dev]            debug = "line-tables-only"  — file:line kept for
+#       first-party code, locals deliberately dropped (the EXPLICIT string
+#       spelling, never `debug = 1`).
+#   [profile.dev.package."*"] debug = false              — deps carry no
+#       debuginfo (backtraces through deps lose file:line; delete this block
+#       for a debugger session that needs them, or use --profile dev-full).
+#
+# Measured counterintuitive result upstream (reproduced twice, do not
+# "improve" blind): package."*".debug = "line-tables-only" measures WORSE
+# than either lever alone. opt-level overrides for deps are deliberately NOT
+# set: opt-3 dep codegen is not behavior-neutral and this root drives the
+# whole closure incl. measurement lanes; upstream measured and declined it.
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# The debugger escape hatch: full debuginfo at dev opt levels. Exists only
+# when invoked (--profile dev-full); no script or lane names it.
+[profile.dev-full]
+inherits = "dev"
+debug = true
+
 # Shared dep declarations for members (the fence resolves path deps from
 # each manifest's own directory, so member manifests inherit this instead
 # of spelling the sibling path one level deeper).
