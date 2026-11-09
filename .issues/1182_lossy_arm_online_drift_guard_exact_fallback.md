@@ -1,6 +1,7 @@
 # Issue 1182 — online drift guard with exact-path fallback for lossy serving arms (the XERJ int8-guard pattern)
 
 **Status:** open — adoption distill from XERJ Query-1 (`../riir-reflex/.research/016_XERJ_Query1_Pointer_Program_Serving.md` §3 row 3); serving-posture poc task, nothing wired; opt-in until a GOAT per the flag discipline
+**Claimed:** amo-zed-1191metal@amo, 1794261200, expires 2026-11-11T22:00:00+00:00
 
 ## Why
 
