@@ -711,7 +711,23 @@ mlx-lm on the Proposal-042 scoreboard **measured on the same two boxes**.
 
 - [-] **T5.1** Draft on stage 0 (dflash/speculative substrate already in core), verify
   batch rides the pipeline as the micro-batch; acceptance-rate-weighted scoreboard row.
-  Lossless by construction (verify is exact) — G1 byte-identity holds.
+  Lossless by construction — G1 byte-identity holds. **⚠ SENTENCE SPLIT 2026-11-10
+  (katgpt-rs Issue 982 T0, the premise gate this sentence fed): the two halves are
+  DIFFERENT claims and now carry different evidence.** (a) **Per-step losslessness =
+  STRUCTURAL, measured:** the verify launch's logits are BIT-EXACT vs the serial
+  launch at the same logical positions — the batch-invariance census (8 chained legs,
+  alternating widths 6/8, positions 2048→2096, qwen38-27b Q4_K_M on the 4090
+  exclusive, test `plan614_phase2_t0_batch_invariance_census`, 2026-11-10, exit 0,
+  153.01 s) read exact-zero everywhere → the kernels are batch-invariant FOR THESE
+  SHAPES on this GPU/driver; the claim never extends past the censused space.
+  (b) **Whole-trajectory byte-identity = MEASURED AT A BAR, never claimed beyond:**
+  Bench 973's 2048-token horizon (incl. 95 forced rollbacks + journal replay,
+  byte-identical) is the only END-TO-END identity record; the 32k+/128k long-horizon
+  soak (982 T4) stays confirmatory-only — with (a) holding, trajectory identity is
+  the structural induction, and the soak's value is confirming it at the longer bar,
+  not establishing it. Consequence recorded katgpt-rs-side: 982 T7/T8 close
+  UNMOTIVATED (the noise channel the deferral gate would manage does not exist at
+  the censused space).**
   **T5.1a–c LANDED 2026-10-28 (zed-amo-i623-t24, `6c608dd`): `dist/src/spec_fill.rs` —
   the VerifyStream/VerifyReply wire (one round trip per K drafts; K argmaxes cross,
   never K×vocab logits; the pending prediction rides the request so the tail
