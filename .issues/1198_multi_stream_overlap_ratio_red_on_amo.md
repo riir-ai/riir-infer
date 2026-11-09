@@ -29,11 +29,20 @@ The wave loop (`run_waves`, drain-1-per-pass at `HeadOptions::default()` — `pa
 3. **Bench 908's passing 0.805 was a DIFFERENT posture**: debug build, contended box (serial 352.9 ms — compute inflated ~10×, which BALANCES h and t and makes the one-pass-behind pipeline form cleanly). Today's release build shrinks compute until ε dominates — the ratio's meaning changes posture-to-posture. The debug-profile re-run (planned) tests exactly this.
 4. **The instrument exists**: `RIIR_DIST_STEP_TIMING=1` (the T3.5 scoreboard) prints per-role per-bucket decomposition (head recv/send/submit/finish; tail recv/fwd/pfwd/send) flushed every 64 steps — the armed run will name where the extra ~700 µs/trip lives without any code change.
 
-### T1 (second-box) status
+### T1 (second-box) — DONE 2026-11-09, verdict: LANE-STRUCTURAL (not amo, not rayon)
 
-- **4090 repro QUEUED** (job `01a1c128`, `--shared`, 2026-11-09 ~16:20Z): the CPU-only test compiles and runs on the Windows box — a DIFFERENT OS/scheduler/core-topology axis. Ratio < 0.85 there ⇒ amo/macOS-specific (T2 box branch); ratio ≈ 2.7+ there ⇒ lane-structural. Includes the step-timing decomposition.
-- bmo (M-series, the same-silicon axis) stays behind the i1117 exclusive job (~11 h); m3 is BUSY (14 contenders). An M-series second-box run queues after either frees.
-- amo's own instrumented re-run queues behind the i1191 exclusive Metal job (281d1991, in flight all evening — timing isolation law).
+- **4090 (Windows, 24 cores, quiet — 4% load, 14.3 GB RAM free, HEAD e595342) REPRODUCES THE RED**: ratios **1.228 / 1.371 / 1.302** release ×3, **1.298** with RAYON_NUM_THREADS=1 (unchanged ⇒ NOT rayon wakeups). amo's 2.7–3.3 and the 4090's 1.2–1.4 are the same mechanism at different magnitude (cache geometry).
+- **Step-timing decomposition names the mechanism** (the pre-registered decision tree, branch 2: *tail fwd inflated ⇒ stage-alternation cache effect*):
+  - Serial arm (n=32): tail fwd 0.19–0.25 ms/step, head recv 0.19–0.24 ms/step — the lockstep ping-pong, head recv ≈ tail compute.
+  - Interleaved arm (n=64): **tail fwd inflates to 0.57–0.60 ms/step (2.6–2.9× serial)**, tail recv collapses to 0.01–0.05 ms (never blocks — the one-pass-behind pipeline IS formed; the arm is TAIL-BOUND), head recv ≈ 0.32–0.38 ms/step (waits on the slow tail).
+  - Arithmetic closes: per-step interleaved ≈ t_inflated ≈ 0.60 ms; serial ≈ h+t ≈ 0.42 ms; ratio ≈ 1.4 ≈ measured.
+- **Mechanism (leading hypothesis, measured to this point)**: the tail alternates two per-stream stage instances per step — each carries GDN state (~1 MB) + KV cache (~2 MB) + scratch — so the per-step working set doubles and the state streams instead of staying L2-resident. The RAYON=1 control rules out pool contention; the correctness asserts pass everywhere, so it is purely the alternation tax on CPU-stage compute. The bubble-fill win (saved wakeups + overlap) is smaller than the tax at synth-compute scale — the structural bound analysis (`max(h,t)/(h+t)` ≤ 1.0) does not account for the tax, which is why ratios > 1 are possible at all.
+- Regime note: Bench 908's real-model loopback smoke (1.64× WIN, ~90 ms/step compute) and the 2-box GPU cell (2.37×) are compute-bound/GPU-state regimes where the tax is absent or amortized — the round-robin's win is real THERE. The loopback-CPU-synth-release regime is where it inverts.
+- Job provenance: first attempt `01a1c128` died in 1 s (rig-run argv malformation — the prose message was passed as the command); re-queued `01a1c153` (script scp'd to the 4090, token-split argv, `--notify` armed). Box state in the log (RAM/load/power lines); step-timing armed per the T3.5 instrument.
+
+### T2 verdict (2026-11-09, evidence-complete)
+
+Neither branch of the original T2 holds: NOT the box (second box reproduces), NOT a lane regression (pre-existing at base + the bar is structurally unreachable in release — see the structural analysis + the measured alternation tax). The bar's PREMISE is posture-bound: Bench 908's 0.805 was a debug-build measurement (compute inflated ~10×, the tax amortized, the bubble-fill win visible); the release posture inverts it on BOTH boxes. Resolution: re-scope the ratio bar (the overlap-PRESENCE claim moves to the regime that owns it — the bin G2 cells / compute-bound postures; the G1 loopback test keeps correctness + a catastrophic-pathology tripwire), and file the alternation tax as its own optimization rung (eliminating it would realize the design intent: per-step `max(h,t)` instead of the inflated tail).
 
 ### T2 decision tree (pre-registered before the measurements)
 
