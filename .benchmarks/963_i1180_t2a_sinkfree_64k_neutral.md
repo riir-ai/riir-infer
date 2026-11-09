@@ -3,7 +3,7 @@
 **Status:** RECORD (T2a adjudicated; task ticked in the issue). **Numbering note (2026-11-09): 960 was double-named this morning — the riir-infer 1183 T5 record reserved `960_i1183_t5_head_only_acceptance_path_b_routes` in committed text (1183 + riir-train 679, 09:07–09:08, file unwritten) two hours before this cell's file landed (11:00, allocated from `.highwater` 959). No strict citation-weight margin (4–4); renumbered to 963 (next free) with every citing site moved in this commit — 960 stays the 1183 T5 record's number per first-committed-naming, and this file's original 960 allocation is void. The 1187-fix note below cites `f3385a8` through the 1180 issue (unchanged).**
 **Date:** 2026-11-09 (cells ran 2026-11-07 on amo)
 **Session:** zed-15be441a@amo (adjudication); cells executed by rig jobs `01a1b0e0` (incumbent) / `dc3d6de5`-family runner script `~/i1180_data/run_t2a.sh`
-**Issue:** [`.issues/1180_sink_audit_census_followups.md`](../.issues/1180_sink_audit_census_followups.md) (T2a)
+**Issue:** riir-infer Issue 1180 (T2a; CLOSED 2026-11-09 — record folded into HISTORY.md, file removed)
 **Box:** amo (M5 Ultra 96 GB, AC), Shared rig key `i1180-t2a`, worktree `~/git/riir-infer-i1180` @ `18ea8a15`, `CARGO_TARGET_DIR=/tmp/i1180_target`, release `needle_eviction_gate` with `sink_audit`. Walls: incumbent 14,643.2 s + audited 5,386.6 s.
 **Model:** `Qwen3.5-0.8B-Base-Q8_0` (811,843,200 B, the bench-947/953 checkpoint), corpus `~/i1180_data/chat_probe`, ctx **65536**, 4 needles with `--plant-fix 1` (the unplanted-needle-0 rig bug's fix, 1180 finding), budgets `--budget-frac 0.25,0.02`, arms `maxrecent`, nopin twins via `--nopin-arms 1`.
 

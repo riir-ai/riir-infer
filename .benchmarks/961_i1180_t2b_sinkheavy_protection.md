@@ -3,7 +3,7 @@
 **Status:** RECORD (T2b adjudicated; task ticked in the issue).
 **Date:** 2026-11-09 (cells ran 2026-11-07 on amo)
 **Session:** zed-15be441a@amo (adjudication); cells executed by rig job `01a1b10a-d2e7-7095-8aa8-7401dc3d6de5` (key `i1180-t2b`, Shared), script `~/i1180_data/run_t2b.sh`, `T2B_DONE`
-**Issue:** [`.issues/1180_sink_audit_census_followups.md`](../.issues/1180_sink_audit_census_followups.md) (T2b)
+**Issue:** riir-infer Issue 1180 (T2b; CLOSED 2026-11-09 — record folded into HISTORY.md, file removed)
 **Box:** amo (M5 Ultra 96 GB, AC), worktree `~/git/riir-infer-i1180b` @ `18ea8a15`, `CARGO_TARGET_DIR=/tmp/i1180b_target`, release `needle_eviction_gate` with `sink_audit` (gemma2 backend: SentencePiece + BOS at pos 0, token-by-token prefill).
 **Model:** `gemma-2-2b-it` f16 (5,235,213,856 B; sha256 `3c5fb672…` matches the m3 source; census 0.4071 → **SinkHeavy**, Bench 953), corpus `~/i1180_data/chat_probe`, 4 needles `--plant-fix 1` (all planted — depths logged), `--nopin-arms 1`, `--budget-frac 0.02,0.25`, arms `maxrecent,random@2pct`, chunk 512. Contexts: **C1 = 3800** (in-distribution; every position < 4096) and **C2 = 8000** (local layers attend past their trained 4096 sliding window — disclosed OOD, shared by the full reference). Walls: C1 8,732 s-class, C2 ~11,518 s-class (job log).
 
