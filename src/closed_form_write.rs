@@ -175,7 +175,7 @@ pub fn weights_digest(weights: &QwenDeltaNetWeights) -> [u8; 32] {
         crate::deltanet::weights::Proj::Ternary(_) => {}
     }
     for layer in &weights.layers {
-        feed_layer(h.by_ref(), layer);
+        feed_layer(&mut h, layer);
     }
     *h.finalize().as_bytes()
 }
