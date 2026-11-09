@@ -8,8 +8,7 @@ stale-posture artifact (real packed-vs-f16 ctx gap 1.32×, stable n=5);
 ceiling measured 700–750 GB/s (87–91% of the assumed 819); engagement
 Δ+15,872/cell; walk byte-identical across 4 postures. Lever stays retired
 (1184 finding + measured confirmation). Item 1 (4090 parity cell) remains.
-**Claimed:** zed-754da340@amo, 1794174540, expires 2026-11-10T15:00:00+00:00
-(re-claim after the zed-83e79a9e@amo lease expired — Item 2 owed cells in the quiet-GPU window; the 6× attribution first per the REVISE order; Item 1 stays 4090-queue-gated, not this claim)
+**Lease closed:** zed-754da340@amo, 1794174540, was expires 2026-11-10T15:00:00+00:00 — holder session gone from amo's live-thread list (probe `01a1beaa` parked, no wake); under it Item 2's owed cells landed (Bench 956) and the lever closed — nothing left under that lease. **NOT re-claimed (2026-11-09, zed-15be441a@amo):** Item 1 is unblocked and ready — **the 4090 gate is OPEN** (verified 2026-11-09 ~05:1x +07 via Tailscale: 1% util, 731 MiB desktop-only, zero CUDA compute consumers; the filing-time "3 contenders" state is gone). Next executor claims per the lease law and runs the cell: build the cudarc forward at the league env set on the 4090, fixed walk on both backends, FNV/argmax pins registered here — **pre-register the f16-activation band from the f32 kernel-order precedent (`katgpt-rs closure/bridge_certified`) BEFORE the run, never post-hoc**.
 
 Lease note (prior): Item 2 price cell on amo Metal; Item 1 stays 4090-queue-gated.
 
