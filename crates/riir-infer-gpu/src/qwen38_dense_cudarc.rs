@@ -2782,6 +2782,11 @@ pub const QWEN38_INGEST_WIDE_P: usize = 64;
 /// prompt phase and the loop phase.
 pub const QWEN38_DFLASH2_TAP_LAYERS: [usize; 5] = [5, 19, 33, 47, 61];
 
+/// The DSpine drafter's target layers (the checkpoint's `target_layer_ids`,
+/// plan 492 T1/T2 — the distill trainer + corpus generator capture at this
+/// set). Same [usize; 5] shape, same buffer width as the DFlash2 set.
+pub const QWEN38_DSPINE_TAP_LAYERS: [usize; 5] = [1, 16, 31, 46, 61];
+
 /// The tap slot (ascending index into [`QWEN38_DFLASH2_TAP_LAYERS`) for a
 /// layer, `None` when the layer is not a tap layer.
 fn dflash2_tap_slot(layer: usize) -> Option<usize> {
@@ -3142,6 +3147,11 @@ pub struct Qwen38DenseForward {
     /// graph arm does not tap (Issue 755 T2's slice-B exemption). Allocated
     /// once by [`Self::enable_verify_taps`].
     verify_taps_dev: Option<CudaSlice<f32>>,
+    /// The ACTIVE tap layer set (whichever `enable_verify_taps*` armed the
+    /// buffer last — the two sets share one buffer; a forward mixing sets
+    /// after re-arming is the caller's contract violation, caught by the
+    /// slot lookup simply capturing nothing).
+    verify_tap_set: &'static [usize; 5],
     /// Issue 755 T4 (the reopen lever) — per-GDN-layer journal of the chunk's
     /// recurrence inputs, captured by [`Self::verify_gdn_layer`] when enabled
     /// via [`Self::enable_gdn_journal`]. Consumed by
@@ -3666,6 +3676,7 @@ impl Qwen38DenseForward {
             wide_scratch: None,
             wide_ingest_active: false,
             verify_taps_dev: None,
+            verify_tap_set: &QWEN38_DFLASH2_TAP_LAYERS,
             gdn_journal: None,
             lanes: None,
             verify_mma,
@@ -8156,23 +8167,40 @@ impl Qwen38DenseForward {
 
     /// Issue 755 T2 — allocate the `[16][25600]` verify-tap buffer. Call once
     /// before the first tap chunk (allocation outside any hot loop; eager
-    /// path only, so no capture-region interaction). Idempotent.
+    /// path only, so no capture-region interaction). Idempotent — UNLESS the
+    /// tap set changes (the DSPINE twin re-arms in place; the buffer width
+    /// is identical).
     pub fn enable_verify_taps(&mut self) -> Result<(), String> {
+        self.enable_verify_taps_set(&QWEN38_DFLASH2_TAP_LAYERS)
+    }
+
+    /// The DSpine tap-set arm (plan 492 T1/T2): same buffer, the DSpine
+    /// drafter's `target_layer_ids` — [`QWEN38_DSPINE_TAP_LAYERS`].
+    pub fn enable_verify_taps_dspine(&mut self) -> Result<(), String> {
+        self.enable_verify_taps_set(&QWEN38_DSPINE_TAP_LAYERS)
+    }
+
+    fn enable_verify_taps_set(&mut self, set: &'static [usize; 5]) -> Result<(), String> {
         if self.verify_taps_dev.is_some() {
+            if self.verify_tap_set == set {
+                return Ok(());
+            }
+            self.verify_tap_set = set;
             return Ok(());
         }
-        if self.cfg.n_layer <= QWEN38_DFLASH2_TAP_LAYERS[4] {
+        if self.cfg.n_layer <= set[4] {
             return Err(format!(
                 "enable_verify_taps: n_layer {} does not cover tap layer {}",
-                self.cfg.n_layer, QWEN38_DFLASH2_TAP_LAYERS[4]
+                self.cfg.n_layer, set[4]
             ));
         }
-        let len = QWEN38_VERIFY_MAX_P * QWEN38_DFLASH2_TAP_LAYERS.len() * self.cfg.n_embd;
+        let len = QWEN38_VERIFY_MAX_P * set.len() * self.cfg.n_embd;
         let buf = self
             .stream
             .alloc_zeros::<f32>(len)
             .map_err(|e| format!("verify taps alloc: {e}"))?;
         self.verify_taps_dev = Some(buf);
+        self.verify_tap_set = set;
         Ok(())
     }
 
@@ -8196,6 +8224,23 @@ impl Qwen38DenseForward {
     ) -> Result<Vec<u32>, String> {
         if self.verify_taps_dev.is_none() {
             return Err("forward_verify_chunk_taps: call enable_verify_taps() first".to_string());
+        }
+        self.verify_chunk_eager(tokens, base_pos, true)
+    }
+
+    /// The DSpine tap-set chunk (plan 492 T1/T2): the tap-carrying chunk
+    /// VERBATIM with the buffer armed at [`QWEN38_DSPINE_TAP_LAYERS`] — call
+    /// [`Self::enable_verify_taps_dspine`] first.
+    pub fn forward_verify_chunk_taps_dspine(
+        &mut self,
+        tokens: &[u32],
+        base_pos: usize,
+    ) -> Result<Vec<u32>, String> {
+        if self.verify_taps_dev.is_none() || self.verify_tap_set != &QWEN38_DSPINE_TAP_LAYERS {
+            return Err(
+                "forward_verify_chunk_taps_dspine: call enable_verify_taps_dspine() first"
+                    .to_string(),
+            );
         }
         self.verify_chunk_eager(tokens, base_pos, true)
     }
@@ -8423,7 +8468,12 @@ impl Qwen38DenseForward {
                         )
                         .map_err(|e| e.to_string())?;
                 }
-                if let Some(k) = dflash2_tap_slot(i).filter(|_| taps) {
+                if let Some(k) = self
+                    .verify_tap_set
+                    .iter()
+                    .position(|&t| t == i)
+                    .filter(|_| taps)
+                {
                     let Some(taps_buf) = self.verify_taps_dev.as_mut() else {
                         return Err("verify tap copy: taps not enabled".to_string());
                     };
@@ -8448,7 +8498,12 @@ impl Qwen38DenseForward {
                 // Unfused arm: `v.xb` holds the raw post-layer residual the
                 // instant verify_mlp's trailing residual_add lands (the same
                 // value the fused boundary materializes above).
-                if let Some(k) = dflash2_tap_slot(i).filter(|_| taps) {
+                if let Some(k) = self
+                    .verify_tap_set
+                    .iter()
+                    .position(|&t| t == i)
+                    .filter(|_| taps)
+                {
                     let Some(taps_buf) = self.verify_taps_dev.as_mut() else {
                         return Err("verify tap copy: taps not enabled".to_string());
                     };

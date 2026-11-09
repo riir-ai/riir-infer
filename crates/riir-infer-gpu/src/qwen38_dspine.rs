@@ -1005,6 +1005,98 @@ pub struct LastWriteStash {
     pub packed_q: Vec<f32>,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The trainer's forward trace (plan 492 T1 — riir-train's hand-written
+// backward consumes these intermediates; the FORWARD stays this module's
+// one implementation, never a trainer-side fork).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One draft layer's block-forward intermediates. Array shapes are the
+/// draft geometry: `t` = served block rows, `e` = n_embd, `nh·hd`/`n_kv`
+/// = the q/k/v widths, `n_ff` = intermediate, `c` = code_size, `r` = rank,
+/// `ctx` = occupied context rows at draft time.
+#[derive(Debug, Clone, Default)]
+pub struct DspineLayerTrace {
+    /// `[t·e]` the layer's normed block input (the q/k/v + o_proj-mlp
+    /// projection input — for layer 0 the input-norm output, for deeper
+    /// layers the previous write's fused norm).
+    pub x_in: Vec<f32>,
+    /// `[t·e]` the layer's residual input (post-write rows of the previous
+    /// layer; the anchor/mask embeddings at layer 0).
+    pub x: Vec<f32>,
+    /// `[t·nh·hd]` post-rope block queries.
+    pub q: Vec<f32>,
+    /// `[t·n_kv]` post-rope block keys.
+    pub k: Vec<f32>,
+    /// `[t·n_kv]` block values (pre-attention; bf16 boundary values as used).
+    pub v: Vec<f32>,
+    /// `[ctx·n_kv]` the context-ring keys in `ctx_pos` order (frozen
+    /// functions of the teacher taps — gradients die here).
+    pub ctx_k: Vec<f32>,
+    /// `[ctx·n_kv]` the context-ring values in `ctx_pos` order.
+    pub ctx_v: Vec<f32>,
+    /// `[ctx]` the ring positions (ascending — the attention visibility
+    /// rule replays from these + `sliding_window`).
+    pub ctx_pos: Vec<usize>,
+    /// `[t·e]` post-attention residual (`bf16(x + o_proj(ctx))`).
+    pub h: Vec<f32>,
+    /// `[t·n_ff]` the SwiGLU gate projection (bf16 boundary values).
+    pub ffn_g: Vec<f32>,
+    /// `[t·n_ff]` the SwiGLU up projection (bf16 boundary values).
+    pub ffn_u: Vec<f32>,
+    /// `[t·e]` the post-MLP residual — the write pass's `raw`.
+    pub out: Vec<f32>,
+    /// `[t]` the bridge read rms per row.
+    pub rms: Vec<f32>,
+    /// `[t·e]` the read-norm output (the read gemv's input, e-wide).
+    pub normed_in: Vec<f32>,
+    /// `[t·c]` the read gemv output (the L2-normalization's input).
+    pub projected: Vec<f32>,
+    /// `[t·c]` the codes (anchor row = codebook, else L2(projected)).
+    pub codes: Vec<f32>,
+    /// `[t·3r]` the packed `[gate_w; pred_gate_w; prev_w] @ codes` rows.
+    pub packed: Vec<f32>,
+    /// `[t·r]` the gated adjacent-injection message.
+    pub message: Vec<f32>,
+    /// `[t·e]` the write projection output.
+    pub delta: Vec<f32>,
+    /// `[t·e]` the post-write rows (`bf16(out + rms·delta)` — the next
+    /// layer's residual `x`).
+    pub out_row: Vec<f32>,
+    /// `[t·e]` the fused next norm output (the next layer's `x_in`).
+    pub next_x_in: Vec<f32>,
+}
+
+/// The serial refinement tail's intermediates (the loss surface).
+#[derive(Debug, Clone, Default)]
+pub struct DspineTailTrace {
+    /// `[γ·e]` the proposal rows (`γ` = t−1): `bf16(bf16(raw·inv)·model_norm)`
+    /// — the candidate-selection logits' input.
+    pub proposal_rows: Vec<f32>,
+    /// `[γ·k]` the walk's base scores (`lm_head[cand] · (raw ⊙ model_norm)`,
+    /// the UNROUNDED walk product — kept f32 exactly as the runtime keeps it).
+    pub base: Vec<f32>,
+    /// `[γ]` the tail rows' bridge read rms (`stash.rms[1..]`).
+    pub rms: Vec<f32>,
+    /// `[γ·r]` the tail's `q` (`stash.packed_q[1..]` — the gate_w half of
+    /// the last write's packed).
+    pub packed_q: Vec<f32>,
+    /// `[γ][k]` first-index argmax lanes (the runtime walk's routing).
+    pub idx: Vec<Vec<usize>>,
+    /// `[γ][k]` the confidence masses.
+    pub probs: Vec<Vec<f32>>,
+}
+
+/// Everything [`DspineDrafter::draft_block_trace`] captured from one draft
+/// round — the trainer's backward substrate (plan 492 T1).
+#[derive(Debug, Clone, Default)]
+pub struct DspineBlockTrace {
+    pub anchor_token: u32,
+    /// One entry per draft layer (n_layer of them, draft order).
+    pub layers: Vec<DspineLayerTrace>,
+    pub tail: DspineTailTrace,
+}
+
 impl DspineDrafter {
     pub fn new(cfg: DspineConfig, w: DspineWeights) -> Self {
         let hd = cfg.head_dim;
@@ -1137,7 +1229,6 @@ impl DspineDrafter {
     /// dequantized output head `[V × H]` (the cross-precision disclosure:
     /// the vendor's was bf16, ours is the Q6_K GGUF head — the T1-cell
     /// class).
-    #[allow(clippy::too_many_lines)]
     pub fn draft_block(
         &self,
         anchor_token: u32,
@@ -1145,6 +1236,43 @@ impl DspineDrafter {
         embed_row: &dyn Fn(u32) -> Vec<f32>,
         lm_head: &[f32],
         tables: &SerialTables,
+    ) -> Result<DspineDraft, String> {
+        self.draft_block_impl(anchor_token, anchor_pos, embed_row, lm_head, tables, None)
+    }
+
+    /// [`Self::draft_block`] + the trainer's forward trace. ONE forward
+    /// implementation: this is the same body with the intermediates captured
+    /// — the returned [`DspineDraft`] is bit-identical to `draft_block`'s
+    /// (pinned by test), so training optimizes the exact deployment graph.
+    pub fn draft_block_trace(
+        &self,
+        anchor_token: u32,
+        anchor_pos: usize,
+        embed_row: &dyn Fn(u32) -> Vec<f32>,
+        lm_head: &[f32],
+        tables: &SerialTables,
+    ) -> Result<(DspineDraft, DspineBlockTrace), String> {
+        let mut tr = DspineBlockTrace::default();
+        let draft = self.draft_block_impl(
+            anchor_token,
+            anchor_pos,
+            embed_row,
+            lm_head,
+            tables,
+            Some(&mut tr),
+        )?;
+        Ok((draft, tr))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn draft_block_impl(
+        &self,
+        anchor_token: u32,
+        anchor_pos: usize,
+        embed_row: &dyn Fn(u32) -> Vec<f32>,
+        lm_head: &[f32],
+        tables: &SerialTables,
+        mut tr: Option<&mut DspineBlockTrace>,
     ) -> Result<DspineDraft, String> {
         let cfg = &self.cfg;
         let t = self.block_size;
@@ -1191,6 +1319,9 @@ impl DspineDrafter {
             );
             x_in[i * e..(i + 1) * e].copy_from_slice(&normed);
         }
+        if let Some(tr) = tr.as_deref_mut() {
+            tr.anchor_token = anchor_token;
+        }
         let mut stash = LastWriteStash {
             raw: vec![0.0f32; t * e],
             rms: vec![0.0f32; t],
@@ -1202,6 +1333,13 @@ impl DspineDrafter {
         let sqrt_c = (cfg.code_size as f32).sqrt();
 
         for (li, layer) in self.w.layers.iter().enumerate() {
+            if let Some(tr) = tr.as_deref_mut() {
+                tr.layers.push(DspineLayerTrace {
+                    x_in: x_in.clone(),
+                    x: x.clone(),
+                    ..Default::default()
+                });
+            }
             // ── attention: q/k/v block projections + context-ring K/V ──
             let mut q = vec![0.0f32; t * nh * hd];
             let mut k = vec![0.0f32; t * n_kv];
@@ -1236,6 +1374,28 @@ impl DspineDrafter {
                     ));
                     apply_rope(&mut normed, p, &self.rope_freqs);
                     k[base..base + hd].copy_from_slice(&normed);
+                }
+            }
+            if let Some(tr) = tr.as_mut() {
+                let lt = tr.layers.last_mut().unwrap();
+                lt.q = q.clone();
+                lt.k = k.clone();
+                lt.v = vv.clone();
+                // The occupied ring rows, gathered contiguous in ring_pos
+                // order (the attention visibility rule replays from these).
+                let ctx = self.ring_pos.len();
+                lt.ctx_k.clear();
+                lt.ctx_v.clear();
+                lt.ctx_pos.clear();
+                lt.ctx_k.reserve(ctx * n_kv);
+                lt.ctx_v.reserve(ctx * n_kv);
+                for &rp in self.ring_pos.iter() {
+                    let slot = rp % sw;
+                    lt.ctx_k
+                        .extend_from_slice(&self.ring_k[li][slot * n_kv..(slot + 1) * n_kv]);
+                    lt.ctx_v
+                        .extend_from_slice(&self.ring_v[li][slot * n_kv..(slot + 1) * n_kv]);
+                    lt.ctx_pos.push(rp);
                 }
             }
 
@@ -1334,10 +1494,14 @@ impl DspineDrafter {
             // MLP: norm → SwiGLU → down, bf16 at every boundary.
             let mut mlp_out = vec![0.0f32; t * e];
             let mut mid = vec![0.0f32; cfg.n_ff];
+            let mut ffn_g_all = vec![0.0f32; t * cfg.n_ff];
+            let mut ffn_u_all = vec![0.0f32; t * cfg.n_ff];
             for i in 0..t {
                 let hf = rmsnorm_std(&h[i * e..(i + 1) * e], &layer.ffn_norm, cfg.rms_eps);
                 let g = gemv_bf16(&layer.gate_proj, &hf, cfg.n_ff);
                 let u = gemv_bf16(&layer.up_proj, &hf, cfg.n_ff);
+                ffn_g_all[i * cfg.n_ff..(i + 1) * cfg.n_ff].copy_from_slice(&g);
+                ffn_u_all[i * cfg.n_ff..(i + 1) * cfg.n_ff].copy_from_slice(&u);
                 for (o_i, (m_o, mg)) in mid.iter_mut().zip(g.iter()).enumerate() {
                     let s = bf16r(mg / (1.0 + (-mg).exp()));
                     *m_o = bf16r(s * u[o_i]);
@@ -1350,6 +1514,13 @@ impl DspineDrafter {
             let mut out = vec![0.0f32; t * e];
             for j in 0..t * e {
                 out[j] = bf16r(h[j] + mlp_out[j]);
+            }
+            if let Some(tr) = tr.as_deref_mut() {
+                let lt = tr.layers.last_mut().unwrap();
+                lt.h = h.clone();
+                lt.ffn_g = ffn_g_all;
+                lt.ffn_u = ffn_u_all;
+                lt.out = out.clone();
             }
 
             // ── the code-bridge write (fused next norm) ──
@@ -1368,12 +1539,20 @@ impl DspineDrafter {
             let mut next_x = vec![0.0f32; t * e];
             let mut packed_all = vec![0.0f32; t * 3 * cfg.rank];
             let mut rms_all = vec![0.0f32; t];
+            let mut normed_all = vec![0.0f32; t * e];
+            let mut projected_all = vec![0.0f32; t * cfg.code_size];
+            let mut codes_all = vec![0.0f32; t * cfg.code_size];
+            let mut message_all = vec![0.0f32; t * cfg.rank];
+            let mut delta_all = vec![0.0f32; t * e];
             for i in 0..t {
                 let raw_row = &out[i * e..(i + 1) * e];
                 // raw is already bf16-valued (out is). The read norm.
                 let (rms, normed_in) = bridge_read_norm(raw_row, cfg.bridge_eps);
                 rms_all[i] = rms;
+                normed_all[i * e..(i + 1) * e].copy_from_slice(&normed_in);
                 let projected = gemv_bf16(read_w, &normed_in, cfg.code_size);
+                projected_all[i * cfg.code_size..(i + 1) * cfg.code_size]
+                    .copy_from_slice(&projected);
                 // codes: anchor row ← sqrt(C)·codebook[anchor]; else the
                 // L2-normalized projection.
                 let mut codes = vec![0.0f32; cfg.code_size];
@@ -1392,6 +1571,7 @@ impl DspineDrafter {
                         *cv = bf16r(sqrt_c * projected[j] / (nrm + cfg.bridge_eps));
                     }
                 }
+                codes_all[i * cfg.code_size..(i + 1) * cfg.code_size].copy_from_slice(&codes);
                 let packed = gemv_bf16(&packed_w, &codes, 3 * cfg.rank);
                 packed_all[i * 3 * cfg.rank..(i + 1) * 3 * cfg.rank].copy_from_slice(&packed);
                 if li + 1 == cfg.n_layer {
@@ -1409,6 +1589,7 @@ impl DspineDrafter {
                 // halves (zero at the anchor row).
                 let prev = i.saturating_sub(1);
                 let mut message = vec![0.0f32; cfg.rank];
+                let mut delta = vec![0.0f32; e];
                 if i % t != 0 {
                     let pbase = prev * 3 * cfg.rank;
                     for j in 0..cfg.rank {
@@ -1419,7 +1600,9 @@ impl DspineDrafter {
                         message[j] = bf16r(gate * vv_);
                     }
                 }
-                let delta = gemv_bf16(write_w, &message, e);
+                delta = gemv_bf16(write_w, &message, e);
+                message_all[i * cfg.rank..(i + 1) * cfg.rank].copy_from_slice(&message);
+                delta_all[i * e..(i + 1) * e].copy_from_slice(&delta);
                 // out_row = bf16(f + rms·delta) at non-anchor rows — the
                 // updated residual stream (the next layer's residual).
                 let mut out_row = vec![0.0f32; e];
@@ -1439,12 +1622,30 @@ impl DspineDrafter {
                 }
                 next_x[i * e..(i + 1) * e].copy_from_slice(&out_row);
             }
+            if let Some(tr) = tr.as_deref_mut() {
+                let lt = tr.layers.last_mut().unwrap();
+                lt.rms = rms_all;
+                lt.normed_in = normed_all;
+                lt.projected = projected_all;
+                lt.codes = codes_all;
+                lt.packed = packed_all;
+                lt.message = message_all;
+                lt.delta = delta_all;
+                lt.out_row = next_x.clone();
+                lt.next_x_in = next_x_in.clone();
+            }
             x_in = next_x_in;
             x = next_x;
         }
 
         // ── the serial refinement tail (greedy) ──
-        self.serial_tail(anchor_token, &stash, lm_head, tables)
+        self.serial_tail_impl(
+            anchor_token,
+            &stash,
+            lm_head,
+            tables,
+            tr.as_mut().map(|t| &mut t.tail),
+        )
     }
 
     /// The `exact_sender` serial_table tail: candidates, the predecessor-
@@ -1455,13 +1656,17 @@ impl DspineDrafter {
     /// normed outputs (the model norm applied to raw — recomputed here,
     /// deterministic, the same fold the write used). Rows 1..T-1 propose;
     /// row 0 is the anchor slot. Delegates the walk to
-    /// [`serial_walk_core`] (the fixture piece (d) shares it).
-    fn serial_tail(
+    /// [`serial_walk_core`] (the fixture piece (d) shares it). `tr = Some`
+    /// captures the loss-surface trace (plan 492 T1) — the draft result is
+    /// bit-identical either way (pinned by test).
+    #[allow(clippy::too_many_arguments)]
+    fn serial_tail_impl(
         &self,
         anchor_token: u32,
         stash: &LastWriteStash,
         lm_head: &[f32],
         tables: &SerialTables,
+        mut tr: Option<&mut DspineTailTrace>,
     ) -> Result<DspineDraft, String> {
         let cfg = &self.cfg;
         let t = self.block_size;
@@ -1495,7 +1700,7 @@ impl DspineDrafter {
             candidates.push(top_k_ids_ascending(&logits, k));
         }
 
-        let (idx, probs) = serial_walk_core(
+        let (idx, probs, extras) = serial_walk_core_ext(
             &stash.raw,
             &stash.rms,
             &stash.packed_q,
@@ -1507,6 +1712,14 @@ impl DspineDrafter {
             tables,
             cfg,
         );
+        if let Some(tr) = tr.as_mut() {
+            tr.proposal_rows = rows;
+            tr.base = extras.0;
+            tr.rms = stash.rms[1..].to_vec();
+            tr.packed_q = stash.packed_q[cfg.rank..].to_vec();
+            tr.idx = idx.clone();
+            tr.probs = probs.clone();
+        }
         // The greedy chain walk + confidences (the vendor serial_chain
         // layout: row 0 reads lane 0; `previous` updates AFTER the read).
         let (tokens, confidences) = chain_walk(&candidates, &idx, &probs);
@@ -1538,6 +1751,41 @@ pub fn serial_walk_core(
     tables: &SerialTables,
     cfg: &DspineConfig,
 ) -> (Vec<Vec<usize>>, Vec<Vec<f32>>) {
+    let (idx, probs, _) = serial_walk_core_ext(
+        raw,
+        rms,
+        packed_q,
+        candidates,
+        anchor_token,
+        lm_head,
+        norm_w,
+        gate_b,
+        tables,
+        cfg,
+    );
+    (idx, probs)
+}
+
+/// The trainer-facing extras bundle: the walk's `base` scores `[γ·K]`
+/// (flattened row-major) and the per-row/per-lane gated message
+/// `m [γ][K][R]` at the RUNTIME sids (the trainer recomputes rows for its
+/// own sid policy — plan 492 T1).
+pub type SerialWalkExtras = (Vec<f32>, Vec<Vec<Vec<f32>>>);
+
+/// [`serial_walk_core`] + the trainer's loss-surface extras ([`SerialWalkExtras`]).
+#[allow(clippy::too_many_arguments)]
+pub fn serial_walk_core_ext(
+    raw: &[f32],
+    rms: &[f32],
+    packed_q: &[f32],
+    candidates: &[Vec<u32>],
+    anchor_token: u32,
+    lm_head: &[f32],
+    norm_w: &[f32],
+    gate_b: &[f32],
+    tables: &SerialTables,
+    cfg: &DspineConfig,
+) -> (Vec<Vec<usize>>, Vec<Vec<f32>>, SerialWalkExtras) {
     let (e, r, k) = (cfg.n_embd, cfg.rank, cfg.head_topk);
     let gamma = candidates.len();
     // The lm_head may be a SLICE (the fixture piece (d)); every candidate id
@@ -1549,6 +1797,8 @@ pub fn serial_walk_core(
     );
     let mut idx = vec![vec![0usize; k]; gamma];
     let mut probs = vec![vec![0.0f32; k]; gamma];
+    let mut base_all = vec![0.0f32; gamma * k];
+    let mut m_all: Vec<Vec<Vec<f32>>> = Vec::with_capacity(gamma);
     for nn in 0..gamma {
         let raw_row = &raw[(nn + 1) * e..(nn + 2) * e];
         let rms_n = rms[nn + 1];
@@ -1574,6 +1824,8 @@ pub fn serial_walk_core(
         } else {
             candidates[nn - 1].clone()
         };
+        base_all[nn * k..(nn + 1) * k].copy_from_slice(&base);
+        let mut m_rows: Vec<Vec<f32>> = Vec::with_capacity(k);
         let mut scores = vec![0.0f32; k * k];
         for (j, &sid) in sid_tokens.iter().enumerate() {
             let tsv_base = sid as usize * 2 * r;
@@ -1583,6 +1835,7 @@ pub fn serial_walk_core(
                 let gate = 1.0 / (1.0 + (-z).exp());
                 m_msg[rr] = gate * tables.tsv[tsv_base + r + rr];
             }
+            m_rows.push(m_msg.clone());
             for jp in 0..k {
                 let tg_base = cand_n[jp] as usize * r;
                 let mut s = 0.0f32;
@@ -1614,8 +1867,9 @@ pub fn serial_walk_core(
             }
             probs[nn][j] = 1.0 / mass;
         }
+        m_all.push(m_rows);
     }
-    (idx, probs)
+    (idx, probs, (base_all, m_all))
 }
 
 /// The greedy chain walk: lane₀ = idx[0][0]; token[n] = cand[n][lane];
@@ -2071,5 +2325,151 @@ mod tests {
             parse_config_json(&bad3).is_err(),
             "non-native posture must refuse"
         );
+    }
+
+    /// The tiny draft world the trace/FD tests share: bf16-representable
+    /// synthetic weights at E=16, so the bf16 boundary roundings are exact
+    /// identities and finite differences measure the true gradient (the
+    /// trainer's validation geometry, plan 492 T1).
+    fn test_tiny_cfg() -> DspineConfig {
+        DspineConfig {
+            n_layer: 5,
+            n_embd: 16,
+            n_head: 2,
+            n_kv_head: 1,
+            head_dim: 8,
+            n_ff: 24,
+            trained_block_size: 4,
+            sliding_window: 32,
+            rope_theta: 1.0e7,
+            rms_eps: 1e-6,
+            code_size: 8,
+            rank: 4,
+            bridge_eps: 1e-6,
+            vocab_size: 32,
+            mask_token_id: 31,
+            head_topk: 4,
+            target_layer_ids: vec![1, 2, 3, 4, 5],
+            num_target_layers: 64,
+        }
+    }
+
+    /// (weights, drafter-ready world, lm_head, tables, embed closure). Every
+    /// value a multiple of 1/8 — bf16-exact, so roundings never perturb a
+    /// finite difference.
+    fn test_tiny_world(
+        cfg: &DspineConfig,
+    ) -> (
+        DspineWeights,
+        DspineDrafter,
+        Vec<f32>,
+        SerialTables,
+        impl Fn(u32) -> Vec<f32> + '_,
+    ) {
+        let (e, c, r, nf, v) = (
+            cfg.n_embd,
+            cfg.code_size,
+            cfg.rank,
+            cfg.target_layer_ids.len(),
+            cfg.vocab_size,
+        );
+        let q8 = |seed: u64, n: usize| -> Vec<f32> {
+            let mut s = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (0..n)
+                .map(|_| {
+                    s ^= s << 13;
+                    s ^= s >> 7;
+                    s ^= s << 17;
+                    bf16r((((s >> 33) % 17) as i64 - 8) as f32 * 0.125)
+                })
+                .collect()
+        };
+        let mut w = DspineWeights {
+            fc: q8(1, e * nf * e),
+            hidden_norm: q8(2, e),
+            model_norm: q8(3, e),
+            layers: Vec::new(),
+            bridge: DspineBridge {
+                codebook: q8(4, v * c),
+                early_read_weights: (0..cfg.n_layer - 1)
+                    .map(|i| q8(100 + i as u64, c * e))
+                    .collect(),
+                read_weight: q8(200, c * e),
+                feature_write_weights: (0..cfg.n_layer)
+                    .map(|i| q8(300 + i as u64, e * r))
+                    .collect(),
+                gate_w: q8(400, r * c),
+                gate_b: q8(401, r),
+                pred_gate_w: q8(402, r * c),
+                prev_w: q8(403, r * c),
+                out_w: vec![0.0; e * e],
+            },
+        };
+        for i in 0..cfg.n_layer {
+            w.layers.push(DspineLayer {
+                input_norm: q8(500 + i as u64, e),
+                q_proj: q8(600 + i as u64, e * e),
+                k_proj: q8(700 + i as u64, e * (cfg.n_kv_head * cfg.head_dim)),
+                v_proj: q8(800 + i as u64, e * (cfg.n_kv_head * cfg.head_dim)),
+                o_proj: q8(900 + i as u64, e * e),
+                q_norm: q8(1000 + i as u64, cfg.head_dim),
+                k_norm: q8(1100 + i as u64, cfg.head_dim),
+                ffn_norm: q8(1200 + i as u64, e),
+                gate_proj: q8(1300 + i as u64, cfg.n_ff * e),
+                up_proj: q8(1400 + i as u64, cfg.n_ff * e),
+                down_proj: q8(1500 + i as u64, e * cfg.n_ff),
+            });
+        }
+        let lm_head = q8(1600, v * e);
+        let tables = build_serial_tables(
+            &lm_head,
+            &w.model_norm,
+            &w.bridge.feature_write_weights[cfg.n_layer - 1],
+            &w.pv_weight(),
+            &w.bridge.codebook,
+            cfg,
+        );
+        let drafter = DspineDrafter::new(cfg.clone(), w.clone());
+        let embed = move |tok: u32| -> Vec<f32> {
+            let s0 = 1700 + tok as u64 * 13;
+            q8(s0, e)
+        };
+        (w, drafter, lm_head, tables, embed)
+    }
+
+    /// The trace twin's parity pin: `draft_block_trace` returns the SAME
+    /// draft as `draft_block` (bit-exact tokens/confidences) — the trainer
+    /// optimizes the exact deployment graph, never a parallel forward.
+    #[test]
+    fn draft_block_trace_is_bit_identical_to_draft_block() {
+        let cfg = test_tiny_cfg();
+        let (w, _drafter, lm_head, tables, embed) = test_tiny_world(&cfg);
+        let anchor = 3u32;
+        let nf = cfg.target_layer_ids.len();
+        let e = cfg.n_embd;
+        let ctx_rows = 8usize;
+        // bf16-representable synthetic taps (the test world's convention).
+        let feats: Vec<f32> = (0..ctx_rows * nf * e)
+            .map(|i| bf16r((((i * 7) % 11) as f32 - 5.0) * 0.125))
+            .collect();
+        let mut a = DspineDrafter::new(cfg.clone(), w.clone());
+        a.append_context(&feats, 0).unwrap();
+        let mut b = DspineDrafter::new(cfg.clone(), w);
+        b.append_context(&feats, 0).unwrap();
+        let draft_a = a
+            .draft_block(anchor, ctx_rows, &embed, &lm_head, &tables)
+            .unwrap();
+        let (draft_b, tr) = b
+            .draft_block_trace(anchor, ctx_rows, &embed, &lm_head, &tables)
+            .unwrap();
+        assert_eq!(draft_a.tokens, draft_b.tokens, "tokens diverged");
+        assert_eq!(
+            draft_a.confidences, draft_b.confidences,
+            "confidences diverged"
+        );
+        assert_eq!(tr.layers.len(), cfg.n_layer);
+        assert_eq!(tr.tail.idx.len(), cfg.trained_block_size - 1);
+        // The tail base rows carry γ·k entries; every candidate is covered.
+        assert_eq!(tr.tail.base.len(), tr.tail.idx.len() * cfg.head_topk);
     }
 }
