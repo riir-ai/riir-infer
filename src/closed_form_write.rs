@@ -568,7 +568,7 @@ impl katgpt_core::closed_form_weight_write::FactWriteModel for QwenFactWriteMode
         let v = self.config.vocab_size;
         // Prefill bootstraps the caches; the last position's logits pick the
         // first generated token (first-index argmax — the tie law).
-        let mut logits = self.prefill_logits(prefix);
+        let logits = self.prefill_logits(prefix);
         let mut generated = Vec::with_capacity(max_new);
         let mut next_tok = argmax_first(&logits);
         let mut pos = prefix.len();
@@ -765,11 +765,11 @@ mod tests {
             let fill = |buf: &mut [f32], s: &mut u64| {
                 for v in buf.iter_mut() {
                     *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                    *v = ((s >> 40) as f32 / (u32::MAX as f32)) - 0.5;
+                    *v = ((*s >> 40) as f32 / (u32::MAX as f32)) - 0.5;
                 }
             };
             use crate::deltanet::weights::Proj;
-            let mut fill_proj = |p: &Proj, s: &mut u64| {
+            let mut fill_proj = |p: &mut Proj, s: &mut u64| {
                 if let Proj::Dense { data, .. } = p {
                     fill(data, s);
                 }
@@ -864,7 +864,7 @@ mod tests {
         let mut armed_w = QwenDeltaNetWeights::zeros(&cfg);
         seeded(&mut armed_w);
         armed_w.closed_form_overlays = Some(mount(vec![(1, pair_off)]));
-        let (a_logits, a_toks) = run(&armed_w);
+        let (a_logits, _a_toks) = run(&armed_w);
         let moved = a_logits
             .iter()
             .zip(base_logits.iter())
