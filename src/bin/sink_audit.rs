@@ -409,11 +409,17 @@ fn finish(args: &Args, config: &Config, census: &SinkCensus, body: &str) -> Resu
         };
         let t2 = std::time::Instant::now();
         let width = run_width_census(q, &census.kv, &cfg).map_err(anyhow::Error::msg)?;
-        // Summary: per-layer median/KV-head spread + the r_ent ratio band —
-        // the shape the 987 lead's budget question reads first.
-        let mut widths: Vec<usize> = width.per_head.iter().filter_map(|h| h.width).collect();
-        widths.sort_unstable();
-        let median = widths.get(widths.len() / 2).copied().unwrap_or(0);
+        // Summary: disclosed percentiles over the per-head widths (issue
+        // 1185 T3 arm 2 — every read carries its tail support; p99 on a
+        // 64-head census reads the max with tail 1 and says so) + the
+        // r_ent ratio band — the shape the 987 lead's budget question
+        // reads first.
+        let widths: Vec<usize> = width.per_head.iter().filter_map(|h| h.width).collect();
+        let summary = riir_infer_core::deltanet::width_census::width_summary(&widths);
+        let pct = |r: &Option<riir_infer_core::deltanet::width_census::PercentileRead>| {
+            r.map(|p| format!("{}(tail {})", p.value, p.tail_support))
+                .unwrap_or_else(|| "n/a".into())
+        };
         let censored = width.per_head.iter().filter(|h| h.censored).count();
         let specialized = width
             .per_head
@@ -422,9 +428,14 @@ fn finish(args: &Args, config: &Config, census: &SinkCensus, body: &str) -> Resu
             .filter(|r| *r < 1.0)
             .count();
         println!(
-            "width census: eps={eps} heads={} median_width={median} censored={censored} \
-             specialized_heads={specialized} ({:.1}s)",
-            width.per_head.len(),
+            "width census: eps={eps} heads={} min={} p25={} p50={} p75={} p99={} \
+             censored={censored} specialized_heads={specialized} ({:.1}s)",
+            summary.n,
+            summary.min,
+            pct(&summary.p25),
+            pct(&summary.p50),
+            pct(&summary.p75),
+            pct(&summary.p99),
             t2.elapsed().as_secs_f32()
         );
         if let Some(out) = args.out.clone() {
@@ -466,6 +477,35 @@ fn format_width_report(
         "  \"incumbent_sink_pin\": {},\n",
         args.incumbent_sinks
     ));
+    // Issue 1185 T3 arm 2: the disclosed percentile summary. p99 on a
+    // 64-head census reads the max with tail_support 1 — the JSON names
+    // the tail so no downstream consumer can quote a bare "p99" blind.
+    {
+        let widths: Vec<usize> = width.per_head.iter().filter_map(|h| h.width).collect();
+        let sum = riir_infer_core::deltanet::width_census::width_summary(&widths);
+        let row = |tag: &str,
+                   r: &Option<riir_infer_core::deltanet::width_census::PercentileRead>,
+                   tail: &str,
+                   s: &mut String| {
+            match r {
+                Some(p) => s.push_str(&format!(
+                    "    \"{tag}\": {{\"value\": {}, \"index\": {}, \"tail_support\": {}}}{tail}\n",
+                    p.value, p.index, p.tail_support
+                )),
+                None => s.push_str(&format!("    \"{tag}\": null{tail}\n")),
+            }
+        };
+        s.push_str("  \"summary\": {\n");
+        s.push_str(&format!(
+            "    \"schema\": \"width_summary_v1\",\n    \"n\": {},\n    \"min\": {},\n    \"max\": {},\n",
+            sum.n, sum.min, sum.max
+        ));
+        row("p25", &sum.p25, ",", &mut s);
+        row("p50", &sum.p50, ",", &mut s);
+        row("p75", &sum.p75, ",", &mut s);
+        row("p99", &sum.p99, "", &mut s);
+        s.push_str("  },\n");
+    }
     s.push_str("  \"per_head\": [\n");
     for (i, h) in width.per_head.iter().enumerate() {
         let width_str = h

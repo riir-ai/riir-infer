@@ -137,6 +137,80 @@ pub struct WidthCensus {
     pub n_kv_head: usize,
 }
 
+/// One percentile read with its TAIL SUPPORT disclosed (issue 1185 T3 arm 2;
+/// the katgpt-rs `percentile_index_audit` class). The nearest-rank index is
+/// `ceil(p·n) − 1` — never the `(n·p) as usize` truncation, whose "p99"
+/// silently reads the maximum for every n ≤ 100. At n ≤ 1/(1−p) even the
+/// correct index lands on (or beside) the maximum, so every read carries
+/// `tail_support = n − index`: how many samples the read actually stands
+/// on. A read with tail support < 10 is weak and must be quoted as weak —
+/// disclosed, never folded into a bare percentile label.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PercentileRead {
+    /// The requested percentile in (0, 1].
+    pub p: f64,
+    /// The sorted value at the read's index.
+    pub value: usize,
+    /// The index into the sorted slice the read landed on.
+    pub index: usize,
+    /// `n − index` — the number of samples at or above `value`.
+    pub tail_support: usize,
+}
+
+/// Nearest-rank percentile over a SORTED (ascending) slice, tail support
+/// attached. `None` on an empty slice or a p outside (0, 1] — refused,
+/// never clamped into a plausible-looking read.
+pub fn percentile_read(sorted: &[usize], p: f64) -> Option<PercentileRead> {
+    if sorted.is_empty() || !(p > 0.0 && p <= 1.0) {
+        return None;
+    }
+    let n = sorted.len();
+    let rank = (p * n as f64).ceil(); // 1-based nearest rank, ≥ 1
+    let index = (rank as usize).saturating_sub(1).min(n - 1);
+    Some(PercentileRead {
+        p,
+        value: sorted[index],
+        index,
+        tail_support: n - index,
+    })
+}
+
+/// The census's summary block (issue 1185 T3 arm 2): the per-head width
+/// distribution as disclosed percentile reads. On the 64-head Bonsai
+/// census, `p99` reads the maximum with `tail_support = 1` — that is the
+/// hop the fixture pins, visible in the output instead of hidden behind a
+/// confident label.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WidthSummary {
+    /// Number of widths summarized (censored heads excluded by the caller).
+    pub n: usize,
+    pub min: usize,
+    pub max: usize,
+    pub p25: Option<PercentileRead>,
+    pub p50: Option<PercentileRead>,
+    pub p75: Option<PercentileRead>,
+    pub p99: Option<PercentileRead>,
+}
+
+/// Summarize per-head widths (any order; sorted internally). All
+/// percentiles go through [`percentile_read`] — one rank rule, one
+/// disclosure shape.
+pub fn width_summary(widths: &[usize]) -> WidthSummary {
+    let mut sorted = widths.to_vec();
+    sorted.sort_unstable();
+    let min = sorted.first().copied().unwrap_or(0);
+    let max = sorted.last().copied().unwrap_or(0);
+    WidthSummary {
+        n: widths.len(),
+        min,
+        max,
+        p25: percentile_read(&sorted, 0.25),
+        p50: percentile_read(&sorted, 0.50),
+        p75: percentile_read(&sorted, 0.75),
+        p99: percentile_read(&sorted, 0.99),
+    }
+}
+
 /// Run the ε-width census over a capture pair (the `q` + `kv` of one
 /// [`super::sink_audit::SinkCensus`] with `q: Some`).
 ///
@@ -1030,5 +1104,83 @@ mod tests {
         q_wrong_layers.q_rows = q.q_rows.clone();
         q_wrong_layers.attn_layers = vec![0, 1];
         assert!(run_width_census(&q_wrong_layers, &kv, &WidthCensusConfig::default()).is_err());
+    }
+
+    // ── Issue 1185 T3 arm 2 — the percentile-hop fixtures ────────────────
+    // The katgpt-rs `percentile_index_audit` class: a percentile index must
+    // be nearest-rank WITH tail support, because at small n every tail
+    // percentile silently degrades to the maximum. These fixtures pin the
+    // hop BEFORE any budget number is quoted from the lane.
+
+    /// The 64-head Bonsai census at p99: the correct nearest-rank index is
+    /// `ceil(0.99·64) − 1 = 63` — the MAXIMUM — with tail_support 1. The
+    /// read is honest only because the output names it: value 63, index 63,
+    /// tail 1. This is the hop, pinned as deliberate behavior.
+    #[test]
+    fn p99_on_a_64_head_census_lands_on_the_max_and_discloses_it() {
+        let sorted: Vec<usize> = (0..64).collect();
+        let r = percentile_read(&sorted, 0.99).expect("read");
+        assert_eq!(r.index, 63);
+        assert_eq!(r.value, 63); // the maximum
+        assert_eq!(r.tail_support, 1);
+    }
+
+    /// Just past the hop: at n = 100 the correct p99 index is 98, NOT the
+    /// naive `(0.99·100) as usize = 99` truncation — which lands on the
+    /// max. Tail support 2 says the read stands on two samples.
+    #[test]
+    fn p99_at_n_100_is_not_the_max() {
+        let sorted: Vec<usize> = (0..100).collect();
+        let r = percentile_read(&sorted, 0.99).expect("read");
+        assert_eq!(r.index, 98);
+        assert_eq!(r.value, 98);
+        assert_ne!(r.value, sorted[99]); // not the maximum
+        assert_eq!(r.tail_support, 2);
+        // And the hazard the helper exists for, executable: the truncated
+        // form's index IS the max's index at this n.
+        assert_eq!((0.99f64 * 100.0) as usize, 99);
+    }
+
+    /// p50 on 64 heads is the lower median (index 31), tail 33 — the
+    /// disclosed replacement for the old bare `widths[n/2]` upper-median.
+    #[test]
+    fn p50_is_the_lower_median_with_its_tail_named() {
+        let sorted: Vec<usize> = (0..64).collect();
+        let r = percentile_read(&sorted, 0.50).expect("read");
+        assert_eq!(r.index, 31);
+        assert_eq!(r.value, 31);
+        assert_eq!(r.tail_support, 33);
+    }
+
+    /// Refusals and edges: empty → None; p outside (0, 1] → None; p = 1.0
+    /// is a legal read of the max with tail 1.
+    #[test]
+    fn percentile_read_refuses_and_edges() {
+        let sorted: Vec<usize> = (0..64).collect();
+        assert!(percentile_read(&[], 0.5).is_none());
+        assert!(percentile_read(&sorted, 0.0).is_none());
+        assert!(percentile_read(&sorted, -0.1).is_none());
+        assert!(percentile_read(&sorted, 1.001).is_none());
+        let r = percentile_read(&sorted, 1.0).expect("p=1.0 is legal");
+        assert_eq!(r.value, 63);
+        assert_eq!(r.tail_support, 1);
+    }
+
+    /// The summary sorts any-order input and delegates every percentile to
+    /// the one rank rule.
+    #[test]
+    fn width_summary_sorts_and_delegates() {
+        let mut widths: Vec<usize> = (0..64).map(|i| 63 - i).collect(); // descending
+        widths[0] = 700; // shuffle the extremes, keep n = 64
+        let s = width_summary(&widths);
+        assert_eq!(s.n, 64);
+        assert_eq!(s.min, 0);
+        assert_eq!(s.max, 700);
+        let mut sorted = widths.clone();
+        sorted.sort_unstable();
+        assert_eq!(s.p50, percentile_read(&sorted, 0.50));
+        assert_eq!(s.p99, percentile_read(&sorted, 0.99));
+        assert_eq!(s.p99.as_ref().expect("read").tail_support, 1);
+        assert!(width_summary(&[]).p50.is_none());
     }
 }

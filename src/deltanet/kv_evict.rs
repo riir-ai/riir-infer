@@ -31,6 +31,14 @@
 //!   `cadence` positions; between selections the cache may overshoot the
 //!   budget by up to `cadence − 1` rows. The caller's cache allocation must
 //!   hold `budget + cadence` rows (the gate bin sizes it from the context).
+//! - **The window binds (issue 1185 T3).** Selection runs through
+//!   `kv_sink_window::select_evict_windowed`: stale rows (outside the
+//!   trailing window) are eviction-priority FIRST regardless of score,
+//!   sinks are never evicted, and a `usize::MAX` window reduces
+//!   index-for-index to the old Sink-only pin path (fixture-pinned) — so
+//!   every incumbent consumer is byte-identical, and a bounded-window
+//!   policy gets the ceiling semantics the module documents instead of a
+//!   silently inert window.
 //! - **T3, by construction.** With `budget ≥` the whole sequence, `evict‑
 //!   ions_for_budget` returns 0 every step: admissions and observations are
 //!   pure side state and the write path reduces to the existing one (slot
@@ -42,11 +50,11 @@
 //! None. Latent-side bookkeeping over the model's own attention masses;
 //! nothing here is synced or committed.
 
+use katgpt_core::kv_eviction::UsageScoreTable;
 use katgpt_core::kv_eviction::differential::{
     DiffEvictConfig, DifferentialEvictTable, evictions_for_budget,
 };
-use katgpt_core::kv_eviction::{UsageScoreTable, select_evict_into};
-use katgpt_core::kv_sink_window::{SinkWindowPolicy, sink_pin_mask_into};
+use katgpt_core::kv_sink_window::{SinkWindowPolicy, select_evict_windowed};
 use katgpt_transformer::KVCache;
 
 /// The eviction score family the gate compares (T2's arms).
@@ -118,7 +126,6 @@ pub struct LayerEvict {
     // ── scratch (allocated once, reused — G4) ──
     head_scores_scratch: Vec<f32>,
     scores: Vec<f32>,
-    pin: Vec<bool>,
     evict_sel: Vec<usize>,
     is_evicted: Vec<bool>,
     keep: Vec<usize>,
@@ -175,7 +182,6 @@ impl LayerEvict {
             since_select: 0,
             head_scores_scratch: Vec::with_capacity(capacity),
             scores: Vec::with_capacity(capacity),
-            pin: Vec::with_capacity(capacity),
             evict_sel: Vec::with_capacity(capacity.min(64)),
             is_evicted: Vec::with_capacity(capacity),
             keep: Vec::with_capacity(capacity),
@@ -294,10 +300,18 @@ impl LayerEvict {
             return false;
         }
         self.aggregate_scores(pos);
-        // Sink-exempt selection over the aggregated scores. `positions` is
-        // the slot→logical map; `pos` the current logical position.
-        sink_pin_mask_into(&self.sinks, &self.slot_logical, pos, &mut self.pin);
-        select_evict_into(&self.scores, k, &self.pin, &mut self.evict_sel);
+        // Sink+window selection over the aggregated scores (issue 1185 T3:
+        // the policy's window now BINDS — stale rows go first regardless of
+        // score, sinks never go; an unbounded window reduces index-for-index
+        // to the old Sink-only pin path, fixture-pinned).
+        select_evict_windowed(
+            &self.sinks,
+            &self.slot_logical,
+            pos,
+            &self.scores,
+            k,
+            &mut self.evict_sel,
+        );
         if self.evict_sel.is_empty() {
             self.stats.idle_events += 1;
             return false;
@@ -859,5 +873,89 @@ mod tests {
         for i in 0..v {
             assert_eq!(plain[i].to_bits(), armed[i].to_bits(), "[{i}]");
         }
+    }
+
+    /// Issue 1185 T3 — a bounded window BINDS: stale rows are eviction-
+    /// priority FIRST regardless of score, sinks are never evicted. The
+    /// stale rows here carry the HIGHEST usage in the run and the window
+    /// rows the lowest, so a score-ordered selection would keep exactly the
+    /// rows this test asserts are evicted.
+    #[test]
+    fn bounded_window_evicts_stale_rows_before_scored_window_rows() {
+        let cap = 16usize;
+        let kvd = 4usize;
+        let n_heads = 1usize;
+        let cfg = EvictLayerConfig {
+            policy: EvictPolicy::UsageRate,
+            budget: 8,
+            cadence: 1,
+            defer_until: 0,
+        };
+        let mut ev = LayerEvict::new(cfg, SinkWindowPolicy::new(2, 4), n_heads, cap);
+        let mut cache = KVCache {
+            key: vec![0.0; cap * kvd],
+            value: vec![0.0; cap * kvd],
+        };
+        let live = 12usize;
+        for pos in 0..live {
+            ev.admit(pos as u64);
+            ev.tick();
+        }
+        // Slots 2..=7 (stale-bound at the eviction position) observe mass
+        // every query; slots 8..=11 (window rows) observe nothing.
+        let mut head_scores = vec![0.0f32; n_heads * cap];
+        for q in 0..6u64 {
+            head_scores.iter_mut().for_each(|s| *s = 0.0);
+            for slot in 2..=7 {
+                head_scores[slot] = 1.0;
+            }
+            ev.observe(&head_scores, cap, live as u64 + q);
+            ev.tick();
+        }
+        // current_pos = 12, window = 4: stale = positions <= 8 minus the
+        // sinks {0,1} -> slots 2..=8; window rows = 9..=11. live 12 against
+        // budget 8 forces 4 evictions: the four OLDEST stale rows, never a
+        // zero-usage window row, never a sink.
+        let did = ev.maybe_evict(&mut cache, kvd, 12);
+        assert!(did);
+        assert_eq!(ev.stats().evicted_rows, 4);
+        let surviving: Vec<u64> = ev.slot_logical.clone();
+        for gone in 2..=5u64 {
+            assert!(
+                !surviving.contains(&gone),
+                "stale slot {gone} must go first despite the highest usage"
+            );
+        }
+        assert!(
+            surviving.contains(&0) && surviving.contains(&1),
+            "sinks are never evicted"
+        );
+        for kept in [6u64, 7, 8, 9, 10, 11] {
+            assert!(surviving.contains(&kept), "slot {kept} must survive");
+        }
+    }
+
+    /// Issue 1185 T3 — the reduction pin: an unbounded window's windowed
+    /// selection is index-for-index the old Sink-only pin path
+    /// (`select_evict_into` over `sink_pin_mask_into`), so every incumbent
+    /// consumer is byte-identical after the windowed-selector switch.
+    #[test]
+    fn unbounded_window_reduces_to_the_pin_path_selection() {
+        use katgpt_core::kv_eviction::select_evict_into;
+        use katgpt_core::kv_sink_window::sink_pin_mask_into;
+        let positions: Vec<u64> = (0..20u64).map(|i| i * 3).collect();
+        let scores: Vec<f32> = [
+            5.0, -1.0, 0.0, 3.0, 7.0, -2.0, 1.0, 4.0, 2.5, 0.5, 6.0, -3.0, 8.0, 1.5, -0.5, 2.0,
+            3.5, 0.25, -1.5, 4.5,
+        ]
+        .to_vec();
+        let p = SinkWindowPolicy::new(4, usize::MAX);
+        let mut windowed = Vec::new();
+        let mut pinned = Vec::new();
+        let mut mask = Vec::new();
+        select_evict_windowed(&p, &positions, 1000, &scores, 6, &mut windowed);
+        sink_pin_mask_into(&p, &positions, 1000, &mut mask);
+        select_evict_into(&scores, 6, &mask, &mut pinned);
+        assert_eq!(windowed, pinned);
     }
 }

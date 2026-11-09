@@ -1,0 +1,172 @@
+# box state at launch: 2026-11-08T23:21:04Z
+# host: amo (M5 Ultra 96GB, macOS 27.2, AC plugged)
+ 6:21  up 6 days, 19:19, 5 users, load averages: 15.34 18.07 11.01
+The system has 103079215104 (6291456 pages with a page size of 16384).
+Now drawing from 'AC Power'
+# cmd: needle_eviction_gate --context 16384 --needles 8 --budget-frac 0.25,0.5 --sink-window 168,256,376,8192 --arms maxrecent,sinkwin
+# model: qwen35 hybrid | layers=24 n_embd=1024 n_head=8 n_kv_head=2 head_dim=256 vocab=248320 | load 0.4s
+# ⚠ legacy needle layout: needles [0] are NOT planted (slot collision) — their Δ reads an unplanted code; --plant-fix 1 plants all
+# rig: context=16384 needles=8 hubs=0 hub_code_rows=0 wall_rows=0 attn_layers=6 prompt=16411 question=27 answer=96 fracs=[0.25, 0.5] λ=1 β=0.1 W=256 cadence=512 defer=1 sinks=4
+# needle 0: depth=0 code_span=(9, 16) answer_span=(4, 11)
+# needle 1: depth=1797 code_span=(1806, 1813) answer_span=(16, 23)
+# needle 2: depth=3582 code_span=(3591, 3598) answer_span=(28, 35)
+# needle 3: depth=5368 code_span=(5377, 5384) answer_span=(40, 47)
+# needle 4: depth=7153 code_span=(7162, 7169) answer_span=(52, 59)
+# needle 5: depth=8939 code_span=(8948, 8955) answer_span=(64, 71)
+# needle 6: depth=10724 code_span=(10733, 10740) answer_span=(76, 83)
+# needle 7: depth=12510 code_span=(12519, 12526) answer_span=(88, 95)
+# T3 candidate sink windows: [168, 256, 376, 8192] (each sinkwin{W} arm's budget IS its ceiling n_sink+W = 4+W; incumbent bar = every maxrecent@{tag} arm)
+# [full] prefill chunk 1/3 at 270s
+# [full] prefill chunk 2/3 at 557s
+# [full] prefill chunk 3/3 at 558s
+# [full] phases: prefill=557.6s
+# [full] phases: +answer=5.4s
+# [full] phases: +survival=0.0s
+# [full] phases: +generic=1.1s
+# [full] phases: +runaway=5.4s
+# arm full               569.6s | evicted=     0 events=  0 idle=192 | genNLL=3.199 | out_len=96 (CAPPED) | surv n/h/w = 1.000/NaN/NaN sink=1.000
+# [maxrecent@25pct] prefill chunk 1/3 at 313s
+# [maxrecent@25pct] prefill chunk 2/3 at 610s
+# [maxrecent@25pct] prefill chunk 3/3 at 611s
+# [maxrecent@25pct] phases: prefill=611.4s
+# [maxrecent@25pct] phases: +answer=5.0s
+# [maxrecent@25pct] phases: +survival=0.0s
+# [maxrecent@25pct] phases: +generic=1.0s
+# [maxrecent@25pct] phases: +runaway=5.0s
+# arm maxrecent@25pct    622.5s | evicted= 73896 events=  6 idle=  0 | genNLL=3.176 | out_len=96 (CAPPED) | surv n/h/w = 0.652/NaN/NaN sink=1.000
+#   -> maxrecent@25pct retrieval 7/8 (meanΔ +0.604) per-needle Δ: [0.05852306, 0.019054415, 0.08411434, 0.878355, 0.8418189, 0.8709526, 1.331807, 0.74535835]
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+# [sinkwin168] prefill chunk 1/3 at 267s
+# [sinkwin168] prefill chunk 2/3 at 552s
+# [sinkwin168] prefill chunk 3/3 at 553s
+# [sinkwin168] phases: prefill=553.2s
+# [sinkwin168] phases: +answer=4.9s
+# [sinkwin168] phases: +survival=0.0s
+# [sinkwin168] phases: +generic=1.0s
+# [sinkwin168] phases: +runaway=4.9s
+# arm sinkwin168         564.0s | evicted= 97440 events=  6 idle=  0 | genNLL=3.442 | out_len=96 (CAPPED) | surv n/h/w = 0.000/NaN/NaN sink=1.000
+#   -> sinkwin168 retrieval 4/8 (meanΔ +0.973) per-needle Δ: [2.7976265, 1.9245491, 1.2944465, 1.0079514, 0.50238395, 0.17001343, 0.07279069, 0.014997754]
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+# [sinkwin256] prefill chunk 1/3 at 267s
+# [sinkwin256] prefill chunk 2/3 at 554s
+# [sinkwin256] prefill chunk 3/3 at 555s
+# [sinkwin256] phases: prefill=554.6s
+# [sinkwin256] phases: +answer=4.9s
+# [sinkwin256] phases: +survival=0.0s
+# [sinkwin256] phases: +generic=1.0s
+# [sinkwin256] phases: +runaway=4.9s
+# arm sinkwin256         565.4s | evicted= 96912 events=  6 idle=  0 | genNLL=3.438 | out_len=96 (CAPPED) | surv n/h/w = 0.000/NaN/NaN sink=1.000
+#   -> sinkwin256 retrieval 4/8 (meanΔ +0.971) per-needle Δ: [2.7876477, 1.9229932, 1.2950312, 1.008713, 0.49740303, 0.1684445, 0.07117598, 0.014865875]
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+# [sinkwin376] prefill chunk 1/3 at 272s
+# [sinkwin376] prefill chunk 2/3 at 562s
+# [sinkwin376] prefill chunk 3/3 at 563s
+# [sinkwin376] phases: prefill=563.0s
+# [sinkwin376] phases: +answer=4.9s
+# [sinkwin376] phases: +survival=0.0s
+# [sinkwin376] phases: +generic=1.1s
+# [sinkwin376] phases: +runaway=6.0s
+# arm sinkwin376         575.1s | evicted= 96192 events=  6 idle=  0 | genNLL=3.440 | out_len=96 (CAPPED) | surv n/h/w = 0.000/NaN/NaN sink=1.000
+#   -> sinkwin376 retrieval 4/8 (meanΔ +0.968) per-needle Δ: [2.7773223, 1.9219562, 1.2950689, 1.011043, 0.48988724, 0.16973823, 0.06748226, 0.01452664]
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+# [sinkwin8192] prefill chunk 1/3 at 275s
+# [sinkwin8192] prefill chunk 2/3 at 585s
+# [sinkwin8192] prefill chunk 3/3 at 586s
+# [sinkwin8192] phases: prefill=586.1s
+# [sinkwin8192] phases: +answer=5.2s
+# [sinkwin8192] phases: +survival=0.0s
+# [sinkwin8192] phases: +generic=1.1s
+# [sinkwin8192] phases: +runaway=5.2s
+# arm sinkwin8192        597.6s | evicted= 49296 events=  6 idle=  0 | genNLL=3.330 | out_len=96 (CAPPED) | surv n/h/w = 0.375/NaN/NaN sink=1.000
+#   -> sinkwin8192 retrieval 6/8 (meanΔ +0.487) per-needle Δ: [0.2155031, 1.5141917, 1.067621, 0.8020679, 0.26603344, 0.031403404, 0.00091825204, 9.536743e-6]
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+# [maxrecent@50pct] prefill chunk 1/3 at 267s
+# [maxrecent@50pct] prefill chunk 2/3 at 553s
+# [maxrecent@50pct] prefill chunk 3/3 at 554s
+# [maxrecent@50pct] phases: prefill=554.4s
+# [maxrecent@50pct] phases: +answer=5.2s
+# [maxrecent@50pct] phases: +survival=0.0s
+# [maxrecent@50pct] phases: +generic=1.1s
+# [maxrecent@50pct] phases: +runaway=5.2s
+# arm maxrecent@50pct    565.8s | evicted= 49320 events=  6 idle=  0 | genNLL=3.179 | out_len=96 (CAPPED) | surv n/h/w = 0.815/NaN/NaN sink=1.000
+#   -> maxrecent@50pct retrieval 6/8 (meanΔ +0.489) per-needle Δ: [0.008027196, 1.335144e-5, 0.011693411, 0.0021277836, 1.0830708, 1.4343289, 0.6357953, 0.73416984]
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+# [sinkwin168] prefill chunk 1/3 at 268s
+# [sinkwin168] prefill chunk 2/3 at 556s
+# [sinkwin168] prefill chunk 3/3 at 557s
+# [sinkwin168] phases: prefill=556.6s
+# [sinkwin168] phases: +answer=4.9s
+# [sinkwin168] phases: +survival=0.0s
+# [sinkwin168] phases: +generic=1.0s
+# [sinkwin168] phases: +runaway=4.9s
+# arm sinkwin168         567.4s | evicted= 97440 events=  6 idle=  0 | genNLL=3.442 | out_len=96 (CAPPED) | surv n/h/w = 0.000/NaN/NaN sink=1.000
+#   -> sinkwin168 retrieval 4/8 (meanΔ +0.973) per-needle Δ: [2.7976265, 1.9245491, 1.2944465, 1.0079514, 0.50238395, 0.17001343, 0.07279069, 0.014997754]
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+# [sinkwin256] prefill chunk 1/3 at 273s
+# [sinkwin256] prefill chunk 2/3 at 589s
+# [sinkwin256] prefill chunk 3/3 at 590s
+# [sinkwin256] phases: prefill=590.3s
+# [sinkwin256] phases: +answer=4.9s
+# [sinkwin256] phases: +survival=0.0s
+# [sinkwin256] phases: +generic=1.0s
+# [sinkwin256] phases: +runaway=4.9s
+# arm sinkwin256         601.1s | evicted= 96912 events=  6 idle=  0 | genNLL=3.438 | out_len=96 (CAPPED) | surv n/h/w = 0.000/NaN/NaN sink=1.000
+#   -> sinkwin256 retrieval 4/8 (meanΔ +0.971) per-needle Δ: [2.7876477, 1.9229932, 1.2950312, 1.008713, 0.49740303, 0.1684445, 0.07117598, 0.014865875]
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+# [sinkwin376] prefill chunk 1/3 at 280s
+# [sinkwin376] prefill chunk 2/3 at 566s
+# [sinkwin376] prefill chunk 3/3 at 567s
+# [sinkwin376] phases: prefill=566.8s
+# [sinkwin376] phases: +answer=5.0s
+# [sinkwin376] phases: +survival=0.0s
+# [sinkwin376] phases: +generic=1.0s
+# [sinkwin376] phases: +runaway=5.0s
+# arm sinkwin376         577.8s | evicted= 96192 events=  6 idle=  0 | genNLL=3.440 | out_len=96 (CAPPED) | surv n/h/w = 0.000/NaN/NaN sink=1.000
+#   -> sinkwin376 retrieval 4/8 (meanΔ +0.968) per-needle Δ: [2.7773223, 1.9219562, 1.2950689, 1.011043, 0.48988724, 0.16973823, 0.06748226, 0.01452664]
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+# [sinkwin8192] prefill chunk 1/3 at 266s
+# [sinkwin8192] prefill chunk 2/3 at 552s
+# [sinkwin8192] prefill chunk 3/3 at 553s
+# [sinkwin8192] phases: prefill=552.6s
+# [sinkwin8192] phases: +answer=5.2s
+# [sinkwin8192] phases: +survival=0.0s
+# [sinkwin8192] phases: +generic=1.1s
+# [sinkwin8192] phases: +runaway=5.2s
+# arm sinkwin8192        564.0s | evicted= 49296 events=  6 idle=  0 | genNLL=3.330 | out_len=96 (CAPPED) | surv n/h/w = 0.375/NaN/NaN sink=1.000
+#   -> sinkwin8192 retrieval 6/8 (meanΔ +0.487) per-needle Δ: [0.2155031, 1.5141917, 1.067621, 0.8020679, 0.26603344, 0.031403404, 0.00091825204, 9.536743e-6]
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+
+# ── retrieval (bar ≥ 7/8 = 0.875, EPS_NATS = 1) ──
+# arm                retrieval  meanΔnats     n_surv   hub_surv  wall_surv    genNLL
+# full                   1.000     +0.000      1.000        NaN        NaN     3.199
+# maxrecent@25pct        0.875     +0.604      0.652        NaN        NaN     3.176
+# sinkwin168             0.500     +0.973      0.000        NaN        NaN     3.442
+# sinkwin256             0.500     +0.971      0.000        NaN        NaN     3.438
+# sinkwin376             0.500     +0.968      0.000        NaN        NaN     3.440
+# sinkwin8192            0.750     +0.487      0.375        NaN        NaN     3.330
+# maxrecent@50pct        0.750     +0.489      0.815        NaN        NaN     3.179
+# sinkwin168             0.500     +0.973      0.000        NaN        NaN     3.442
+# sinkwin256             0.500     +0.971      0.000        NaN        NaN     3.438
+# sinkwin376             0.500     +0.968      0.000        NaN        NaN     3.440
+# sinkwin8192            0.750     +0.487      0.375        NaN        NaN     3.330
+
+# ── trap-4 control (generic NLL / max-recent's) ──
+
+# ── T3 sink-window budget gate (candidate ceiling vs incumbent twin, every budget) ──
+# W=168    @25pct  surv 0.000 vs 0.652 | retrieval 0.500 vs 0.875 → REFUSED
+# W=168    @50pct  surv 0.000 vs 0.815 | retrieval 0.500 vs 0.750 → REFUSED
+# W=168: REFUSED at 2 budget(s) — ceiling retention below the incumbent's
+# W=256    @25pct  surv 0.000 vs 0.652 | retrieval 0.500 vs 0.875 → REFUSED
+# W=256    @50pct  surv 0.000 vs 0.815 | retrieval 0.500 vs 0.750 → REFUSED
+# W=256: REFUSED at 2 budget(s) — ceiling retention below the incumbent's
+# W=376    @25pct  surv 0.000 vs 0.652 | retrieval 0.500 vs 0.875 → REFUSED
+# W=376    @50pct  surv 0.000 vs 0.815 | retrieval 0.500 vs 0.750 → REFUSED
+# W=376: REFUSED at 2 budget(s) — ceiling retention below the incumbent's
+# W=8192   @25pct  surv 0.375 vs 0.652 | retrieval 0.750 vs 0.875 → REFUSED
+# W=8192   @50pct  surv 0.375 vs 0.815 | retrieval 0.750 vs 0.750 → REFUSED
+# W=8192: REFUSED at 2 budget(s) — ceiling retention below the incumbent's
+# gate: 8 comparison row(s) REFUSED — the width-derived kv_sink_window budget family may NOT re-pin (the incumbent stands)
+
+# wall total 6371.8s | rig tokens 16411 | λ=1 β=0.1 W=256 cadence=512 hubs=0 sinks=4
+# report merge: existing .benchmarks/i1185_t3_16k/needle_gate_report.json failed to parse (invalid type: null, expected f32 at line 15 column 10) — rewriting WITHOUT the old rows; see the per-run logs
+# report: .benchmarks/i1185_t3_16k/needle_gate_report.json

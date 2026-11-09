@@ -109,6 +109,21 @@
 //! The bin prints wall times per arm and refuses to summarize without
 //! them; the run log records free RAM / load / power next to the figures
 //! (the Feature-Flag-Discipline G2 law — box state is part of the claim).
+//!
+//! # Issue 1185 T3 — candidate sink-window budgets (`--sink-window W1,W2`)
+//!
+//! Adds one `sinkwin{W}` arm per candidate window: the budget IS the
+//! policy's own ceiling (`n_sink + W` — the `kv_sink_window` module's
+//! `live_slots <= n_sink + window` invariant, the paper's application of a
+//! width budget as a cache window). The stale-first selector drives the
+//! cache down to that ceiling; everything older than W beyond the sinks
+//! dies. Each candidate is compared against EVERY `maxrecent@{tag}` arm
+//! (the serving-posture incumbent: sinks pinned, unbounded window, budget
+//! fracs) — the run-end gate reads needle-ROW survival (the family
+//! readout; the lossy-surface per-family rule) AND NLL retrieval:
+//! candidate ≥ twin at every tested budget, else the budget is REFUSED —
+//! never a loss-only gate. Flag-off (no `--sink-window`) is byte-identical
+//! to the pre-T3 arm list.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -195,6 +210,12 @@ struct Args {
     /// legacy slot formula drops needle 0 at `--hubs 0`; see the splice
     /// site). 0 = the legacy layout, byte-identical.
     plant_fix: u8,
+    /// Issue 1185 T3: candidate sink-window budgets (CSV of trailing-window
+    /// sizes). Empty = flag-off, byte-identical arm list. Each value adds a
+    /// `sinkwin{W}@{tag}` arm per budget frac whose sink pin is
+    /// `(sinks, W)` — the window binds via the windowed selector; the
+    /// incumbent twin is the `maxrecent@{tag}` arm at the same frac.
+    sink_windows: Vec<usize>,
     out: Option<PathBuf>,
 }
 
@@ -220,6 +241,7 @@ fn parse_args() -> Args {
         sink_audit: 0,
         nopin_arms: 0,
         plant_fix: 0,
+        sink_windows: Vec::new(),
         out: None,
     };
     let mut it = std::env::args().skip(1);
@@ -244,6 +266,18 @@ fn parse_args() -> Args {
             "--sink-audit" => a.sink_audit = val("sink-audit").parse().unwrap(),
             "--nopin-arms" => a.nopin_arms = val("nopin-arms").parse().unwrap(),
             "--plant-fix" => a.plant_fix = val("plant-fix").parse().unwrap(),
+            "--sink-window" => {
+                a.sink_windows = val("sink-window")
+                    .split(',')
+                    .map(|s| s.parse().unwrap())
+                    .collect();
+                if a.sink_windows.contains(&0) {
+                    panic!(
+                        "--sink-window: a candidate window of 0 is degenerate (everything \
+                             stale); use --sinks for the pin and positive windows only"
+                    );
+                }
+            }
             "--lambda" => {
                 a.lambdas = val("lambda")
                     .split(',')
@@ -753,6 +787,13 @@ fn main() -> Result<()> {
             n.depth_tokens, n.prompt_code_span, answer_code_spans[i],
         );
     }
+    if !args.sink_windows.is_empty() {
+        println!(
+            "# T3 candidate sink windows: {:?} (each sinkwin{{W}} arm's budget IS its ceiling \
+             n_sink+W = {}+W; incumbent bar = every maxrecent@{{tag}} arm)",
+            args.sink_windows, args.sinks,
+        );
+    }
     if !hub_spans.is_empty() {
         println!(
             "# hub spans: {} rows (wall {}), first={:?} last={:?}",
@@ -814,6 +855,37 @@ fn main() -> Result<()> {
             budget,
             sinks: None,
         });
+    }
+    // Issue 1185 T3 candidate-budget arms: the budget IS the policy's
+    // ceiling (n_sink + W — the kv_sink_window invariant), so the window
+    // binds the way the module documents it. The incumbent bar is every
+    // maxrecent@{tag} arm (unbounded window at each tested budget frac);
+    // candidates are frac-INDEPENDENT, so they push once — a sinkwin arm
+    // inside the frac loop would duplicate its own name, and the report's
+    // upsert is by name.
+    for &w in &args.sink_windows {
+        arms.push(Arm {
+            name: format!("sinkwin{w}"),
+            policy: Some(EvictPolicy::Differential(DiffEvictConfig::max_recent(
+                args.window,
+            ))),
+            budget: args.sinks + w,
+            sinks: Some(SinkWindowPolicy::new(args.sinks, w)),
+        });
+    }
+    // Arm names are the report's join key — a duplicate name would silently
+    // overwrite its twin in the by-name upsert. Fail loud at construction.
+    {
+        let mut seen: Vec<&str> = Vec::with_capacity(arms.len());
+        for a in &arms {
+            if seen.contains(&a.name.as_str()) {
+                bail!(
+                    "duplicate arm name '{}' — the report upsert is by name; the arm list must stay unique",
+                    a.name
+                );
+            }
+            seen.push(a.name.as_str());
+        }
     }
     if args.nopin_arms != 0 {
         let twins: Vec<Arm> = arms
@@ -1050,6 +1122,74 @@ fn main() -> Result<()> {
                     n.depth_tokens, r.delta_nll[i], r.needle_nll[i], full_nll[i],
                 );
             }
+        }
+    }
+
+    // ── Issue 1185 T3: the sink-window budget gate ─────────────────────
+    // A candidate kv_sink_window budget (n_sink, W) applied at its own
+    // ceiling (n_sink + W) is eligible only when its needle retention holds
+    // at the serving incumbent's level at EVERY tested budget frac —
+    // needle-ROW survival (the family readout; the lossy-surface
+    // per-family rule) AND NLL retrieval, vs the unbounded-window
+    // maxrecent twin. Any REFUSED row vetoes the budget family; an all-HOLD
+    // table still leaves the re-pin OWNER-GATED (T4), never silent. A
+    // missing arm is NO VERDICT — never folded into a pass.
+    if !args.sink_windows.is_empty() {
+        println!(
+            "\n# ── T3 sink-window budget gate (candidate ceiling vs incumbent twin, every budget) ──"
+        );
+        let mut refused = 0usize;
+        let mut missing = 0usize;
+        for &w in &args.sink_windows {
+            let Some(c) = reports.iter().find(|r| r.name == format!("sinkwin{w}")) else {
+                missing += 1;
+                println!("# W={w}: candidate arm absent — NO VERDICT (never folded)");
+                continue;
+            };
+            let mut w_refused = 0usize;
+            for &frac in &args.budget_fracs {
+                let tag = format_frac(frac);
+                let Some(i) = reports
+                    .iter()
+                    .find(|r| r.name == format!("maxrecent@{tag}"))
+                else {
+                    missing += 1;
+                    println!("# W={w} @{tag}: incumbent twin absent — NO VERDICT (never folded)");
+                    continue;
+                };
+                let surv_hold = c.needle_row_survival + 1e-6 >= i.needle_row_survival;
+                let retr_hold = c.retrieval() + 1e-6 >= i.retrieval();
+                let verdict = if surv_hold && retr_hold {
+                    "HOLD"
+                } else {
+                    w_refused += 1;
+                    refused += 1;
+                    "REFUSED"
+                };
+                println!(
+                    "# W={w:<6} @{tag:<6} surv {:.3} vs {:.3} | retrieval {:.3} vs {:.3} → {verdict}",
+                    c.needle_row_survival,
+                    i.needle_row_survival,
+                    c.retrieval(),
+                    i.retrieval(),
+                );
+            }
+            if w_refused > 0 {
+                println!(
+                    "# W={w}: REFUSED at {w_refused} budget(s) — ceiling retention below the incumbent's"
+                );
+            }
+        }
+        if refused > 0 {
+            println!(
+                "# gate: {refused} comparison row(s) REFUSED — the width-derived kv_sink_window \
+                 budget family may NOT re-pin (the incumbent stands)"
+            );
+        } else if missing == 0 {
+            println!(
+                "# gate: all candidate rows HOLD — eligibility measured; any re-pin remains \
+                 OWNER-GATED (T4)"
+            );
         }
     }
 
