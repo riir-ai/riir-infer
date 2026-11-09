@@ -329,6 +329,85 @@ impl<'a> Rig<'a> {
         }
         out
     }
+
+    /// Issue 1188 — the paired-ablation scoring pass: same forward + same
+    /// scored-span contract as [`Rig::feed`], but every scored position's
+    /// reading is COLLECTED (the paired per-position Δ needs both passes'
+    /// rows). The incumbent NLL fold is the same LSE shape as `feed`'s;
+    /// the golden readout rides the same oracle scratch (cfg-gated — the
+    /// ablate entry point refuses loud without the feature).
+    fn feed_collect(
+        &mut self,
+        seq: &[usize],
+        from: usize,
+        to: usize,
+        score_from: usize,
+        x: &mut [f32],
+    ) -> Vec<ScoredReading> {
+        let mut out = Vec::new();
+        #[cfg(feature = "golden_nll")]
+        let mut scratch = GoldenNllScratch::with_vocab(self.config.vocab_size);
+        for pos in from..=to {
+            let logits = forward_qwen_deltanet_ternary(
+                x,
+                self.weights,
+                &mut self.cache,
+                seq[pos],
+                pos,
+                &self.config,
+                &mut self.scratch,
+                self.rope_freq,
+            );
+            if pos >= score_from && pos + 1 < seq.len() {
+                let target = seq[pos + 1];
+                let mut max_l = f32::NEG_INFINITY;
+                for &l in logits.iter() {
+                    max_l = max_l.max(l);
+                }
+                let mut sum = 0.0f64;
+                for &l in logits.iter() {
+                    sum += (f64::from(l) - f64::from(max_l)).exp();
+                }
+                let lse = f64::from(max_l) + sum.ln();
+                let inc_nll = lse - f64::from(logits[target]);
+                let mut argmax = 0usize;
+                let mut best_l = f32::NEG_INFINITY;
+                for (i, &l) in logits.iter().enumerate() {
+                    if l > best_l {
+                        best_l = l;
+                        argmax = i;
+                    }
+                }
+                #[cfg(feature = "golden_nll")]
+                let GoldenReading { nll, top2_margin } = scratch.read_target(logits, target);
+                out.push(ScoredReading {
+                    inc_nll,
+                    argmax,
+                    #[cfg(feature = "golden_nll")]
+                    golden_nll: nll,
+                    #[cfg(feature = "golden_nll")]
+                    top2_margin,
+                });
+            }
+        }
+        out
+    }
+}
+
+/// One scored position's paired reading ([`Rig::feed_collect`]).
+#[derive(Debug, Clone)]
+struct ScoredReading {
+    /// The incumbent f64-LSE NLL (the same fold `feed` accumulates).
+    inc_nll: f64,
+    /// First-index strict-greater argmax (the same rule `greedy` walks).
+    argmax: usize,
+    /// The Issue-959-T6 golden-oracle NLL (cfg-gated: the oracle is the
+    /// `golden_nll` feature's payload).
+    #[cfg(feature = "golden_nll")]
+    golden_nll: f64,
+    /// Top-2 logit margin in nats (the band coordinate).
+    #[cfg(feature = "golden_nll")]
+    top2_margin: f64,
 }
 
 /// The load-time σ probe: plain math over `n_tokens`, per-`(layer, head)`
@@ -414,6 +493,402 @@ fn calibration_from_probe(
     HeadCalibration::build(scales).map_err(anyhow::Error::msg)
 }
 
+// ── Issue 1188 — the family-ablation cell ───────────────────────────
+
+/// One ablated tensor's row (the per-tensor disclosure table).
+struct AblationRow {
+    name: String,
+    class: &'static str,
+    elements: usize,
+    bytes_before: usize,
+    bytes_after: usize,
+    /// Vector-class tensors whose trailing `len % 32` elements were copied
+    /// verbatim (Q8 blocks need 32-multiple spans; the tail is disclosed,
+    /// never silently dropped).
+    tail_copied: usize,
+}
+
+/// The family ablation result.
+struct AblationReport {
+    tensors: usize,
+    elements: u64,
+    bytes_before: u64,
+    bytes_after: u64,
+    rows: Vec<AblationRow>,
+}
+
+/// Re-quantize ONE family's tensors in place to the candidate posture
+/// (v1: `Q8_0` blocks — quant-resident for Proj/GateProj classes, a
+/// quantize→dequant round-trip for the Vector classes). Walk order is
+/// layer-ascending and field-fixed — deterministic, no RNG.
+fn apply_family_ablation(
+    weights: &mut QwenDeltaNetTernaryWeights,
+    family: riir_infer_core::family_census::Family,
+) -> Result<AblationReport> {
+    use riir_infer_core::deltanet::ternary_weights::{GateProjWeights, ProjWeights};
+    use riir_infer_core::family_census::{Family as F, StorageClass};
+
+    // v1 scope: the GLOBAL tensors (token_embd / output) are bare
+    // `TernaryGroupWeights` fields — the ternary forward's embedding
+    // gather + lm_head matvec read them as such, and the Q8_0 candidate
+    // cannot materialize in that container without a serving-path type
+    // change (out of the tool's scope). Loud refusal, never a silent skip;
+    // the per-layer families (16 of 18) carry the ranking substance.
+    if matches!(family, F::TokenEmbd | F::Output) {
+        bail!(
+            "family-ablate {}: v1 prices the PER-LAYER families only — the global tensors are \
+             bare TernaryGroupWeights and cannot hold the Q8_0 candidate without a \
+             serving-path type change (QwenDeltaNetTernaryWeights::wte/lm_head); \
+             a v2 extension switches the globals to ProjWeights",
+            family.slug()
+        );
+    }
+
+    let mut rows: Vec<AblationRow> = Vec::new();
+    fn push_row(
+        rows: &mut Vec<AblationRow>,
+        name: String,
+        class: &'static str,
+        elements: usize,
+        before: usize,
+        after: usize,
+    ) {
+        rows.push(AblationRow {
+            name,
+            class,
+            elements,
+            bytes_before: before,
+            bytes_after: after,
+            tail_copied: 0,
+        });
+    }
+
+    match family.storage_class() {
+        StorageClass::Proj => {
+            for (i, layer) in weights.layers.iter_mut().enumerate() {
+                let mut pick: [&mut ProjWeights; 1] = match family {
+                    F::AttnQ => [&mut layer.attn_wq],
+                    F::AttnK => [&mut layer.attn_wk],
+                    F::AttnV => [&mut layer.attn_wv],
+                    F::AttnOut => [&mut layer.attn_wo],
+                    F::AttnGate => [&mut layer.in_proj_z],
+                    F::GdnQkv => [&mut layer.in_proj_qkv],
+                    F::GdnOut => [&mut layer.out_proj],
+                    F::FfnGate => [&mut layer.gate_proj],
+                    F::FfnUp => [&mut layer.up_proj],
+                    F::FfnDown => [&mut layer.down_proj],
+                    _ => continue,
+                };
+                let w = &mut pick[0];
+                if w.rows() == 0 {
+                    continue; // the layer kind's unused field (empty placeholder)
+                }
+                let dense = w.dequant_to_dense();
+                let (r, c) = (w.rows(), w.cols());
+                let before = w.bytes();
+                **w = ProjWeights::from_dense_q8_0(&dense, r, c);
+                push_row(
+                    &mut rows,
+                    format!("blk.{i}.{}", family.slug()),
+                    "proj",
+                    r * c,
+                    before,
+                    w.bytes(),
+                );
+            }
+        }
+        StorageClass::GateProj => {
+            for (i, layer) in weights.layers.iter_mut().enumerate() {
+                let gate = match family {
+                    F::GdnAlpha => &mut layer.in_proj_a,
+                    F::GdnBeta => &mut layer.in_proj_b,
+                    _ => continue,
+                };
+                if gate.rows() == 0 {
+                    continue;
+                }
+                let dense = gate.dequant_to_dense();
+                let (r, c) = (gate.rows(), gate.cols());
+                let before = gate.bytes();
+                *gate = GateProjWeights::from_dense_q8_0(&dense, r, c);
+                push_row(
+                    &mut rows,
+                    format!("blk.{i}.{}", family.slug()),
+                    "gate_proj",
+                    r * c,
+                    before,
+                    gate.bytes(),
+                );
+            }
+        }
+        StorageClass::Vector => {
+            // Quantize→dequant round-trip in place: the storage-precision
+            // sensitivity read for the runtime-f32 vectors; the forward
+            // code is untouched. Trailing len % 32 elements copy verbatim.
+            fn round_trip(v: &mut [f32], name: String, rows: &mut Vec<AblationRow>) {
+                use bytemuck::Zeroable;
+                use riir_infer_core::quant::q8kv::{
+                    BlockQ8_0, dequantize_row_q8_0, quantize_row_q8_0,
+                };
+                let before = std::mem::size_of_val(v);
+                let elements = v.len();
+                let n_blocks = elements / 32;
+                let tail = elements % 32;
+                if n_blocks > 0 {
+                    let mut blocks = vec![BlockQ8_0::zeroed(); n_blocks];
+                    quantize_row_q8_0(&v[..n_blocks * 32], &mut blocks);
+                    dequantize_row_q8_0(&blocks, &mut v[..n_blocks * 32]);
+                }
+                rows.push(AblationRow {
+                    name,
+                    class: "vector",
+                    elements,
+                    bytes_before: before,
+                    bytes_after: before, // in place — same bytes, perturbed values
+                    tail_copied: tail,
+                });
+            }
+            if family == F::Norms {
+                round_trip(&mut weights.final_norm, "output_norm.weight".into(), &mut rows);
+                for (i, layer) in weights.layers.iter_mut().enumerate() {
+                    round_trip(&mut layer.input_norm, format!("blk.{i}.attn_norm.weight"), &mut rows);
+                    round_trip(
+                        &mut layer.post_attn_norm,
+                        format!("blk.{i}.post_attention_norm.weight"),
+                        &mut rows,
+                    );
+                    if !layer.linear_norm.is_empty() {
+                        round_trip(&mut layer.linear_norm, format!("blk.{i}.ssm_norm.weight"), &mut rows);
+                    }
+                    if !layer.attn_q_norm.is_empty() {
+                        round_trip(&mut layer.attn_q_norm, format!("blk.{i}.attn_q_norm.weight"), &mut rows);
+                    }
+                    if !layer.attn_k_norm.is_empty() {
+                        round_trip(&mut layer.attn_k_norm, format!("blk.{i}.attn_k_norm.weight"), &mut rows);
+                    }
+                }
+            }
+            for (i, layer) in weights.layers.iter_mut().enumerate() {
+                match family {
+                    F::GdnConv if !layer.conv1d_weight.is_empty() => {
+                        round_trip(
+                            &mut layer.conv1d_weight,
+                            format!("blk.{i}.ssm_conv1d.weight"),
+                            &mut rows,
+                        );
+                    }
+                    F::GdnDt if !layer.dt_bias.is_empty() => {
+                        round_trip(&mut layer.dt_bias, format!("blk.{i}.ssm_dt.bias"), &mut rows);
+                    }
+                    F::GdnA if !layer.a_log.is_empty() => {
+                        round_trip(&mut layer.a_log, format!("blk.{i}.ssm_a"), &mut rows);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let report = AblationReport {
+        tensors: rows.len(),
+        elements: rows.iter().map(|r| r.elements as u64).sum(),
+        bytes_before: rows.iter().map(|r| r.bytes_before as u64).sum(),
+        bytes_after: rows.iter().map(|r| r.bytes_after as u64).sum(),
+        rows,
+    };
+    ensure!(
+        report.tensors > 0,
+        "family-ablate {}: no tensors of this family in the checkpoint — wrong family or wrong file",
+        family.slug()
+    );
+    Ok(report)
+}
+
+/// The paired ablation cell (Issue 1188 T1): score the SAME scored span
+/// through the incumbent weights and the family-ablated weights (ONE
+/// frozen read — the corpus prefix is fixed, both passes walk it
+/// identically), then report the paired golden Δ-NLL + the disagreement
+/// census. Report-only: the tool RANKS, the posture decision is
+/// owner-gated per the lossy-surface promotion rule.
+#[allow(clippy::too_many_arguments)]
+fn run_family_ablation(
+    weights: &mut QwenDeltaNetTernaryWeights,
+    config: &Config,
+    rope_freq: &RopeFreqTable,
+    seq: &[usize],
+    family: riir_infer_core::family_census::Family,
+    posture: &str,
+    prefix: usize,
+    score_window: usize,
+) -> Result<()> {
+    if !cfg!(feature = "golden_nll") {
+        bail!(
+            "--family-ablate needs the golden_nll feature (loud refusal, never a silent skip): \
+             cargo build --release --features scale_invariant_attn,bonsai2_hadamard,golden_nll \
+             --bin si_zero_shot_ppl"
+        );
+    }
+    if posture != "q8" {
+        bail!(
+            "--family-posture '{posture}' unsupported in v1: the tool prices the Q8 candidate \
+             (Q8_0 blocks) on this lane; 'pq2' would apply to a NON-PQ2 incumbent and the \
+             in-scope Bonsai incumbent IS PQ2_0"
+        );
+    }
+    ensure!(
+        seq.len() > prefix,
+        "corpus too short: {} tokens < prefix {} + 1",
+        seq.len(),
+        prefix
+    );
+    ensure!(
+        prefix > score_window,
+        "prefix {prefix} must exceed the scored span {score_window}"
+    );
+
+    let feed_to = prefix - 1;
+    let score_from = prefix - score_window;
+    let mut x = vec![0.0f32; config.n_embd.max(config.vocab_size)];
+
+    // Pass 1 — the incumbent (every family at its loaded posture).
+    let t = Instant::now();
+    let mut rig = Rig::new(config, weights, rope_freq);
+    let incumbent = rig.feed_collect(seq, 0, feed_to, score_from, &mut x);
+    drop(rig);
+    println!(
+        "# pass 1 (incumbent): {} scored positions in {:.1}s",
+        incumbent.len(),
+        t.elapsed().as_secs_f32()
+    );
+
+    // The ablation (deterministic walk; the report is the engagement proof).
+    let t = Instant::now();
+    let report = apply_family_ablation(weights, family)?;
+    println!(
+        "\n# family-ablate {} -> q8 | {} tensor(s) requantized in {:.1}s",
+        family.slug(),
+        report.tensors,
+        t.elapsed().as_secs_f32()
+    );
+    println!(
+        "#   totals: {} elements | bytes {} -> {} ({:.2} -> {:.2} bpw)",
+        report.elements,
+        report.bytes_before,
+        report.bytes_after,
+        (report.bytes_before as f64 * 8.0) / report.elements.max(1) as f64,
+        (report.bytes_after as f64 * 8.0) / report.elements.max(1) as f64,
+    );
+    for r in &report.rows {
+        println!(
+            "#   {} [{}] {} elems, {} -> {} bytes{}",
+            r.name,
+            r.class,
+            r.elements,
+            r.bytes_before,
+            r.bytes_after,
+            if r.tail_copied > 0 {
+                format!(", tail {} copied verbatim (len % 32)", r.tail_copied)
+            } else {
+                String::new()
+            },
+        );
+    }
+
+    // Pass 2 — the ablated weights, the SAME scored span.
+    let t = Instant::now();
+    let mut rig = Rig::new(config, weights, rope_freq);
+    let ablated = rig.feed_collect(seq, 0, feed_to, score_from, &mut x);
+    drop(rig);
+    println!(
+        "# pass 2 (ablated): {} scored positions in {:.1}s",
+        ablated.len(),
+        t.elapsed().as_secs_f32()
+    );
+
+    // ── the paired report ──
+    ensure!(
+        incumbent.len() == ablated.len() && !incumbent.is_empty(),
+        "paired passes scored different position counts ({} vs {}) — internal wiring bug",
+        incumbent.len(),
+        ablated.len()
+    );
+    let n = incumbent.len();
+    #[cfg(feature = "golden_nll")]
+    {
+        use katgpt_core::softmax_fix::{FloatFormat, precision_cliff};
+        let fp32_cliff = precision_cliff(FloatFormat::Fp32);
+        let f64_cliff = precision_cliff(FloatFormat::Fp64);
+        let mut sum_inc = 0.0f64;
+        let mut sum_ab = 0.0f64;
+        let mut max_abs = 0.0f64;
+        let mut flips = 0usize;
+        let mut band_n = 0usize;
+        let mut band_delta = 0.0f64;
+        let mut deep_n = 0usize;
+        let mut deep_delta = 0.0f64;
+        let mut worst = Vec::<(f64, usize)>::new();
+        for (i, (a, b)) in incumbent.iter().zip(ablated.iter()).enumerate() {
+            sum_inc += a.golden_nll;
+            sum_ab += b.golden_nll;
+            let d = b.golden_nll - a.golden_nll;
+            max_abs = max_abs.max(d.abs());
+            if a.argmax != b.argmax {
+                flips += 1;
+            }
+            if a.top2_margin >= fp32_cliff {
+                band_n += 1;
+                band_delta += d;
+            }
+            if a.top2_margin >= f64_cliff {
+                deep_n += 1;
+                deep_delta += d;
+            }
+            worst.push((d.abs(), i));
+        }
+        worst.sort_by(|x, y| y.0.partial_cmp(&x.0).expect("finite"));
+        let pooled = (sum_ab - sum_inc) / n as f64;
+        let mut sum_inc_lse = 0.0f64;
+        let mut sum_ab_lse = 0.0f64;
+        for (a, b) in incumbent.iter().zip(ablated.iter()) {
+            sum_inc_lse += a.inc_nll;
+            sum_ab_lse += b.inc_nll;
+        }
+        println!("\n# paired golden readout (Issue 1188 T1, one frozen read, {} positions):", n);
+        println!(
+            "#   pooled Δ-NLL {pooled:+.3e} nats/token | mean |Δ| {:.3e} | max |Δ| {max_abs:.3e}",
+            (sum_ab - sum_inc).abs() / n as f64,
+        );
+        println!(
+            "#   incumbent-LSE readout cross-check: pooled Δ {:+.3e} nats/token (the f64-LSE view of the same delta)",
+            (sum_ab_lse - sum_inc_lse) / n as f64,
+        );
+        println!(
+            "#   golden ppl: incumbent {:.6} -> ablated {:.6}",
+            (sum_inc / n as f64).exp(),
+            (sum_ab / n as f64).exp()
+        );
+        println!("#   argmax flips: {flips}/{n}");
+        println!(
+            "#   fp32-cliff band (margin ≥ {:.2} nats): {band_n}/{n} positions, pooled Δ {:+.3e}",
+            fp32_cliff, band_delta,
+        );
+        println!(
+            "#   f64-cliff deep band (margin ≥ {:.2} nats): {deep_n}/{n} positions, pooled Δ {:+.3e}",
+            f64_cliff, deep_delta,
+        );
+        print!("#   top |Δ| positions:");
+        for (d, i) in worst.iter().take(3) {
+            let i = *i;
+            let delta = ablated[i].golden_nll - incumbent[i].golden_nll;
+            let _ = d;
+            print!(" pos{} {delta:+.3e}", score_from + i);
+        }
+        println!();
+        println!("# tool verdict: RANK ONLY — the posture decision is owner-gated (the lossy-surface promotion rule)");
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let mut gguf_path: Option<PathBuf> = None;
     let mut corpus: Option<PathBuf> = None;
@@ -435,6 +910,12 @@ fn main() -> Result<()> {
     // Issue 959 T6 — the f64 golden-NLL readout over the scored spans
     // (reference-oracle mode: base arm only, one forward, two readouts).
     let mut golden_nll = false;
+    // Issue 1188 — the family sensitivity tooling. `--family-census` is a
+    // header-only early-exit (no corpus, no forward); `--family-ablate`
+    // runs the paired requant cell (golden_nll-gated).
+    let mut family_census = false;
+    let mut family_ablate: Option<riir_infer_core::family_census::Family> = None;
+    let mut family_posture = String::from("q8");
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -463,10 +944,77 @@ fn main() -> Result<()> {
             "--save-cal" => save_cal = Some(PathBuf::from(args.next().expect("path"))),
             "--probe-only" => probe_only = true,
             "--golden-nll" => golden_nll = true,
+            "--family-census" => family_census = true,
+            "--family-ablate" => {
+                let slug = args.next().expect("family slug");
+                family_ablate = Some(
+                    riir_infer_core::family_census::Family::parse(&slug)
+                        .unwrap_or_else(|| panic!(
+                            "unknown family '{slug}' (see --family-census rollup for the vocabulary)"
+                        )),
+                );
+            }
+            "--family-posture" => family_posture = args.next().expect("posture"),
             other => bail!("unknown arg {other}"),
         }
     }
     let gguf_path = gguf_path.context("--gguf is required")?;
+
+    // ── Issue 1188 census mode: header-only, no corpus, no forward ──
+    if family_census {
+        let file = GgufFile::open(&gguf_path).context("open for census")?;
+        let census = riir_infer_core::family_census::census_of(&file);
+        println!(
+            "# family census | file {} | arch {:?} | tensors {} | unclassified {}",
+            gguf_path.display(),
+            file.architecture(),
+            census.rows.len(),
+            census.unclassified,
+        );
+        println!("# name\tfamily\tclass\ttype\tshape(ne0xne1x...)\telements\tbytes");
+        for row in &census.rows {
+            let (fam, cls) = match row.classified {
+                Some(c) => (
+                    c.family.slug().to_string(),
+                    c.family.storage_class().to_string(),
+                ),
+                None => ("UNCLASSIFIED".to_string(), "-".to_string()),
+            };
+            let shape = row
+                .shape
+                .iter()
+                .map(|d| d.to_string())
+                .collect::<Vec<_>>()
+                .join("x");
+            println!(
+                "{}\t{fam}\t{cls}\t{:?}\t{shape}\t{}\t{}",
+                row.name,
+                row.ggml_type,
+                row.shape.iter().product::<usize>(),
+                row.byte_len,
+            );
+        }
+        println!("# rollup: family\ttensors\t elements\tbytes\ttypes");
+        for r in &census.rollups {
+            println!(
+                "#   {}\t{}\t{}\t{}\t{}",
+                r.family.slug(),
+                r.tensors,
+                r.elements,
+                r.bytes,
+                r.types.join(","),
+            );
+        }
+        if census.unclassified > 0 {
+            bail!(
+                "family census: {} unclassified tensor(s) — extend the taxonomy before \
+                 any ablation on this file (a silent miss is a skipped family)",
+                census.unclassified
+            );
+        }
+        return Ok(());
+    }
+
     let corpus = corpus.context("--corpus is required")?;
     if golden_nll && !cfg!(feature = "golden_nll") {
         bail!(
@@ -496,7 +1044,7 @@ fn main() -> Result<()> {
 
     // ── load once, share across arms ──
     let t0 = Instant::now();
-    let (mut config, weights) = load_qwen_deltanet_ternary_weights_gguf(&gguf_path)
+    let (mut config, mut weights) = load_qwen_deltanet_ternary_weights_gguf(&gguf_path)
         .with_context(|| format!("load {}", gguf_path.display()))?;
     println!(
         "# si_zero_shot_ppl: {} | layers={} heads={}/{} rot={} | load {:.1}s",
@@ -583,6 +1131,27 @@ fn main() -> Result<()> {
     );
 
     let plain_table = RopeFreqTable::new(config.rope_theta, effective_rotary_dim(&config));
+
+    // ── Issue 1188: the paired family-ablation cell (standalone mode) ──
+    if let Some(family) = family_ablate {
+        if retrieval || save_cal.is_some() || probe_only {
+            bail!(
+                "--family-ablate is a standalone paired cell — incompatible with \
+                 --retrieval / --save-cal / --probe-only"
+            );
+        }
+        run_family_ablation(
+            &mut weights,
+            &config,
+            &plain_table,
+            &seq,
+            family,
+            &family_posture,
+            max_length,
+            score_window,
+        )?;
+        return Ok(());
+    }
 
     // The session LUT is arm-independent — one build at the block size.
     let lut = Arc::new(ScaleInvariantLut::build(tau, config.block_size));

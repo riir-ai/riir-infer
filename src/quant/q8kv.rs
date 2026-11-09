@@ -154,6 +154,47 @@ pub fn dequantize_row_q8_0(src: &[BlockQ8_0], dst: &mut [f32]) {
     }
 }
 
+/// Fused one-row GEMV over `Q8_0` blocks: `Σ_b d_b · (Σ_i qs[i] · x[i])`
+/// (the per-block scale applied once per block, never per element — the
+/// quant-resident serving shape a `Q8_0` projection's matvec computes).
+///
+/// Inner fold is sequential ascending-`i`, outer ascending-block (the
+/// determinism law's fixed order; row-independent work, so callers may
+/// parallelize across rows freely). `blocks.len()` must equal
+/// `x.len() / Q8_BLOCK_SIZE` (asserted — a mis-sized read would otherwise
+/// be a silent wrong answer).
+pub fn gemv_q8_0_row(blocks: &[BlockQ8_0], x: &[f32]) -> f32 {
+    assert!(
+        x.len().is_multiple_of(Q8_BLOCK_SIZE),
+        "q8 gemv: x len {} not a multiple of {Q8_BLOCK_SIZE}",
+        x.len()
+    );
+    let nb = x.len() / Q8_BLOCK_SIZE;
+    assert_eq!(blocks.len(), nb, "q8 gemv: block count mismatch");
+    let mut acc = 0.0f32;
+    for (b, block) in blocks.iter().enumerate() {
+        let qs = &block.qs;
+        let base = b * Q8_BLOCK_SIZE;
+        // 4-lane chunked inner dot (the dequant walk's vectorization shape:
+        // independent partial products, then one sequential fold over the
+        // four lanes in fixed order).
+        let mut s0 = 0.0f32;
+        let mut s1 = 0.0f32;
+        let mut s2 = 0.0f32;
+        let mut s3 = 0.0f32;
+        for c in 0..Q8_BLOCK_SIZE / 4 {
+            let j = c * 4;
+            s0 += qs[j] as f32 * x[base + j];
+            s1 += qs[j + 1] as f32 * x[base + j + 1];
+            s2 += qs[j + 2] as f32 * x[base + j + 2];
+            s3 += qs[j + 3] as f32 * x[base + j + 3];
+        }
+        let block_dot = (s0 + s1) + (s2 + s3);
+        acc += f32::from(f16::from_bits(block.d)) * block_dot;
+    }
+    acc
+}
+
 // ── Tests ───────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -342,5 +383,44 @@ mod tests {
             max_err < 1.0 / 127.0 * 8.0 + f32::EPSILON,
             "Multi-block max error too large: {max_err}"
         );
+    }
+
+    /// The fused GEMV row equals the dequant-then-dot reference within the
+    /// quantization error (different fold order — per-block scale once —
+    /// so it is a tolerance match, never a bits match), and refuses a
+    /// block-count mismatch loud.
+    #[test]
+    fn gemv_row_matches_dequant_reference() {
+        // Two blocks of realistic weight-shaped values.
+        let mut src = Vec::with_capacity(2 * Q8_BLOCK_SIZE);
+        for i in 0..2 * Q8_BLOCK_SIZE {
+            src.push(((i as f32 * 0.37).sin()) * 0.05);
+        }
+        let mut blocks = vec![BlockQ8_0::zeroed(); 2];
+        quantize_row_q8_0(&src, &mut blocks);
+        let x: Vec<f32> = (0..2 * Q8_BLOCK_SIZE).map(|i| ((i as f32) * 0.11).cos()).collect();
+
+        let fused = gemv_q8_0_row(&blocks, &x);
+
+        // Reference: dequant, then plain sequential dot (ascending i).
+        let mut dq = vec![0.0f32; 2 * Q8_BLOCK_SIZE];
+        dequantize_row_q8_0(&blocks, &mut dq);
+        let mut reference = 0.0f32;
+        for i in 0..dq.len() {
+            reference += dq[i] * x[i];
+        }
+        let rel = ((fused - reference) / reference.abs().max(1e-9)).abs();
+        assert!(
+            rel < 1e-5,
+            "fused {fused} vs reference {reference} (rel {rel})"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "block count mismatch")]
+    fn gemv_row_refuses_mispaired_blocks() {
+        let blocks = vec![BlockQ8_0::zeroed(); 1];
+        let x = vec![0.0f32; 2 * Q8_BLOCK_SIZE];
+        let _ = gemv_q8_0_row(&blocks, &x);
     }
 }

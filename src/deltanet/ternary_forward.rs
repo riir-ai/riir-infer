@@ -108,16 +108,18 @@ pub(crate) fn bitlinear(
                 w.matvec_into(y, x);
             }
         }
-        ProjWeights::Q4K(..) | ProjWeights::Q6K(..) => {
+        ProjWeights::Q4K(..) | ProjWeights::Q6K(..) | ProjWeights::Q8_0(..) => {
             // Issue 028 T4 S2: the hooks (the GPU capture lanes + the
-            // act-tap probe) pass `&TernaryGroupWeights` — a q4/q6 projection
-            // has no ternary payload. Refuse loud rather than silently
-            // dropping the hook (the disaggregated host path runs with no
-            // hook; the q4/q6 GPU arm is its own lane). The Q6K arm is plan
-            // 618 S3 — the matched-storage single-checkpoint control.
+            // act-tap probe) pass `&TernaryGroupWeights` — a q4/q6/q8
+            // projection has no ternary payload. Refuse loud rather than
+            // silently dropping the hook (the disaggregated host path runs
+            // with no hook; the q4/q6 GPU arm is its own lane). The Q6K arm
+            // is plan 618 S3 — the matched-storage single-checkpoint control.
+            // The Q8_0 arm is Issue 1188 T1 — the ablation tool's candidate
+            // posture (measurement-only construction, never a loader).
             assert!(
                 hook.is_none(),
-                "bitlinear: a q4/q6 projection has no ternary payload for the matvec hook — \
+                "bitlinear: a q4/q6/q8 projection has no ternary payload for the matvec hook — \
                  the GPU/act-tap lanes are ternary-only (Issue 028 T4 S2)"
             );
             w.matvec_into(y, x);

@@ -451,6 +451,17 @@ set_diffusion = ["dllm"]
 name = "issue879_gdn_quant_certification"
 required-features = ["deltanet_ternary_inference"]
 
+# Issue 1188 T0 — the family-taxonomy gates (always compiled: the
+# classifier is ungated `family_census`).
+[[test]]
+name = "i1188_family_taxonomy"
+
+# Issue 1188 T1 — the Q8_0 candidate-posture gates (the ProjWeights/
+# GateProjWeights arms live behind deltanet_ternary_inference).
+[[test]]
+name = "i1188_q8_projection_gates"
+required-features = ["deltanet_ternary_inference"]
+
 # Issue 049 — GDN delta-roll journal gates: the G1 round-trip drift pin
 # (unwind vs fresh sequential replay, per decay regime), the conditioning
 # gate's fail-closed refusal, the f64 escape hatch, and the storage

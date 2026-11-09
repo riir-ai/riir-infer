@@ -92,6 +92,12 @@ pub mod disaggregated;
 /// `chat_probe` HF-pages shape + plain text). One loader, both instruments.
 pub mod corpus_text;
 
+/// Tensor-family taxonomy for the qwen35-hybrid GGUF grammar (Issue 1188
+/// T0): the mixed-precision sensitivity ranking tool's classification
+/// substrate — name → family → storage class, plus the census walk.
+/// Always compiled; classification only, never a serving path.
+pub mod family_census;
+
 /// f64 golden-NLL readout (Issue 959 T6, opt-in `golden_nll`): the
 /// tail-faithful per-token oracle for lossy-quant gates over
 /// katgpt-core's `fixed_log_softmax_target_f64`. Instrument-grade —
