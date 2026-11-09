@@ -1,6 +1,7 @@
 # Issue 1200 — FM selection count overflows FM_MAX_SEL (GPU OOB + host panic) past ~429/857 blocks — the 1191 T4 128k rho arms are dead-on-arrival
 
 **Status:** OPEN — `- [ ]` tasks below. Diagnosis-only issue: found by the i1191-T4 midnight monitor lane (`zed-5592b062@amo`, root cause from log + pinned source), independently verified against the pinned source by the rig-ops lane (`zed-3ecf601a@amo`, 2026-11-10 ~01:45 local). NO fix landed — the envelope decision (raise vs refuse vs re-scope) belongs to the 1191 lane's pre-registered T4 semantics. Monitor-role discipline held: nobody touched the running process, the tree, or any file.
+**Claimed:** zed-amo-1200@amo (amo), 1794291600, expires 2026-11-11T06:30:00+00:00 — T1 fail-closed half (the launch-time refusal + the by-construction `sel_counts ≤ FM_MAX_SEL` invariant, both shapes' common denominator per the issue's own invariant law) + T2's refuse half; the capacity raise (T1 shape b/c), T3's completing re-run, and T4 stay with the 1191/1117 owning lanes.
 
 ## Why
 
