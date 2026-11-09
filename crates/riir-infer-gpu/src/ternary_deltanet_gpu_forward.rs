@@ -2123,6 +2123,7 @@ pub fn prefill_site_timing_snapshot() -> Vec<(&'static str, u64, u64, u64)> {
             ));
         }
     }
+    rows.shrink_to_fit();
     rows
 }
 
@@ -3987,6 +3988,21 @@ impl TernaryDeltanetGpuForward {
                 .map(|i| {
                     if armed && resident(i) && layer_types[i] == DeltaNetLayerType::Attention {
                         let max_blocks = max_seq.div_ceil(fm_block).max(1);
+                        // Issue 1200 T1+T2 — the fail-closed envelope at
+                        // construction: both ceilings are known here
+                        // (max_seq × fm_block × rho). Refusing at t=0 is the
+                        // difference between a loud error and a rig-hour-sized
+                        // GPU wedge (the measured 128k ρ0.15 arm wedged
+                        // uninterruptible at the exact overflow threshold).
+                        crate::flashmemory_budget_metal::fm_budget_blocks_check(
+                            "fm_state ctor",
+                            max_blocks,
+                        );
+                        crate::flashmemory_budget_metal::fm_budget_envelope_check(
+                            "fm_state ctor",
+                            max_blocks,
+                            rho,
+                        );
                         let zeros_f = vec![0.0f32; max_blocks * kvd_attn];
                         let zeros_s = vec![0.0f32; attn_n_kv * max_blocks];
                         let zeros_u = vec![0u32; attn_n_kv];
@@ -4750,9 +4766,12 @@ impl TernaryDeltanetGpuForward {
                 }
                 let sealed = ctx.finalize(&gdn_layers);
                 down_report.bytes_spent = down_spent;
+                // The guard arm is total in practice: bank_bytes() is Some
+                // iff the state is Ready (ane_prefill mod.rs) — a guard
+                // failure (Ready + None) is unreachable, so the nested
+                // if-let form this replaces had no silent skip to lose.
                 match sealed.state() {
-                    crate::ane_prefill::AnePrefillState::Ready(_) => {
-                        if let Some((bytes, ceiling)) = sealed.bank_bytes() {
+                    crate::ane_prefill::AnePrefillState::Ready(_) if let Some((bytes, ceiling)) = sealed.bank_bytes() => {
                             eprintln!(
                                 "[Issue 726] ANE prefill bank ready: {} programs in {:.1}s, {:.2}/{:.2} GB budget{}",
                                 gdn_layers.len() * 2 + down_landed,
@@ -4768,7 +4787,6 @@ impl TernaryDeltanetGpuForward {
                                 }
                             );
                         }
-                    }
                     crate::ane_prefill::AnePrefillState::Unavailable(reason) => {
                         eprintln!(
                             "[Issue 726] ANE prefill unavailable after {:.1}s: {reason} — prefill fail-opens to GPU",
@@ -11983,6 +12001,11 @@ impl TernaryDeltanetGpuForward {
         let seq_len = pos + 1;
         let mut selected = 0usize;
         for (kv, &n) in counts.iter().enumerate() {
+            // Issue 1200 — reader defense: the row is FM_MAX_SEL wide; the
+            // invariant holds by construction (ctor + launcher refusals),
+            // so the clamp is unreachable through the armed path and only
+            // bounds a torn/stale device read.
+            let n = n.min(crate::flashmemory_budget_metal::FM_MAX_SEL as u32);
             let base = kv * crate::flashmemory_budget_metal::FM_MAX_SEL;
             for i in 0..n as usize {
                 let block = sel[base + i];

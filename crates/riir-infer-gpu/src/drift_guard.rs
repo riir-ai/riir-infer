@@ -452,10 +452,7 @@ pub mod metal {
         // latch), then the exact twin into guard scratch, then a bounded
         // strided compare.
         if g.should_sample() {
-            if mm_prod
-                .dispatch(client, w, m, n, input, output, p)
-                .is_err()
-            {
+            if mm_prod.dispatch(client, w, m, n, input, output, p).is_err() {
                 debug_skip("production dispatch errored — incumbent path reports it");
                 return false; // incumbent path reports the failure its way
             }
@@ -479,8 +476,10 @@ pub mod metal {
             // committed before the exact twin's command buffer, so
             // waiting the twin's last buffer settles both.
             exact.wait_last();
-            let (prod, exac) = match (client.read_one(output.clone()), client.read_one(scratch.clone()))
-            {
+            let (prod, exac) = match (
+                client.read_one(output.clone()),
+                client.read_one(scratch.clone()),
+            ) {
                 (Ok(p), Ok(e)) if !p.is_empty() && p.len() == e.len() => (p, e),
                 _ => {
                     debug_skip("readback mismatch/empty — never latched blind");
@@ -639,7 +638,7 @@ mod tests {
         assert!(hits[0]);
         assert!(!hits[1]);
         assert!(hits[SAMPLE_STRIDE as usize]);
-        let expected = (256u64 + SAMPLE_STRIDE - 1) / SAMPLE_STRIDE; // ceil
+        let expected = 256u64.div_ceil(SAMPLE_STRIDE);
         assert_eq!(
             hits.iter().filter(|h| **h).count() as u64,
             expected,
@@ -662,9 +661,11 @@ mod tests {
         // env mutation in tests would poison a parallel suite
         // (env is process-global); this test pins the doc surface.
         assert_eq!(SAMPLE_STRIDE, 64);
-        assert!(DIV_CENTER > 0.0);
-        assert!(DIV_SCALE > 0.0);
-        assert!(DIV_EPS > 0.0);
+        const {
+            assert!(DIV_CENTER > 0.0);
+            assert!(DIV_SCALE > 0.0);
+            assert!(DIV_EPS > 0.0);
+        }
         assert_eq!(MAX_SAMPLE_ELEMS, 4096);
     }
 }

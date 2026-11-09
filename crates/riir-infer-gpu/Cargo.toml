@@ -832,6 +832,14 @@ required-features = ["metal_tensor_gemm", "cubecl_runtime"]
 name = "flashmemory_budget_metal_t2prep"
 required-features = ["flashmemory_budget_metal"]
 
+# Issue 1200 — the envelope arithmetic tests (no device): the host mirror
+# vs the CPU rule across the grid, the measured overflow thresholds pinned
+# (429@ρ0.3 panic / 857@ρ0.15 wedge), the refusal + maximality pins.
+# Whole-file #![cfg] + this row = the reader-protection pair.
+[[test]]
+name = "flashmemory_budget_metal_envelope"
+required-features = ["flashmemory_budget_metal"]
+
 # Issue 1191 T2 — the full-forward parity cell (CPU FlashMemory budget
 # lane vs the Metal decode forward with the arm armed, synthetic folded
 # Bonsai-2, SHORT walk per the compute law). Records the top-1 + NLL bars

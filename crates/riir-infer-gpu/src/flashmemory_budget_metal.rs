@@ -60,10 +60,81 @@ use cubecl::prelude::*;
 use cubecl::server::Handle;
 
 /// Selection-list capacity per kv head (the budget rule keeps
-/// `round(ρ·n) − 1` complete blocks + the current block; at ρ ≤ 0.35 the
-/// 128K axis needs ≤ 90 — 128 is the ceiling with slack; a config needing
-/// more refuses loud, never silently truncates).
+/// `round(ρ·n) − 1` complete blocks + the current block). The row is the
+/// hard ceiling: at ρ=0.15 it admits n_blocks ≤ 857 (block-64 ≈ 54.8K
+/// context), at ρ=0.3 n_blocks ≤ 428 — a config needing more REFUSES
+/// LOUD (issue 1200: the overflow wrote past the kv row — device clobber
+/// + a rig-hour-sized GPU wedge — never a silent truncation).
 pub const FM_MAX_SEL: usize = 128;
+
+/// The selection kernel's shared-memory slice ceiling in blocks (2048
+/// score slots + 512 pair slots). Issue 1200 T2: the late per-refresh
+/// assert fired 99.94% into a multi-hour run — the same refusal now runs
+/// at construction (t=0) and at every launch, naming the ceiling. The
+/// slice RAISE is the 1191 lane's capacity call, never snuck in here.
+pub const FM_MAX_BLOCKS_SMEM: usize = 2048;
+
+/// The selection count the budget rule computes for `(n_blocks, rho)` —
+/// the kernel's arithmetic mirrored host-side, operation for operation in
+/// f32 (same `round`, same clamps), so the envelope refusal can fire
+/// before any device work and can never disagree with what the kernel
+/// would do. `top-k + 1`: k complete blocks plus the current block.
+pub fn fm_budget_select_count(n_blocks: usize, rho: f32) -> u32 {
+    let k_f = (rho * n_blocks as f32).round();
+    let k_int = if k_f < 1.0f32 { 1u32 } else { k_f as u32 };
+    let k = (k_int.saturating_sub(1u32)).min((n_blocks as u32).saturating_sub(1u32));
+    k + 1
+}
+
+/// The largest `n_blocks` whose budget count still fits [`FM_MAX_SEL`] at
+/// `rho` — analytic threshold verified with the SAME arithmetic the
+/// kernel runs (the walk is ≤ 2 steps: the candidate lands within one
+/// count step of the boundary).
+pub fn fm_budget_max_n_blocks(rho: f32) -> usize {
+    let mut n = ((FM_MAX_SEL as f32 + 0.5) / rho) as usize;
+    while n > 1 && fm_budget_select_count(n, rho) as usize > FM_MAX_SEL {
+        n -= 1;
+    }
+    n
+}
+
+/// Issue 1200 T1 (fail-closed half) — the slot-capacity refusal. The
+/// selection row is `[FM_MAX_SEL]` u32 per kv head; a budget rule needing
+/// more picks writes past its own row (clobbering the NEXT kv group; the
+/// last group past the buffer) and the host fraction reader then walks
+/// off the buffer. The CPU `RowRule::Budget` clamp (`.min(n-1)`) is the
+/// CPU envelope; the GPU port adds the SLOT-capacity refusal on top —
+/// a config needing more than the row holds refuses naming the ceiling
+/// and the largest n_blocks the rho admits, never silently truncates.
+#[track_caller]
+pub fn fm_budget_envelope_check(site: &str, n_blocks: usize, rho: f32) {
+    let count = fm_budget_select_count(n_blocks, rho);
+    if count as usize > FM_MAX_SEL {
+        panic!(
+            "[issue 1200] {site}: the budget rule needs {count} selection slots \
+             (rho {rho} x {n_blocks} blocks) but FM_MAX_SEL = {FM_MAX_SEL} — refusing loud. \
+             Largest supported n_blocks at this rho = {} (or lower rho; raising \
+             FM_MAX_SEL is the 1191 lane's pre-registered capacity call).",
+            fm_budget_max_n_blocks(rho),
+        );
+    }
+}
+
+/// Issue 1200 T2 (refuse half) — the shared-memory ceiling, moved to
+/// construction + launch. The kernel's smem slice covers 2048 score
+/// slots + 512 pair slots; a longer context must pair a larger slice
+/// with the capacity raise (both the 1191 lane's call) — until then the
+/// config refuses at t=0 instead of the last block-open refresh 99.94%
+/// into a multi-hour run.
+#[track_caller]
+pub fn fm_budget_blocks_check(site: &str, n_blocks: usize) {
+    assert!(
+        n_blocks <= FM_MAX_BLOCKS_SMEM,
+        "[issue 1200] {site}: {n_blocks} blocks > the {FM_MAX_BLOCKS_SMEM} \
+         shared-memory ceiling — refusing (raise the smem slice together with \
+         FM_MAX_SEL; both raises are the 1191 lane's capacity call)"
+    );
+}
 
 /// The promote-only env gate — exact `1`/`true`/`on` arms the Metal
 /// budget arm (the env-switch law: an opt-in arm's env is PROMOTE-ONLY;
@@ -239,6 +310,12 @@ fn fm_top_rho_select_f32(
     let k_f = (rho * n_blocks as f32).round();
     let k_int = if k_f < 1.0f32 { 1u32 } else { k_f as u32 };
     let k = (k_int.saturating_sub(1u32)).min(n_blocks.saturating_sub(1u32));
+    // Issue 1200 — defense-in-depth: the launcher refuses an
+    // out-of-envelope config BEFORE this kernel runs, so the clamp is
+    // unreachable through `FmTopRhoSelectMetal::launch`; a future direct
+    // caller gets a truncated (honestly counted via sel_counts ≤ 128)
+    // selection instead of writes past the kv row (device clobber).
+    let k = k.min(127u32);
 
     // Iterative argmax over untaken blocks — strictly-greater compare so
     // ties keep the FIRST index (the determinism law; the CPU
@@ -358,11 +435,12 @@ impl FmTopRhoSelectMetal {
         n_blocks: usize,
         rho: f32,
     ) {
-        assert!(
-            n_blocks <= 2048,
-            "fm_top_rho_select: n_blocks {n_blocks} > the 2048 shared-memory ceiling — raise FM_MAX_SEL/the smem slice together"
-        );
         assert!(n_blocks >= 1, "fm_top_rho_select: empty block row");
+        // Issue 1200 T1+T2 — the fail-closed envelope at the authoritative
+        // launch site (the constructor refuses the max-context config at
+        // t=0; this is the per-launch gate at the exact arithmetic).
+        fm_budget_blocks_check("fm_top_rho_select", n_blocks);
+        fm_budget_envelope_check("fm_top_rho_select", n_blocks, rho);
         let params: [f32; 3] = [n_kv as f32, n_blocks as f32, rho];
         let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(&params));
         unsafe {
