@@ -872,11 +872,21 @@ mod tests {
         let mut armed_w = QwenDeltaNetWeights::zeros(&cfg);
         seeded(&mut armed_w);
         armed_w.closed_form_overlays = Some(mount(vec![(1, pair_off)]));
+        eprintln!(
+            "[i1189-probe] armed table edited_layers = {:?}, max_rank = {}",
+            armed_w.closed_form_overlays.as_ref().unwrap().edited_layers(),
+            armed_w.closed_form_overlays.as_ref().unwrap().max_rank
+        );
         let (a_logits, _a_toks) = run(&armed_w, armed_w.closed_form_overlays.as_ref());
         let moved = a_logits
             .iter()
             .zip(base_logits.iter())
             .any(|(a, b)| a.to_bits() != b.to_bits());
+        eprintln!(
+            "[i1189-probe] base[0..2] bits = {:?} armed[0..2] bits = {:?}",
+            base_logits.iter().take(2).map(|v| v.to_bits()).collect::<Vec<_>>(),
+            a_logits.iter().take(2).map(|v| v.to_bits()).collect::<Vec<_>>()
+        );
         assert!(moved, "armed overlay must move the logits (engagement)");
     }
 }

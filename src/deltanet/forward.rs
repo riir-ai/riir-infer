@@ -1998,6 +1998,8 @@ fn batched_mlp(
     // Gated: reads the ctx's armed table + scratch (no gated types here).
     #[cfg(feature = "closed_form_write")]
     if let Some(overlays) = prefill_ctx.closed_form_overlays.as_ref() {
+        #[cfg(test)]
+        eprintln!("[i1189-probe] batched_mlp fold at layer {layer_idx}, seq_len {seq_len}");
         for p in 0..seq_len {
             overlays.apply(
                 layer_idx,
