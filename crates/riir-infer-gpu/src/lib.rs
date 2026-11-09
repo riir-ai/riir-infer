@@ -506,6 +506,11 @@ pub mod qwen_attention_prefill_m32_cubecl;
 // Issue 1156 T2 / Plan 624: the block-sparse prefill attention arm (opt-in).
 #[cfg(feature = "cubecl_runtime")]
 pub mod qwen_attention_prefill_sparse_cubecl;
+// Issue 1191 T1: the Metal FlashMemory budget decode arm (opt-in,
+// PROMOTE-ONLY env) — the three kernels: block-centroid scoring GEMV,
+// top-rho select (first-index strict ties), block gather.
+#[cfg(feature = "flashmemory_budget_metal")]
+pub mod flashmemory_budget_metal;
 // Issue 1156 T3 / Plan 625: the per-family ΩMSR manifest + knee calculator
 // (the arm's binding quality floors; knee calc ungated, blake3/manifest I/O
 // ride `cubecl_runtime` — the arm's posture).
