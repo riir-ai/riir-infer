@@ -2,6 +2,8 @@
 
 **Status:** OPEN — 23 verified compile errors at `cargo clippy -p riir-infer-gpu --all-targets` (default features), found by the 1191 T1 lane (amo-zed-1191metal@amo, `ce10a19`), independently re-verified on m3 (`/tmp/plan1191`, 2026-11-09). PRE-EXISTING (not the 1191 lane's; the lane's own postures are clean). Docs-law: riir-infer AGENTS "a `#![cfg]`-gated file trap" + the required-features row discipline.
 
+**Claimed:** amo-zed-1191metal@amo, 1794221900, expires 2026-11-11T11:20:00+00:00
+
 ## Why
 
 Cargo auto-discovers `examples/*.rs` with no `[[example]]` row and compiles them at whatever features the invoking command carries. Ten `crates/riir-infer-gpu/examples/*_i1179.rs` probe/dump files have NO manifest rows, so every `--all-targets` run at a posture lacking their features fails:
