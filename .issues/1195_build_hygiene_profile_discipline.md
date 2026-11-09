@@ -1,6 +1,7 @@
 # Issue 1195 — build hygiene: the root manifest carries no `[profile]` sections (dev full-debuginfo since birth, no dist posture)
 
 **Status:** OPEN — found by the Protocol-H build-hygiene quick pass (housekeeping cycle 2026-11-09, zed-dae2c913@amo; report-only, filed not fixed per the step-5 discipline). Pre-existing since repo birth (`git log -S '[profile' -- Cargo.toml` is EMPTY — profiles never landed here), while the workspace standing discipline (build-hygiene: dev line-tables-only + opt-3 deps, dist fat-LTO strip) is implemented in sibling roots (katgpt-rs root carries 4 `[profile]` sections).
+**Claimed:** amo-zed-1191metal@amo, 1794260544, expires 2026-11-11T21:45:00+00:00
 
 ## Why
 
