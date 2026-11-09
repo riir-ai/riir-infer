@@ -5,6 +5,10 @@
 # Prep only — no measurement here; the perf cell runs on the 4090 later.
 set -euo pipefail
 
+# Non-interactive rig shells carry no homebrew PATH — cmake lives at /opt/homebrew/bin.
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+command -v cmake >/dev/null || { echo "FATAL: cmake not on PATH after export" >&2; exit 3; }
+
 W=/Users/katopz/cq3-prep
 TAG=prism-b12128-d7b2896
 REPO=https://github.com/PrismML-Eng/llama.cpp.git
