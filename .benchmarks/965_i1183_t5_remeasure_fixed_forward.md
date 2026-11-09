@@ -26,24 +26,14 @@ OUR Q4_K_M league target, Metal-posture context captures, greedy keyed argmax,
 
 ## Verdict
 
-1. **The 1183 closure premise is overturned.** "The DSpine head is worse than
-   uzu (1.27) and never saw our numerics (mean_j 1.000)" measured a forward
-   whose message gate was `1/(1 − e^z)` (riir-infer 1193) — the head's real
-   zero-shot acceptance on OUR target is 2.565: **2.0× uzu's trained 1.27
-   (Bench 954) and above the 2.5 uzu-parity bar**, with the head UNTRAINED.
-2. **The beat-lane prize bar (≥3.2, the 1179 arithmetic → 100–135 tok/s vs
-   the owner's 121.1) is NOT yet cleared** — the gap (2.565 → 3.2) is
-   exactly the distillation delta plan 492's T2/T3 exist to buy; the
-   DSpine family is now unambiguously the distill vehicle (uzu's
-   re-open condition "a new head family" + this head's zero-shot lead).
-3. **Plan 492's premise strengthens:** "the head never saw our runtime's
-   numerics" stands (the zero-shot chain still mismatches — rank0 rates ~0),
-   and the distill surface now trains against an FD-exact backward
-   (riir-train issue 683 closed the same day: tier3 median 7e-4).
-4. **Correction of record:** every premise citing DSpine mean_j ≈ 1.0
-   (1183's closure, Bench 959's chain numbers, plan 492's Why, riir-train
-   679) must read mean_j 2.565 for zero-shot quality claims; the
-   bit-exactness-vs-vendor claims (Bench 959 piecewise) stand.
+**Metric convention (checked, apples-to-apples):** both this bench and Bench 954 (uzu) use the SAME harness, the SAME 603-token league fixture, the SAME GGUF, and the SAME mean_j definition — `emitted_total/cycles` (accepted draft tokens per pass; the j=0 histogram key exists but carries 0 cycles in BOTH rows: 954 [0,161,29,7,…], 965 [0,64,60,35,…]). The 2.565-vs-1.27 comparison is therefore same-convention. The vendor's 2.882 (Bench 952-c4) remains cross-fixture (their engine, their numerics) and is never pooled with ours.
+
+**rank0 vs mean_j reconciliation:** `rank0[p]` = the chain's rank-0 candidate LANE's token equals the target at verify row p (a rank-1-lane accuracy metric) — DSpine's rank0 rates read ≈ 0 while acceptance is 2.565. These measure different things: the chain rarely puts the target at the rank-0 lane, but the target frequently sits INSIDE the top-k candidate set at the WALKED lane (survival p1 = 0.68 — the set+walk carries the acceptance). No contradiction, and rank0 is NOT the distill loss's signal either way (the loss is the score-row CE over the full candidate set — plan 492's surface).
+
+1. **The 1183 closure premise is overturned (delegated-owner verdict AGREE, option A — revised in place on the issue).** "The DSpine head is worse than uzu (1.27) and never saw our numerics (mean_j 1.000)" measured a forward whose message gate was `1/(1 − e^z)` (riir-infer 1193) — the head's real zero-shot acceptance on OUR target is 2.565: **the strongest MEASURED zero-shot head on this target (single 603-token fixture prompt, 200 cycles — held-out cells owed before any beat-lane claim), 2.0× uzu's trained 1.27 (Bench 954), same convention.** The "never saw our runtime's numerics" half of the verdict STANDS (rank0 ≈ 0).
+2. **The beat-lane prize bar (≥3.2, the 1179 arithmetic → 100–135 tok/s vs the owner's 121.1) is NOT yet cleared** — the gap (2.565 → 3.2) is exactly the distillation delta plan 492's T2/T3 exist to buy; the DSpine family is the distill vehicle (uzu's re-open condition "a new head family" + this head's zero-shot lead). Promote/stop rule pre-registered in plan 492 before any training spend: promote on held-out mean_j ≥ 3.2 (same convention) + G1 serial==specdec PASS; stop if the distill delta < +0.3 over 2.565 after the first agreed budget; otherwise report without promoting.
+3. **Plan 492's premise strengthens:** "the head never saw our runtime's numerics" stands (rank0 ≈ 0), and the distill surface now trains against an FD-exact backward (riir-train issue 683 closed the same day: tier3 median 7e-4).
+4. **Correction of record:** every premise citing DSpine mean_j ≈ 1.0 (1183's closure, Bench 959's chain numbers, plan 492's Why, riir-train 679) must read mean_j 2.565 for zero-shot quality claims; the bit-exactness-vs-vendor claims (Bench 959 piecewise) stand. Residue owed regardless of T2/T3 (tasks filed in plan 492): the Bench 959 shape-walk re-run on the fixed forward + the main-path golden replay piece.
 
 ## Refs
 
