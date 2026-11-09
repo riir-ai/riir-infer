@@ -2,6 +2,10 @@
 
 Compacted 2026-10-30: every `##` heading kept verbatim, one compact entry per record (≤2 short lines); the full pre-compaction text is in git history. Operational rules live in `AGENTS.md`; removed issue files: git history.
 
+## 2026-11-09 — Issue 1187 CLOSED + removed: the needle-gate mid-run report merge works again — de_nan_vec on the delta fields + mean_delta de_nan_f32, fix `f3385a8`
+
+- The Bench-958 smoke's per-arm "merge failed to parse" lines were this pre-existing defect firing: `run_arm` returns rows with `delta_nll`/`mean_delta` still NaN (the run-end fill happens later), serde_json writes NaN as `null`, and the next `upsert_report` parse failed on the two unwired fields — taking the rewrite-WITHOUT-old-rows branch, so a mid-run crash lost every completed arm (the exact opposite of the function doc's claim). Fix wires the same null→NaN round-trip the survival fields already carry: `de_nan_vec` (per-element) on `needle_nll` + `delta_nll`, `de_nan_f32` on `mean_delta`; fixtures = the null-on-wire round trip + the two-arm merge past NaN rows. Session zed-8f7b6203@amo, 1794189900.
+
 ## 2026-11-09 — Issue 1185 CLOSED + removed: the K/V width-census arc complete — capture (T1) + Bonsai census (T2, Bench 957) + the sink-window needle gate (T3, Bench 958: every width-derived ceiling REFUSED 8/8, needle surv 0.000 at the ε-grid medians) + the readout (T4: keep the pin; the width budgets are a census TABLE, not a policy); the percentile-hop disclosure arm shipped with it (tail_support on every read); feat commit `2830499`
 
 ## 2026-11-06 — Issues 1168 + 1108 CLOSED + removed: the decode host-sync triage (arc delivered via plan 626) + the Locals/STCON inventory (all tasks done, Track A parked on its consumer trigger)
