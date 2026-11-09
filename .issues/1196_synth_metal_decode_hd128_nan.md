@@ -1,6 +1,7 @@
 # Issue 1196 — the synth Bonsai-2 fixture's METAL dense decode NaNs at step 16 (an unexercised hd-128 baseline path)
 
 **Status:** OPEN — found by issue 1191 T2's first parity-cell run (2026-11-09); NOT a 1191 defect (its parity pivoted to the real model; the bisect below PROVES the 1191 arm clean on the league posture).
+**Claimed:** zed-34912c3b@amo, 1794237218, expires 2026-11-11T15:13:38Z
 
 ## The finding
 
