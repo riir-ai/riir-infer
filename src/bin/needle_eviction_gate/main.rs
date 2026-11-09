@@ -314,9 +314,17 @@ struct Needle {
 struct ArmReport {
     name: String,
     /// NLL per needle (nats/token over the code span).
+    #[serde(deserialize_with = "de_nan_vec")]
     needle_nll: Vec<f32>,
-    /// delta vs the full arm — filled after all arms ran.
+    /// delta vs the full arm — filled after all arms ran. NaN until the
+    /// run-end fill; serde_json writes NaN as `null`, and the mid-run
+    /// upsert must read its OWN nulls back (issue 1187: without this
+    /// deserializer every merge after the first arm failed the parse and
+    /// rewrote WITHOUT the old rows).
+    #[serde(deserialize_with = "de_nan_vec")]
     delta_nll: Vec<f32>,
+    /// NaN until the run-end fill — same wire round-trip as `delta_nll`.
+    #[serde(deserialize_with = "de_nan_f32")]
     mean_delta: f32,
     retained: usize,
     n_needles: usize,
@@ -381,6 +389,17 @@ where
 {
     let v: Option<f32> = serde::Deserialize::deserialize(d)?;
     Ok(v.unwrap_or(f32::NAN))
+}
+
+/// The Vec<f32> twin of [`de_nan_f32`]: per-element `null` reads back as
+/// NaN (issue 1187 — the mid-run report rows carry NaN deltas until the
+/// run-end fill).
+fn de_nan_vec<'de, D>(d: D) -> std::result::Result<Vec<f32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v: Vec<Option<f32>> = serde::Deserialize::deserialize(d)?;
+    Ok(v.into_iter().map(|e| e.unwrap_or(f32::NAN)).collect())
 }
 
 /// Upsert `fresh` rows into the report at `path` and rewrite it: per-arm
@@ -1493,4 +1512,72 @@ fn run_arm(
         context: args.context,
         reference_loaded: false,
     })
+}
+
+#[cfg(test)]
+mod report_wire_tests {
+    use super::*;
+
+    /// A mid-run arm row, exactly the shape `run_arm` returns: deltas and
+    /// mean_delta still NaN (the run-end fill has not happened).
+    fn sample_arm(name: &str) -> ArmReport {
+        ArmReport {
+            name: name.to_string(),
+            needle_nll: vec![0.5, 1.5, 2.5],
+            delta_nll: vec![f32::NAN; 3],
+            mean_delta: f32::NAN,
+            retained: 0,
+            n_needles: 3,
+            context: 0,
+            needle_row_survival: 1.0,
+            hub_row_survival: f32::NAN,
+            wall_row_survival: f32::NAN,
+            hub_rows: 0,
+            wall_rows: 0,
+            sink_row_survival: f32::NAN,
+            generic_nll: None,
+            capped: false,
+            output_len: 0,
+            evicted_rows: 0,
+            evict_events: 0,
+            idle_events: 0,
+            wall_seconds: 1.0,
+            reference_loaded: false,
+        }
+    }
+
+    /// The issue-1187 wire contract, unit level: NaN vec/scalar fields
+    /// serialize to `null` and parse back as NaN.
+    #[test]
+    fn nan_fields_round_trip_through_null() {
+        let arm = sample_arm("a");
+        let json = serde_json::to_string(&arm).unwrap();
+        assert!(json.contains("\"delta_nll\":[null,null,null]"));
+        assert!(json.contains("\"mean_delta\":null"));
+        let back: ArmReport = serde_json::from_str(&json).unwrap();
+        assert!(back.delta_nll.iter().all(|d| d.is_nan()));
+        assert!(back.mean_delta.is_nan());
+        assert_eq!(back.needle_nll, arm.needle_nll, "real values survive");
+    }
+
+    /// The issue-1187 defect end to end: the second `upsert_report` of a
+    /// multi-arm run parses the file the first one wrote (NaN rows on the
+    /// wire) and MERGES — never the rewrite-without-old-rows branch.
+    #[test]
+    fn mid_run_upsert_merges_past_its_own_nan_rows() {
+        let dir = std::env::temp_dir().join(format!("needle_gate_i1187_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("needle_gate_report.json");
+        let _ = std::fs::remove_file(&path);
+
+        upsert_report(&path, &[sample_arm("arm1")]).unwrap();
+        upsert_report(&path, &[sample_arm("arm2")]).unwrap();
+
+        let rows: Vec<ArmReport> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(rows.len(), 2, "both arms must survive the merge");
+        assert_eq!(rows[0].name, "arm1");
+        assert_eq!(rows[1].name, "arm2");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
