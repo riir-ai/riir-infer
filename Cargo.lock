@@ -3570,6 +3570,7 @@ dependencies = [
 name = "riir-infer-gpu"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "blake3",
  "bytemuck",
  "cubecl",

@@ -28,6 +28,9 @@ publish = false
 # non-optional even though every current consumer sits behind
 # `cubecl_runtime`. In-repo path dep (the workspace root crate).
 riir-infer-core = { path = "../.." }
+# Issue 1191 T4 — the decode gate's bin moved here (the boundary law:
+# riir-infer-core carries no riir-* deps; the gate drives the GPU arms).
+anyhow = "1"
 # The ternary weight vocabulary (TernaryGroupWeights bit-planes + the
 # group-scale support the Q2_0_g128 kernels read) — consumed directly,
 # katgpt-rs being the one sanctioned public upstream. Inherited from the
@@ -182,6 +185,12 @@ flashmemory_budget_metal_t2 = [
     "ternary_gemv",
     "riir-infer-core/bonsai2_hadamard",
     "riir-infer-core/flashmemory_budget",
+]
+# Issue 1191 T3/T4 — the decode gate bin's full posture (moved here from
+# riir-infer-core: the boundary law keeps the core free of riir-* deps;
+# the gate drives the GPU arms). CPU arms + Metal arms in one binary.
+flashmemory_budget_gate = [
+    "flashmemory_budget_metal_t2",
 ]
 
 # Ternary bit-plane (Q2_0_g128) GEMV family around the gemv_ternary_cubecl
@@ -946,3 +955,12 @@ required-features = ["cubecl_runtime"]
 [[example]]
 name = "dump_myrope_i1179"
 required-features = ["qwen38_specdec"]
+
+# Issue 1191 T3/T4 — the FlashMemory budget decode gate (CPU arms via the
+# core's reference lane; Metal arms via this crate's integrated decode
+# forward, --metal). Durable state dir + --resume (T3). Moved from
+# riir-infer-core per the boundary law (the core carries no riir-* deps).
+[[bin]]
+name = "flashmemory_decode_gate"
+path = "src/bin/flashmemory_decode_gate.rs"
+required-features = ["flashmemory_budget_gate"]

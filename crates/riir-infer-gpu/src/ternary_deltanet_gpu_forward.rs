@@ -11964,6 +11964,41 @@ impl TernaryDeltanetGpuForward {
     ///
     /// Used by speculative decode callers to snapshot `pos` before speculation
     /// so it can be restored on rollback.
+    /// Issue 1191 T4 — the budget arm's selected-token fraction for one
+    /// attention layer at `pos`: the selection list's token coverage vs the
+    /// whole context (the CPU lane's `kv_reduction_ratio` device twin,
+    /// readback-based — sampled every `retain_every` steps, never per
+    /// step). `None` when the layer carries no budget state (unarmed) or
+    /// the read fails.
+    #[cfg(feature = "flashmemory_budget_metal")]
+    pub fn fm_selected_fraction(&self, layer_idx: usize, pos: usize) -> Option<f64> {
+        let st = self.fm_state.get(layer_idx)?.as_ref()?;
+        let counts = self
+            .client
+            .read_one(st.sel_counts.clone())
+            .ok()?;
+        let counts: Vec<u32> = bytemuck::cast_slice(&counts).to_vec();
+        let sel_raw = self.client.read_one(st.sel.clone()).ok()?;
+        let sel: Vec<u32> = bytemuck::cast_slice(&sel_raw).to_vec();
+        let seq_len = pos + 1;
+        let mut selected = 0usize;
+        for (kv, &n) in counts.iter().enumerate() {
+            let base = kv * crate::flashmemory_budget_metal::FM_MAX_SEL;
+            for i in 0..n as usize {
+                let block = sel[base + i];
+                if block == u32::MAX {
+                    break;
+                }
+                let start = block as usize * st.fm_block_size;
+                let end = (start + st.fm_block_size).min(seq_len);
+                selected += end.saturating_sub(start);
+            }
+        }
+        let n_kv = counts.len();
+        let avg = selected / n_kv.max(1);
+        Some(avg as f64 / seq_len.max(1) as f64)
+    }
+
     pub fn pos(&self) -> usize {
         self.pos
     }

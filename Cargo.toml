@@ -747,15 +747,11 @@ name = "needle_eviction_gate"
 path = "src/bin/needle_eviction_gate/main.rs"
 required-features = ["kv_eviction"]
 
-# Issue 1117 — FlashMemory budget (top-rho) decode gate: teacher-forced NLL /
-# top-1 agreement vs dense over a long-context slice, per-position buckets.
-# Lives behind #[cfg(feature = "flashmemory_budget")]; the row is the reader
-# protection (the green-zero law). The ternary loader + the folded synth file
-# need the two extra features.
-[[bin]]
-name = "flashmemory_decode_gate"
-path = "src/bin/flashmemory_decode_gate.rs"
-required-features = ["flashmemory_budget", "deltanet_ternary_inference", "bonsai2_hadamard"]
+# Issue 1117 — the FlashMemory budget decode gate MOVED to riir-infer-gpu
+# (issue 1191 T4: the gate drives the Metal arms; the boundary law keeps
+# THIS crate free of riir-* deps, so the bin lives where its GPU subjects
+# live — the CPU arms ride the same binary through the gpu crate's
+# riir-infer-core dep).
 
 # Issue 1122 T2 — the cross-call history n-gram drafter's acceptance-rate
 # probe on a real repeated-prompt workload (Bonsai-27B-PQ2 CPU forward).

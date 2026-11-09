@@ -1,8 +1,8 @@
-#![cfg(all(
-    feature = "flashmemory_budget",
-    feature = "deltanet_ternary_inference",
-    feature = "bonsai2_hadamard"
-))]
+// The bin's own posture is its required-features row
+// (flashmemory_budget_gate — the CPU reference lane's core features
+// forwarded + the Metal arm); the row protects the reader (the
+// green-zero law), this cfg mirrors it for direct rustc sanity.
+#![cfg(feature = "flashmemory_budget_gate")]
 //! Issue 1117 T3/T4 — the FlashMemory budget (top-ρ) decode gate.
 //!
 //! The end-to-end quality + perf read the per-layer fidelity numbers
@@ -67,7 +67,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use katgpt_attn::dash_attn::flashmemory_sparse::FlashMemoryConfig;
+use riir_infer_core::deltanet::flashmemory_gqa::FlashMemoryConfig;
 use riir_infer_core::deltanet::flashmemory_gqa::{FlashMemoryDecodeState, kv_reduction_ratio};
 use riir_infer_core::deltanet::ternary_forward::{
     forward_qwen_deltanet_ternary, forward_qwen_deltanet_ternary_flashmemory,
@@ -77,6 +77,13 @@ use riir_infer_core::gguf_loader::{GgufFile, load_qwen_deltanet_ternary_weights_
 use riir_infer_core::quant::kvq_harness::nll;
 use riir_infer_core::rope::RopeFreqTable;
 use riir_infer_core::tokenizer::BpeTokenizer;
+
+// Issue 1191 T4 — the Metal arms' forward + arm module (this bin lives in
+// the gpu crate: the boundary law keeps riir-infer-core free of riir-*
+// deps, and the gate drives the GPU arms — its natural home is HERE).
+// Unconditional references: the bin's required-features row guarantees
+// the lib features (the required-features-protects-the-reader law).
+use riir_infer_gpu::ternary_deltanet_gpu_forward::TernaryDeltanetGpuForward;
 
 fn hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -104,6 +111,11 @@ struct Args {
     /// Issue 1191 T3: continue incomplete arms from their prefix-bin
     /// cursor (the rows recovered; the skipped steps replay for state).
     resume: bool,
+    /// Issue 1191 T4: the METAL posture — every arm drives the GPU decode
+    /// forward with the budget arm armed per-ρ (dense = disarmed). The
+    /// walls are Metal walls; the CPU reference rows live in the bmo
+    /// record and are NEVER pooled with these.
+    metal: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -126,6 +138,7 @@ fn parse_args() -> Result<Args> {
             .join(".cache/i1117"),
         fresh: false,
         resume: false,
+        metal: false,
     };
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -156,6 +169,10 @@ fn parse_args() -> Result<Args> {
             }
             "--resume" => {
                 a.resume = true;
+                step = 1;
+            }
+            "--metal" => {
+                a.metal = true;
                 step = 1;
             }
             _ => anyhow::bail!("unknown arg {name} (see the module doc)"),
@@ -206,6 +223,9 @@ fn inputs_digest(args: &Args) -> Result<[u8; 32]> {
     h.update(&args.refresh.to_le_bytes());
     h.update(&args.bucket.to_le_bytes());
     h.update(&args.compare_from.to_le_bytes());
+    // Issue 1191 T4: the POSTURE is part of the claim — Metal and CPU
+    // bins never cross-load (the walls are not comparable either).
+    h.update(&[u8::from(args.metal)]);
     h.update(
         &args
             .rho_list
@@ -429,6 +449,7 @@ fn main() -> Result<()> {
             "bucket": args.bucket,
             "compare_from": args.compare_from,
             "rho_list": args.rho_list,
+            "posture": if args.metal { "metal" } else { "cpu" },
             "written_at": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -517,6 +538,73 @@ fn main() -> Result<()> {
             "#   dense arm (resumed) persisted → {}",
             dense_bin.display()
         );
+        ArmScore {
+            nll: dense_nll,
+            argmax: dense_argmax,
+            mean_selected_fraction: 1.0,
+            wall_secs: dense_wall,
+        }
+    } else if args.metal {
+        // Issue 1191 T4 — the METAL dense arm: the GPU decode forward,
+        // budget arm DISARMED (the incumbent dense dispatch).
+        println!("# arm: dense (reference, METAL)");
+        riir_infer_gpu::flashmemory_budget_metal::set_flashmemory_budget_metal(false);
+        let ctx = riir_infer_gpu::cubecl_runtime::CubeCLContext::new()
+            .expect("Metal ctx (--metal requires a Metal device)");
+        let mut gpu_config = config.clone();
+        // The Metal KV single-buffer bound (riir-ai Issue 994 / riir-infer
+        // Issue 1114): clamp to the largest anchor-validated rung — the
+        // 128K axis IS that rung (131,072 ≤ 131,136), and the walk needs
+        // ≥ steps + 2 rows.
+        gpu_config.block_size = gpu_config
+            .block_size
+            .min(131_072)
+            .max(steps + 2);
+        let mut gpu = riir_infer_gpu::ternary_deltanet_gpu_forward::TernaryDeltanetGpuForward::new(
+            &ctx,
+            &gpu_config,
+            &weights,
+        );
+        let t0 = Instant::now();
+        let mut dense_nll = vec![0f32; steps];
+        let mut dense_argmax = vec![0usize; steps];
+        for pos in 0..steps {
+            if pos > 0 && pos % 64 == 0 {
+                let el = t0.elapsed().as_secs_f64();
+                eprintln!(
+                    "# progress dense(M) {pos}/{steps} — {el:.0}s — {:.2} tok/s",
+                    pos as f64 / el
+                );
+            }
+            gpu.set_input_token(&weights, tokens[pos]);
+            let logits = gpu.forward_token();
+            dense_nll[pos] = nll(&logits, tokens[pos + 1]) as f32;
+            dense_argmax[pos] = argmax(&logits);
+            if pos > 0 && pos % args.bucket == 0 {
+                let meta = ArmBinMeta {
+                    expected_steps: steps,
+                    complete: false,
+                    mean_selected_fraction: 1.0,
+                    wall_secs: t0.elapsed().as_secs_f64(),
+                };
+                let _ = write_arm_bin(
+                    &dense_bin,
+                    &digest,
+                    &meta,
+                    &dense_nll[..pos],
+                    &dense_argmax[..pos],
+                );
+            }
+        }
+        let dense_wall = t0.elapsed().as_secs_f64();
+        let meta = ArmBinMeta {
+            expected_steps: steps,
+            complete: true,
+            mean_selected_fraction: 1.0,
+            wall_secs: dense_wall,
+        };
+        write_arm_bin(&dense_bin, &digest, &meta, &dense_nll, &dense_argmax)?;
+        println!("#   dense (METAL) arm persisted → {}", dense_bin.display());
         ArmScore {
             nll: dense_nll,
             argmax: dense_argmax,
@@ -616,9 +704,120 @@ fn main() -> Result<()> {
             None
         };
         println!(
-            "# arm: flashmemory rho={rho} (block {} refresh {})",
-            args.block, args.refresh
+            "# arm: flashmemory rho={rho} (block {} refresh {}{})",
+            args.block,
+            args.refresh,
+            if args.metal { ", METAL" } else { "" }
         );
+        if args.metal {
+            // Issue 1191 T4 — the METAL budget arm at this rho: the GPU
+            // decode forward CONSTRUCTED per rho (the budget state is
+            // per-construction), the arm armed via the authoritative
+            // setter + the env row (rho/block/refresh reach the ctor).
+            unsafe {
+                std::env::set_var("RIIR_FM_RHO", format!("{rho}"));
+                std::env::set_var("RIIR_FM_BLOCK", format!("{}", args.block));
+                std::env::set_var("RIIR_FM_REFRESH", format!("{}", args.refresh));
+            }
+            riir_infer_gpu::flashmemory_budget_metal::set_flashmemory_budget_metal(true);
+            let ctx = riir_infer_gpu::cubecl_runtime::CubeCLContext::new()
+                .expect("Metal ctx (--metal requires a Metal device)");
+            let mut gpu_config = config.clone();
+            // The same 128K single-buffer bound (see the dense arm).
+            gpu_config.block_size = gpu_config
+                .block_size
+                .min(131_072)
+                .max(steps + 2);
+            let mut gpu =
+                riir_infer_gpu::ternary_deltanet_gpu_forward::TernaryDeltanetGpuForward::new(
+                    &ctx,
+                    &gpu_config,
+                    &weights,
+                );
+            let t0 = Instant::now();
+            let mut arm_nll = vec![0f32; steps];
+            let mut arm_argmax = vec![0usize; steps];
+            let mut selected_sum = 0f64;
+            let mut selected_n = 0f64;
+            for pos in 0..steps {
+                if pos > 0 && pos % 64 == 0 {
+                    let el = t0.elapsed().as_secs_f64();
+                    eprintln!(
+                        "# progress rho={rho}(M) {pos}/{steps} — {el:.0}s — {:.2} tok/s",
+                        pos as f64 / el
+                    );
+                }
+                gpu.set_input_token(&weights, tokens[pos]);
+                let logits = gpu.forward_token();
+                arm_nll[pos] = nll(&logits, tokens[pos + 1]) as f32;
+                arm_argmax[pos] = argmax(&logits);
+                if pos % args.retain_every == 0
+                    && pos > 0
+                    && let Some(frac) = gpu.fm_selected_fraction(last_attn_layer, pos)
+                {
+                    selected_sum += frac;
+                    selected_n += 1.0;
+                }
+                if pos > 0 && pos % args.bucket == 0 {
+                    let meta = ArmBinMeta {
+                        expected_steps: steps,
+                        complete: false,
+                        mean_selected_fraction: if selected_n > 0.0 {
+                            selected_sum / selected_n
+                        } else {
+                            1.0
+                        },
+                        wall_secs: t0.elapsed().as_secs_f64(),
+                    };
+                    let _ = write_arm_bin(
+                        &rho_bin,
+                        &digest,
+                        &meta,
+                        &arm_nll[..pos],
+                        &arm_argmax[..pos],
+                    );
+                }
+            }
+            let wall = t0.elapsed().as_secs_f64();
+            let mean_frac = if selected_n > 0.0 {
+                selected_sum / selected_n
+            } else {
+                1.0
+            };
+            println!(
+                "#   wall {:.1}s — {:.1} tok/s — mean selected fraction {:.4} (last attn layer, sampled every {})",
+                wall,
+                steps as f64 / wall,
+                mean_frac,
+                args.retain_every
+            );
+            write_arm_bin(
+                &rho_bin,
+                &digest,
+                &ArmBinMeta {
+                    expected_steps: steps,
+                    complete: true,
+                    mean_selected_fraction: mean_frac,
+                    wall_secs: wall,
+                },
+                &arm_nll,
+                &arm_argmax,
+            )?;
+            println!(
+                "#   rho={rho} (METAL) arm persisted → {}",
+                rho_bin.display()
+            );
+            arms.push((
+                rho,
+                ArmScore {
+                    nll: arm_nll,
+                    argmax: arm_argmax,
+                    mean_selected_fraction: mean_frac,
+                    wall_secs: wall,
+                },
+            ));
+            continue;
+        }
         let t0 = Instant::now();
         let mut cache =
             HybridCache::with_layer_types_bounded(&config, &weights.layer_types, steps + 2);
