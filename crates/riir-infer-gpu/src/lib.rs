@@ -212,6 +212,10 @@ pub use transpose_cubecl::TransposeCubeCL;
 pub mod attention_prefill_metal_tensor;
 #[cfg(feature = "ternary_gemv")]
 pub mod deltanet_input_proj_fused;
+/// The online drift guard + exact-path fallback for the dense-f16 arm
+/// (issue 1182). The pure state machine compiles at EVERY posture (its
+/// tests ride the default `--lib` run); the Metal seam is feature-gated.
+pub mod drift_guard;
 #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
 pub mod gemm_dense_f16_metal_zero_copy;
 #[cfg(feature = "ternary_gemm_batched")]

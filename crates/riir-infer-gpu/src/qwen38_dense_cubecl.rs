@@ -637,14 +637,25 @@ impl QuantWeight {
                 }
                 QuantWeight::F16(w, m, n) => {
                     #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
-                    if let Some(mm) = crate::gemm_dense_f16_metal_zero_copy::gemm_mm_for_posture() {
-                        mm.dispatch(client, w, *m, *n, &x, &out, p)
-                            .expect("dense-f16 gemm dispatch");
-                    } else {
-                        panic!(
-                            "F16 weight reached gemm() without the dense mm2d context — \
-                             the RIIR_QWEN38_DENSE_MM2D load/install invariant broke"
-                        );
+                    {
+                        // Issue 1182: the drift-guard seam declines fast
+                        // when unarmed (byte-identical incumbent path);
+                        // armed it samples/latches per the module's law
+                        // and returns true only when IT dispatched.
+                        if crate::drift_guard::metal::dispatch_prefill(
+                            client, w, *m, *n, &x, &out, p,
+                        ) {
+                            return;
+                        }
+                        if let Some(mm) = crate::gemm_dense_f16_metal_zero_copy::gemm_mm_for_posture() {
+                            mm.dispatch(client, w, *m, *n, &x, &out, p)
+                                .expect("dense-f16 gemm dispatch");
+                        } else {
+                            panic!(
+                                "F16 weight reached gemm() without the dense mm2d context — \
+                                 the RIIR_QWEN38_DENSE_MM2D load/install invariant broke"
+                            );
+                        }
                     }
                     #[cfg(not(all(feature = "metal_tensor_gemm", target_os = "macos")))]
                     {
@@ -875,8 +886,8 @@ impl Qwen38WgpuForward {
             };
             let mm = crate::gemm_dense_f16_metal_zero_copy::MetalDenseF16ZeroCopyGemm::
                 new_with_gemm_source(
-                    dev,
-                    queue,
+                    dev.clone(),
+                    queue.clone(),
                     crate::gemm_dense_f16_metal_zero_copy::production_dense_relaxed_precision(
                     ),
                     include_str!("gemm_dense_f16h_metal_tensor.metal"),
@@ -889,6 +900,23 @@ impl Qwen38WgpuForward {
                 mm.relaxed_precision()
             );
             crate::gemm_dense_f16_metal_zero_copy::install_half_b_mm(mm);
+            // Issue 1182: when the drift guard is armed, install the
+            // exact twin (the SAME MSL compiled relaxed=false) beside the
+            // serving context — the sampler's reference and the latched
+            // families' fallback path. Declined loudly when the env is
+            // unset (no twin, no cost).
+            #[cfg(feature = "drift_guard")]
+            if crate::drift_guard::drift_guard_armed() {
+                crate::drift_guard::metal::install_exact_mm(
+                    dev.clone(),
+                    queue.clone(),
+                    include_str!("gemm_dense_f16h_metal_tensor.metal"),
+                )?;
+            } else {
+                eprintln!(
+                    "[drift-guard] RIIR_DRIFT_GUARD unset — exact twin not installed"
+                );
+            }
         }
         #[cfg(not(all(feature = "metal_tensor_gemm", target_os = "macos")))]
         if half_b_armed && dense_armed {
