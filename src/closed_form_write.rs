@@ -769,7 +769,7 @@ mod tests {
                 }
             };
             use crate::deltanet::weights::Proj;
-            let mut fill_proj = |p: &mut Proj, s: &mut u64| {
+            let fill_proj = |p: &mut Proj, s: &mut u64| {
                 if let Proj::Dense { data, .. } = p {
                     fill(data, s);
                 }
@@ -805,10 +805,14 @@ mod tests {
         let prompt: Vec<usize> = vec![3, 1, 4, 1, 5];
         let v = cfg.vocab_size;
 
-        let run = |w: &QwenDeltaNetWeights| -> (Vec<f32>, Vec<u32>) {
+        let run = |w: &QwenDeltaNetWeights, ctx_overlays: Option<&crate::closed_form_write::WriteOverlays>| -> (Vec<f32>, Vec<u32>) {
             let mut cache = HybridCache::with_layer_types(&cfg, &w.layer_types);
             let mut scratch = HybridForwardScratch::new(&cfg);
             let mut ctx = PrefillContext::new(&cfg, 64);
+            // The adapter's arming law, mirrored: the batched-MLP fold reads
+            // the CTX field, cloned from the weights table (the decode leg
+            // below reads the weights field directly).
+            ctx.closed_form_overlays = ctx_overlays.cloned();
             let mut logits = vec![0.0f32; v];
             prefill_qwen_deltanet_into(
                 w,
@@ -846,7 +850,7 @@ mod tests {
         // deliberately NOT Clone, and the seed keeps every byte comparable.
         let mut base_w = QwenDeltaNetWeights::zeros(&cfg);
         seeded(&mut base_w);
-        let (base_logits, base_toks) = run(&base_w);
+        let (base_logits, base_toks) = run(&base_w, None);
 
         // Demote posture: mount then demount — the exact-undo law (the table
         // is gone; the forward must be the never-mounted run, bit-for-bit).
@@ -855,16 +859,20 @@ mod tests {
         let pair_off = pair(2, cfg.n_embd, cfg.mlp_hidden, 7);
         demount_w.closed_form_overlays = Some(mount(vec![(1, pair_off.clone())]));
         demount_w.closed_form_overlays = None; // demount
-        let (d_logits, d_toks) = run(&demount_w);
+        let (d_logits, d_toks) = run(&demount_w, None);
         assert_eq!(d_logits, base_logits, "demount = byte-identical logits");
         assert_eq!(d_toks, base_toks, "demount = byte-identical tokens");
 
         // Engage: mount a real pair on layer 1 (reached) — logits MUST move
-        // (engagement proof; the Issue-1124 lesson).
+        // (engagement proof; the Issue-1124 lesson). The run() closure is the
+        // RAW forward API: the batched-MLP fold reads the CTX field (armed by
+        // the adapter in production), so the test arms it here — mirroring
+        // prefill_logits exactly (clone from the weights table; the decode
+        // leg reads the weights field directly).
         let mut armed_w = QwenDeltaNetWeights::zeros(&cfg);
         seeded(&mut armed_w);
         armed_w.closed_form_overlays = Some(mount(vec![(1, pair_off)]));
-        let (a_logits, _a_toks) = run(&armed_w);
+        let (a_logits, _a_toks) = run(&armed_w, armed_w.closed_form_overlays.as_ref());
         let moved = a_logits
             .iter()
             .zip(base_logits.iter())
