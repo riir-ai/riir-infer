@@ -35,6 +35,10 @@ use katgpt_attn::dash_attn::flashmemory_sparse::DualEncoderIndexer;
 use katgpt_attn::dash_attn::flashmemory_sparse::{
     GqaFlashMemoryBlockCache, GqaFlashMemorySelector, PerHeadSelection,
 };
+// Issue 1191 T2: the config type every FlashMemory consumer constructs —
+// one re-export home (the gpu crate's parity cell constructs it without a
+// direct katgpt-attn dep edge).
+pub use katgpt_attn::dash_attn::flashmemory_sparse::FlashMemoryConfig;
 use katgpt_core::simd::{fast_sigmoid, simd_dot_f32};
 use katgpt_transformer::KVCache;
 

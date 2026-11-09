@@ -68,11 +68,24 @@ pub const FM_MAX_SEL: usize = 128;
 /// The promote-only env gate — exact `1`/`true`/`on` arms the Metal
 /// budget arm (the env-switch law: an opt-in arm's env is PROMOTE-ONLY;
 /// unset or any other value = off). Read once per process, cached.
+/// [`set_flashmemory_budget_metal`] is authoritative over it afterwards
+/// (the A/B-harness pattern — `set_attn_split_decode`'s precedent).
+#[cfg(feature = "cubecl_runtime")]
+static FM_BUDGET_METAL_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0); // 0 = unset, 1 = off, 2 = on
+#[cfg(feature = "cubecl_runtime")]
+static FM_BUDGET_METAL_LATCH: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0); // 0 = unset, 1 = off, 2 = on
+
 #[cfg(feature = "cubecl_runtime")]
 pub fn flashmemory_budget_metal_enabled() -> bool {
-    use std::sync::atomic::{AtomicU8, Ordering};
-    static STATE: AtomicU8 = AtomicU8::new(0); // 0 = unset, 1 = off, 2 = on
-    match STATE.load(Ordering::Relaxed) {
+    use std::sync::atomic::Ordering;
+    // The AUTHORITATIVE override (the setter's seat): 0 = unset, 1 = off,
+    // 2 = on — consulted BEFORE the env latch in every read.
+    match FM_BUDGET_METAL_OVERRIDE.load(Ordering::Relaxed) {
+        1 => return false,
+        2 => return true,
+        _ => {}
+    }
+    match FM_BUDGET_METAL_LATCH.load(Ordering::Relaxed) {
         0 => {}
         1 => return false,
         _ => return true,
@@ -81,8 +94,19 @@ pub fn flashmemory_budget_metal_enabled() -> bool {
         std::env::var("RIIR_FM_BUDGET_METAL").as_deref(),
         Ok("1") | Ok("true") | Ok("on")
     );
-    STATE.store(if on { 2 } else { 1 }, Ordering::Relaxed);
+    FM_BUDGET_METAL_LATCH.store(if on { 2 } else { 1 }, Ordering::Relaxed);
     on
+}
+
+/// Authoritative arm posture — beats the env latch (the A/B-harness
+/// pattern; the env-switch law keeps the ENV promote-only, this setter is
+/// the harness seat). Also re-arms the rho/block/refresh reads: the
+/// forward's constructor reads those envs fresh per construction, so a
+/// setter flip re-arms the NEXT construction, never the running one.
+#[cfg(feature = "cubecl_runtime")]
+pub fn set_flashmemory_budget_metal(on: bool) {
+    use std::sync::atomic::Ordering;
+    FM_BUDGET_METAL_OVERRIDE.store(if on { 2 } else { 1 }, Ordering::Relaxed);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,8 +212,10 @@ fn fm_top_rho_select_f32(
     let tid = UNIT_POS;
     let n_threads = CUBE_DIM_X;
 
-    // The row's scores in shared memory + the taken mask (byte per block).
-    let mut smem = Shared::<[f32]>::new_slice(2048usize);
+    // The row's scores + the argmax-reduce (score, idx) pairs, in ONE
+    // shared slice: n_blocks slots for scores + 2*n_threads for the pairs
+    // (the launcher's slice covers n_blocks ≤ 2048: 2048 + 512 = 2560).
+    let mut smem = Shared::<[f32]>::new_slice(2560usize);
     let mut taken = Shared::<[u32]>::new_slice(512usize); // u32 bit-words: 2048 blocks
 
     let row_off = kv * n_blocks;
@@ -225,10 +251,15 @@ fn fm_top_rho_select_f32(
         let mut my_idx = n_blocks;
         let mut b = stride;
         while b < n_blocks {
+            // The CURRENT block is never a pick candidate — the CPU rule's
+            // pool is `0..current` (it is appended once, unconditionally,
+            // after the picks; a pick-and-reappend would double-count its
+            // tokens in the gather's softmax).
             let word = b / 32u32;
             let bit = b % 32u32;
             let is_taken = (taken[word as usize] >> bit) & 1u32;
-            if is_taken == 0u32 {
+            let is_current = b == n_blocks - 1u32;
+            if is_taken == 0u32 && !is_current {
                 let s = smem[b as usize];
                 if s > my_best {
                     my_best = s;
@@ -569,4 +600,187 @@ impl FmBlockGatherMetal {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Integration kernels (Issue 1191 T2): the query averaging + the centroid
+// rebuild — the two dense-side support pieces the full decode forward needs
+// before the three T1 kernels can run device-resident.
+// ---------------------------------------------------------------------------
+
+/// The KV-resolution query — `build_kv_resolution_query`'s device twin:
+/// average the query heads within each GQA group (the BLOCK-CONTIGUOUS
+/// mapping, Bench 457's regression law — never the interleaved set).
+///
+/// One thread per (kv_head, dim).
+#[cfg(feature = "cubecl_runtime")]
+#[allow(clippy::needless_range_loop, reason = "CubeCL macro expansion")]
+#[cube(launch_unchecked)]
+fn fm_query_kv_avg_f32(q_heads: &[f32], kv_query: &mut [f32], params: &[f32]) {
+    let n_head = params[0usize] as u32;
+    let n_kv = params[1usize] as u32;
+    let head_dim = params[2usize] as u32;
+    let i = ABSOLUTE_POS as u32;
+    let kv = i / head_dim;
+    let d = i % head_dim;
+    if kv >= n_kv {
+        terminate!();
+    }
+    let group = n_head / n_kv;
+    let mut acc = f32::new(0.0f32);
+    let mut g = 0u32;
+    while g < group {
+        acc += q_heads[((kv * group + g) * head_dim + d) as usize];
+        g += 1u32;
+    }
+    kv_query[i as usize] = acc / group as f32;
+}
+
+#[cfg(feature = "cubecl_runtime")]
+pub struct FmQueryKvAvgMetal;
+
+#[cfg(feature = "cubecl_runtime")]
+impl FmQueryKvAvgMetal {
+    /// Launch the KV-resolution query average.
+    ///
+    /// # Safety
+    /// - `q_heads`: `[n_head * head_dim]` f32 (post-norm post-RoPE).
+    /// - `kv_query`: `[n_kv * head_dim]` f32.
+    pub unsafe fn launch<R: Runtime>(
+        client: &ComputeClient<R>,
+        q_heads: Handle,
+        kv_query: Handle,
+        n_head: usize,
+        n_kv: usize,
+        head_dim: usize,
+    ) {
+        let params: [f32; 3] = [n_head as f32, n_kv as f32, head_dim as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(&params));
+        unsafe {
+            fm_query_kv_avg_f32::launch_unchecked::<R>(
+                client,
+                CubeCount::Static((n_kv * head_dim) as u32, 1, 1),
+                CubeDim::new_1d(64),
+                BufferArg::from_raw_parts(q_heads, n_head * head_dim),
+                BufferArg::from_raw_parts(kv_query, n_kv * head_dim),
+                BufferArg::from_raw_parts(params_handle, 3),
+            );
+        }
+    }
+}
+
+/// The block-centroid REBUILD — `GqaFlashMemoryBlockCache::rebuild_from_keys`'
+/// device twin: per (block, kv_head) the mean of the block's keys. One cube
+/// per (block, kv_head), head_dim threads; each thread sums its dim lane
+/// across the block's tokens IN TICK ORDER (the CPU's ascending
+/// accumulation — the reduction order the determinism law pins) and
+/// scales by the count.
+///
+/// Blocks past the last token contribute nothing (their lanes stay
+/// zero-initialized); `n_blocks` names the ACTIVE count (ceil(seq/blocks)).
+#[cfg(feature = "cubecl_runtime")]
+#[allow(clippy::needless_range_loop, reason = "CubeCL macro expansion")]
+#[cube(launch_unchecked)]
+fn fm_centroid_rebuild_f32(key_cache: &[f32], centroids_out: &mut [f32], params: &[f32]) {
+    let n_kv = params[0usize] as u32;
+    let head_dim = params[1usize] as u32;
+    let block_size = params[2usize] as u32;
+    let seq_len = params[3usize] as u32;
+    let kvd = n_kv * head_dim;
+
+    let cube_idx = CUBE_POS as u32;
+    let block = cube_idx / n_kv;
+    let kv = cube_idx % n_kv;
+    let tid = UNIT_POS;
+    if block * block_size >= seq_len {
+        terminate!();
+    }
+
+    let tok_start = block * block_size;
+    let tok_end = if tok_start + block_size < seq_len {
+        tok_start + block_size
+    } else {
+        seq_len
+    };
+    let count = tok_end - tok_start;
+
+    let mut acc = f32::new(0.0f32);
+    let mut tok = tok_start;
+    while tok < tok_end {
+        acc += key_cache[(tok * kvd + kv * head_dim + tid) as usize];
+        tok += 1u32;
+    }
+    centroids_out[(block * kvd + kv * head_dim + tid) as usize] = acc / count as f32;
+}
+
+#[cfg(feature = "cubecl_runtime")]
+pub struct FmCentroidRebuildMetal;
+
+#[cfg(feature = "cubecl_runtime")]
+impl FmCentroidRebuildMetal {
+    /// Launch the centroid rebuild over the ACTIVE blocks.
+    ///
+    /// # Safety
+    /// - `key_cache`: `[seq_len * n_kv * head_dim]` f32.
+    /// - `centroids_out`: `[n_blocks * n_kv * head_dim]` f32.
+    pub unsafe fn launch<R: Runtime>(
+        client: &ComputeClient<R>,
+        key_cache: Handle,
+        centroids_out: Handle,
+        n_kv: usize,
+        head_dim: usize,
+        block_size: usize,
+        seq_len: usize,
+        n_blocks: usize,
+    ) {
+        let params: [f32; 4] = [
+            n_kv as f32,
+            head_dim as f32,
+            block_size as f32,
+            seq_len as f32,
+        ];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(&params));
+        unsafe {
+            fm_centroid_rebuild_f32::launch_unchecked::<R>(
+                client,
+                CubeCount::Static((n_blocks * n_kv) as u32, 1, 1),
+                CubeDim::new_1d(head_dim as u32),
+                BufferArg::from_raw_parts(key_cache, seq_len * n_kv * head_dim),
+                BufferArg::from_raw_parts(centroids_out, n_blocks * n_kv * head_dim),
+                BufferArg::from_raw_parts(params_handle, 4),
+            );
+        }
+    }
+}
+
+/// The arm's per-layer host config + device state (allocated at forward
+/// construction when [`flashmemory_budget_metal_enabled`] is armed; the
+/// unarmed forward carries no state and dispatches the incumbent dense
+/// path bit-identically).
+#[cfg(feature = "cubecl_runtime")]
+pub struct FmLayerStateGpu {
+    /// Per-block mean keys: `[max_blocks * n_kv * head_dim]`.
+    pub centroids: Handle,
+    /// Kernel (a)'s scores: `[n_kv * max_blocks]`.
+    pub scores: Handle,
+    /// Kernel (b)'s selection: `[n_kv * FM_MAX_SEL]` u32.
+    pub sel: Handle,
+    /// Kernel (b)'s selection counts: `[n_kv]` u32.
+    pub sel_counts: Handle,
+    /// The KV-resolution query scratch: `[n_kv * head_dim]`.
+    pub kv_query: Handle,
+    /// The FM block size (the CPU lane's FlashMemoryConfig.block_size —
+    /// default 64; NOT the model context).
+    pub fm_block_size: usize,
+    /// The refresh period (the CPU lane's default 64).
+    pub refresh_period: usize,
+    /// ρ — the budget fraction.
+    pub rho: f32,
+    /// Blocks live at the last refresh (block-open detection is
+    /// host-side: `n_blocks != last_n_blocks` → force refresh). `Cell`:
+    /// the decode path holds `&self` — interior mutability, single-threaded
+    /// per forward.
+    pub last_n_blocks: std::cell::Cell<usize>,
+    /// The pos the last refresh ran at.
+    pub last_refresh_pos: std::cell::Cell<usize>,
 }

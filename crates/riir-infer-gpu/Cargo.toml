@@ -173,7 +173,16 @@ cuda_backend = ["cubecl_runtime", "cubecl/cuda"]
 # layout) behind a PROMOTE-ONLY env (RIIR_FM_BUDGET_METAL, exact
 # 1/true/on) until the T4 GOAT per the env-switch law. The GDN scan / GLU
 # FFN / ktile64 arms and the dense decode numerics are untouched.
+# The ARM itself stays minimal (cubecl_runtime); the T2 parity posture
+# (the flashmemory_budget_metal_t2 test) rides its OWN feature row so the
+# arm never drags the ternary/flashmemory tree into plain serving builds.
 flashmemory_budget_metal = ["cubecl_runtime"]
+flashmemory_budget_metal_t2 = [
+    "flashmemory_budget_metal",
+    "ternary_gemv",
+    "riir-infer-core/bonsai2_hadamard",
+    "riir-infer-core/flashmemory_budget",
+]
 
 # Ternary bit-plane (Q2_0_g128) GEMV family around the gemv_ternary_cubecl
 # hub (decode path). Mirrors the engine gpu crate's feature MINUS its
@@ -801,6 +810,16 @@ required-features = ["metal_tensor_gemm", "cubecl_runtime"]
 [[test]]
 name = "flashmemory_budget_metal_t2prep"
 required-features = ["flashmemory_budget_metal"]
+
+# Issue 1191 T2 — the full-forward parity cell (CPU FlashMemory budget
+# lane vs the Metal decode forward with the arm armed, synthetic folded
+# Bonsai-2, SHORT walk per the compute law). Records the top-1 + NLL bars
+# the T4 measured cells must not regress.
+[[test]]
+name = "flashmemory_budget_metal_t2"
+required-features = ["flashmemory_budget_metal_t2"]
+
+
 
 [dev-dependencies]
 # Test RNG (qwen38_dflash2_gpu determinism fixtures; version matches the

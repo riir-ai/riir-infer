@@ -3409,6 +3409,13 @@ pub struct TernaryDeltanetGpuForward {
     pub(crate) kv_key_caches: Vec<Option<Handle>>, // per-attention-layer key cache
     pub(crate) kv_value_caches: Vec<Option<Handle>>, // per-attention-layer value cache
 
+    // Issue 1191 T2 — the Metal FlashMemory budget arm's per-attention-layer
+    // state (centroids + selection + scratch), allocated ONLY when the arm
+    // is armed (`flashmemory_budget_metal_enabled()`); the unarmed forward
+    // carries `None` and dispatches the incumbent dense path bit-identically.
+    #[cfg(feature = "flashmemory_budget_metal")]
+    pub(crate) fm_state: Vec<Option<crate::flashmemory_budget_metal::FmLayerStateGpu>>,
+
     // Issue 771 T2c-a / Plan 562: Q8-KV prefill scratch — K/V qs + scales
     // side buffers SHARED across layers within a forward (the Q8 attention
     // consumes the quantized rows within the same layer call, so one pair
@@ -3947,6 +3954,63 @@ impl TernaryDeltanetGpuForward {
                 }
             })
             .collect();
+
+        // Issue 1191 T2 — the budget arm's per-attention-layer device state
+        // (centroids/scores/selection/scratch), armed-only. Env: FM block
+        // size + refresh period default to the CPU lane's 64/64 (the gate
+        // bin's defaults); rho defaults 0.15 (the pre-registered operating
+        // point), overridable RIIR_FM_RHO / RIIR_FM_BLOCK / RIIR_FM_REFRESH.
+        #[cfg(feature = "flashmemory_budget_metal")]
+        let fm_state: Vec<Option<crate::flashmemory_budget_metal::FmLayerStateGpu>> = {
+            let armed = crate::flashmemory_budget_metal::flashmemory_budget_metal_enabled();
+            let fm_block = std::env::var("RIIR_FM_BLOCK")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|&v| v > 0)
+                .unwrap_or(64);
+            let refresh = std::env::var("RIIR_FM_REFRESH")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|&v| v > 0)
+                .unwrap_or(64);
+            let rho = std::env::var("RIIR_FM_RHO")
+                .ok()
+                .and_then(|v| v.parse::<f32>().ok())
+                .filter(|&v| v > 0.0 && v <= 1.0)
+                .unwrap_or(0.15);
+            if armed {
+                eprintln!(
+                    "[Issue 1191] FlashMemory budget METAL arm ARMED (rho {rho}, block {fm_block}, refresh {refresh})"
+                );
+            }
+            (0..config.n_layer)
+                .map(|i| {
+                    if armed && resident(i) && layer_types[i] == DeltaNetLayerType::Attention {
+                        let max_blocks = max_seq.div_ceil(fm_block).max(1);
+                        let zeros_f = vec![0.0f32; max_blocks * kvd_attn];
+                        let zeros_s = vec![0.0f32; attn_n_kv * max_blocks];
+                        let zeros_u = vec![0u32; attn_n_kv];
+                        let zeros_sel =
+                            vec![u32::MAX; attn_n_kv * crate::flashmemory_budget_metal::FM_MAX_SEL];
+                        Some(crate::flashmemory_budget_metal::FmLayerStateGpu {
+                            centroids: client.create_from_slice(f32::as_bytes(&zeros_f)),
+                            scores: client.create_from_slice(f32::as_bytes(&zeros_s)),
+                            sel: client.create_from_slice(u32::as_bytes(&zeros_sel)),
+                            sel_counts: client.create_from_slice(u32::as_bytes(&zeros_u)),
+                            kv_query: client
+                                .create_from_slice(f32::as_bytes(&vec![0.0f32; kvd_attn])),
+                            fm_block_size: fm_block,
+                            refresh_period: refresh,
+                            rho,
+                            last_n_blocks: std::cell::Cell::new(0),
+                            last_refresh_pos: std::cell::Cell::new(usize::MAX),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
 
         // Plan 534 T2+T3: initialize the Metal tensor GEMM context + upload
         // all prefill-path weights to Metal buffers. macOS-only; falls back to
@@ -4778,6 +4842,8 @@ impl TernaryDeltanetGpuForward {
             attn_split_partials,
             kv_key_caches,
             kv_value_caches,
+            #[cfg(feature = "flashmemory_budget_metal")]
+            fm_state,
             #[cfg(all(
                 feature = "cubecl_runtime",
                 feature = "ternary_gemm_batched",
@@ -7599,7 +7665,103 @@ impl TernaryDeltanetGpuForward {
         //      with a single QwenAttentionDecodeGatedCubeCL dispatch. The sigmoid
         //      gate is applied at the final write inside the decode kernel.
         let n_positions = pos + 1;
-        if attn_sub_on(3) {
+        // Issue 1191 T2 — the FlashMemory budget METAL arm: when armed
+        // (feature + PROMOTE-ONLY env), this attention layer's decode runs
+        // score → select → gather over the block centroids instead of the
+        // dense flash decode. The cadence mirrors the CPU lane: full
+        // centroid rebuild + selection refresh at the refresh period AND at
+        // every block open (the force-refresh law); between refreshes the
+        // selection is frozen and the gather re-reads it (the current block
+        // is always in the selection — the budget rule's append — so fresh
+        // tokens are never stranded).
+        #[cfg(feature = "flashmemory_budget_metal")]
+        let fm_done = {
+            let armed = self
+                .fm_state
+                .get(layer_idx)
+                .and_then(|s| s.as_ref())
+                .is_some();
+            if armed && attn_sub_on(3) {
+                let st = self.fm_state[layer_idx].as_ref().expect("armed fm state");
+                let n_blocks = n_positions.div_ceil(st.fm_block_size).max(1);
+                let need_refresh = n_blocks != st.last_n_blocks.get()
+                    || st.last_refresh_pos.get() == usize::MAX
+                    || pos.saturating_sub(st.last_refresh_pos.get()) >= st.refresh_period;
+                if need_refresh {
+                    // Full centroid rebuild at the refresh tick — matches the
+                    // CPU lane's semantics at refresh boundaries (the
+                    // between-refreshes incremental last-block update is
+                    // consumed only by refresh-time scoring, which a full
+                    // rebuild recomputes anyway).
+                    unsafe {
+                        crate::flashmemory_budget_metal::FmCentroidRebuildMetal::launch::<
+                            ActiveRuntime,
+                        >(
+                            &self.client,
+                            key_cache.clone(),
+                            st.centroids.clone(),
+                            n_kv,
+                            hd,
+                            st.fm_block_size,
+                            n_positions,
+                            n_blocks,
+                        );
+                        crate::flashmemory_budget_metal::FmQueryKvAvgMetal::launch::<ActiveRuntime>(
+                            &self.client,
+                            self.attn_q.clone(),
+                            st.kv_query.clone(),
+                            n_head,
+                            n_kv,
+                            hd,
+                        );
+                        crate::flashmemory_budget_metal::FmBlockScoreMetal::launch::<ActiveRuntime>(
+                            &self.client,
+                            st.kv_query.clone(),
+                            st.centroids.clone(),
+                            st.scores.clone(),
+                            n_kv,
+                            hd,
+                            n_blocks,
+                            1.0 / (hd as f32).sqrt(),
+                        );
+                        crate::flashmemory_budget_metal::FmTopRhoSelectMetal::launch::<ActiveRuntime>(
+                            &self.client,
+                            st.scores.clone(),
+                            st.sel.clone(),
+                            st.sel_counts.clone(),
+                            n_kv,
+                            n_blocks,
+                            st.rho,
+                        );
+                    }
+                    st.last_n_blocks.set(n_blocks);
+                    st.last_refresh_pos.set(pos);
+                }
+                unsafe {
+                    crate::flashmemory_budget_metal::FmBlockGatherMetal::launch::<ActiveRuntime>(
+                        &self.client,
+                        self.attn_q.clone(),
+                        key_cache.clone(),
+                        value_cache.clone(),
+                        self.attn_gate.clone(),
+                        st.sel.clone(),
+                        st.sel_counts.clone(),
+                        self.attn_out.clone(),
+                        n_head,
+                        n_kv,
+                        hd,
+                        n_positions,
+                        st.fm_block_size,
+                    );
+                }
+                true
+            } else {
+                false
+            }
+        };
+        #[cfg(not(feature = "flashmemory_budget_metal"))]
+        let fm_done = false;
+        if !fm_done && attn_sub_on(3) {
             // Issue 831 (a): length-gated split-K flash decode. Short contexts run
             // the single-workgroup kernel bit-identically (the tile loop degenerates
             // there); long contexts partition positions across n_splits workgroups
