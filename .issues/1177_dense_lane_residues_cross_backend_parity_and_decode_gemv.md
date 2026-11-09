@@ -25,6 +25,15 @@ The parity cell: the SAME qwen3.8-27b-Q4_K_M GGUF on both backends, the SAME fix
 
 ## Item 1 — the cross-backend bit-parity G1 cell (from Issue 1150's acceptance gates)
 
+⟲ **PROGRESS 2026-11-09 (zed-15be441a@amo, claim epoch 1794201411) — Metal leg RUN, CUDA leg staged:**
+- **Band pre-registered** (`c9603b9`, before any run — the block above).
+- **CUDA walk bin landed** (`ff5355a`): `qwen38_cudarc_walk` — the Metal bench's walk verbatim (same default prompt, same tokenizer, sequential per-token prefill (route ≡ multi-token per the 1150 route G1, bench 938), same walk loop, same `[walk] ids` line). Built clean on the 4090 (`cargo build --release --features ternary_gemv_cuda_raw`, 2m38s).
+- **Metal leg DONE 12:2x +07** (amo, quiet, preflight PASSED — `power=AC Power load=3.80 powermode=0(auto)`; `/tmp/i1179_target` release, `--features qwen38_wgpu,metal_tensor_gemm`, bare default = the 1176 league posture — banner confirmed all four arms + relaxed; ctx 2048, 48 tokens, default prose prompt 45→10 tok):
+  `ids: [279, 2993, 421, 18378, 10849, 694, 12238, 1132, 264, 38936, 35101, 13, 561, 3594, 82738, 314, 11679, 11, 31694, 11, 321, 279, 36334, 61306, 314, 888, 49371, 1016, 13834, 494, 279, 2981, 71072, 13, 1049, 557, 279, 2993, 314, 6353, 421, 1801, 1208, 3166, 440, 7193, 11, 430]` — **FNV-1a (LE-u32) = `0x814125045f90b9`**; text: " the kind that promised rain but delivered only a damp chill. The air smelled of salt, diesel, and the faint sweetness of overripe peaches from the market stalls. It was the kind of morning that made people move with purpose, as"
+- **Model pin (amo copy)**: sha256 `e00082f779fa385cee8c68a3ec8833a75778cc87272240b942f74e0b8243e520` (16,810,714,336 B). The 4090's own dbirks file DIFFERS (16,810,714,848 B — 512 B metadata delta, different bytes = different file) → the amo copy ships to the 4090: chunked scp (16 × 1 GiB, per-chunk skip-resume, Tailscale ~1 MB/s — LAN-direct amo↔4090 is ARP-dead this posture, both sides reach the router but not each other), ETA ~5-6 h; concat + size-check on arrival, then Get-FileHash vs the amo pin.
+- **CUDA leg queued**: 4090 rig job `01a1bed7-47f8-7df0-b54d-cac7fd8e199a` (`scripts/i1177_4090/run_walk_leg.ps1` — waits for the file size, hashes, runs the walk at ctx 2048 × 48, notify armed, 9 h deadline).
+- **Remaining**: the CUDA leg's ids → compare vs the Metal pin → register BOTH FNVs + the verdict here (+ the bench record, next free number at write time). On a flip: the pre-registered band adjudicates (capture-logits re-run both sides at the flip step).
+
 Issue 1150's G1 gate: Metal forward vs `qwen38_dense_cudarc.rs` (the
 ~7k-line CUDA twin, the bit-parity oracle) on the SAME qwen3.8-27B
 Q4_K_M GGUF — FNV/argmax pins over a fixed token walk, tolerance band
