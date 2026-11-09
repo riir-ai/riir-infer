@@ -49,9 +49,9 @@ Hypothesis: "a score-based evictor can keep the BOS sink on score alone on a Sin
 
 ## Instrument notes
 
-- The c8000 run's report merge hit the same NaN→null defect as Bench 960's ("rewriting WITHOUT the old rows") — final reports complete post-rewrite, per-run logs carry full tables; follow-up filed in the issue.
+- The c8000 run's report merge hit the same NaN→null defect as Bench 963's ("rewriting WITHOUT the old rows") — final reports complete post-rewrite, per-run logs carry full tables; follow-up filed in the issue.
 - `--plant-fix 1` planted all 4 needles in both contexts (the legacy layout's needle-0 collision is bypassed); the 3800/8000 scales are reduced per the issue's cap rationale (gemma-2's 8K max position), never comparable to T2a's 64K absolute numbers.
 
 ## Verdict
 
-**T2b: NEUTRAL under score-based maxrecent (pre-registered bar NOT met — disclosed as such per the rule), with the pin CONFIRMED load-bearing under score-blind random eviction (+0.26/+0.49 Δneedle).** The katgpt-rs-981 gate's protection half does not transfer to score-based eviction at reduced scale on this SinkHeavy checkpoint; the census verdict (SinkHeavy) and the audit vocabulary are unaffected. No promotion, no demotion — the audited-pin runtime gate's value rests on the T2a neutral half (Bench 960); a full-scale protection re-cell would need a long-context SinkHeavy host, which this model's 8K position cap cannot provide.
+**T2b: NEUTRAL under score-based maxrecent (pre-registered bar NOT met — disclosed as such per the rule), with the pin CONFIRMED load-bearing under score-blind random eviction (+0.26/+0.49 Δneedle).** The katgpt-rs-981 gate's protection half does not transfer to score-based eviction at reduced scale on this SinkHeavy checkpoint; the census verdict (SinkHeavy) and the audit vocabulary are unaffected. No promotion, no demotion — the audited-pin runtime gate's value rests on the T2a neutral half (Bench 963); a full-scale protection re-cell would need a long-context SinkHeavy host, which this model's 8K position cap cannot provide.

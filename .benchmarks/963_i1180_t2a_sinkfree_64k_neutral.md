@@ -1,6 +1,6 @@
-# Bench 960 — Issue 1180 T2a: the SinkFree 64K neutral half — the audited pin (4→1) costs nothing at either budget; the GOAT neutral half PASSES
+# Bench 963 — Issue 1180 T2a: the SinkFree 64K neutral half — the audited pin (4→1) costs nothing at either budget; the GOAT neutral half PASSES
 
-**Status:** RECORD (T2a adjudicated; task ticked in the issue).
+**Status:** RECORD (T2a adjudicated; task ticked in the issue). **Numbering note (2026-11-09): 960 was double-named this morning — the riir-infer 1183 T5 record reserved `960_i1183_t5_head_only_acceptance_path_b_routes` in committed text (1183 + riir-train 679, 09:07–09:08, file unwritten) two hours before this cell's file landed (11:00, allocated from `.highwater` 959). No strict citation-weight margin (4–4); renumbered to 963 (next free) with every citing site moved in this commit — 960 stays the 1183 T5 record's number per first-committed-naming, and this file's original 960 allocation is void. The 1187-fix note below cites `f3385a8` through the 1180 issue (unchanged).**
 **Date:** 2026-11-09 (cells ran 2026-11-07 on amo)
 **Session:** zed-15be441a@amo (adjudication); cells executed by rig jobs `01a1b0e0` (incumbent) / `dc3d6de5`-family runner script `~/i1180_data/run_t2a.sh`
 **Issue:** [`.issues/1180_sink_audit_census_followups.md`](../.issues/1180_sink_audit_census_followups.md) (T2a)
