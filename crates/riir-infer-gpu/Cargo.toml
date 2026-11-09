@@ -656,6 +656,14 @@ required-features = ["ternary_gemv_cuda_raw"]
 name = "qwen38_wgpu_bench"
 required-features = ["qwen38_wgpu"]
 
+# Issue 1177 Item 1 — the CUDA-side walk-parity harness: the SAME fixed
+# greedy-argmax walk as the Metal bench's `[walk] ids:` artifact, driven by
+# the qwen38_dense_cudarc bit-parity oracle. CUDA-only (the module's own
+# gate); weights-from-disk, sha256 printed beside every run.
+[[bin]]
+name = "qwen38_cudarc_walk"
+required-features = ["ternary_gemv_cuda_raw"]
+
 # Issue 1179 T1 — the head-only specdec acceptance price cell: the uzu DFlash
 # speculator (trymirai/Qwen3.8-27B-M speculator/, blake3-pinned at load) over
 # OUR Q4_K_M target via the dense wgpu forward. Weights-from-disk (A1/A8),
