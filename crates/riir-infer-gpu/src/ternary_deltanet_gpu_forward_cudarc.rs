@@ -7592,6 +7592,10 @@ fn upload_layer_weights_cudarc(
             }
         }
         GateProjWeights::Ternary(_) => None,
+        // Issue 1188 T1 — the Q8_0 variant is storage-only for the ablation
+        // tool; the core type's own as_dense() returns None for it
+        // (ternary_weights.rs:301), so the dense-escape arm matches that.
+        GateProjWeights::Q8_0(_, _, _) => None,
     };
     // Plan 618 item 5 + S3 — the projection format dispatch: the Ternary arm
     // rides the dp4a buffers exactly as before; the Q4K/Q6K arms upload the
