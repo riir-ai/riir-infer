@@ -25,10 +25,12 @@ Exit 0 iff every piece verdict passes.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import struct
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -452,11 +454,28 @@ def e2e_arm(fix: str, raw_root: str) -> int:
     assert lm_head.shape[0] * lm_head.shape[1] == V * H, "lm_head geometry"
 
     # ── the vendor pipeline, their own loader + classes ──
-    ckpt = man["checkpoint_blake3"]  # pin presence only; load_draft reads the dir
+    # The vendor loader refuses the checkpoint's sliding-window layer_types
+    # ("DSpine drafts use full attention only") — their repo predates the SW
+    # lane our oracle rings implement. The override to full_attention is a
+    # NO-OP at this posture (32 ctx + 8 block = 40 rows ≪ SW 8192: the
+    # window never truncates a key) — disclosed in the bench record. The
+    # shadow dir symlinks the weights (no copy) + patches config.json.
+    ckpt = man["checkpoint_blake3"]  # pin presence only; the load reads the dir
     ckpt_dir = os.environ.get("DSPINE_CKPT_DIR")
     if not ckpt_dir:
         raise SystemExit("DSPINE_CKPT_DIR must name the DSpine checkpoint dir")
-    model, cfg = load_draft(ckpt_dir)
+    shadow = Path(f"{fix}/shadow_ckpt")
+    shadow.mkdir(exist_ok=True)
+    cfg_raw = json.load(open(f"{ckpt_dir}/config.json", encoding="utf-8"))
+    if cfg_raw.get("layer_types") is not None:
+        cfg_raw["layer_types"] = ["full_attention"] * len(cfg_raw["layer_types"])
+    json.dump(cfg_raw, open(shadow / "config.json", "w", encoding="utf-8"))
+    for f in os.listdir(ckpt_dir):
+        if f.endswith(".safetensors"):
+            link = shadow / f
+            if not link.exists():
+                link.symlink_to(os.path.join(ckpt_dir, f))
+    model, cfg = load_draft(shadow)
     assert int(cfg.vocab_size) == V and int(cfg.hidden_size) == H, "cfg geometry"
 
     head_w = mx.array(lm_head).astype(mx.bfloat16)
