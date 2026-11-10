@@ -81,9 +81,8 @@ use riir_infer_core::tokenizer::BpeTokenizer;
 // Issue 1191 T4 — the Metal arms' forward + arm module (this bin lives in
 // the gpu crate: the boundary law keeps riir-infer-core free of riir-*
 // deps, and the gate drives the GPU arms — its natural home is HERE).
-// Unconditional references: the bin's required-features row guarantees
-// the lib features (the required-features-protects-the-reader law).
-use riir_infer_gpu::ternary_deltanet_gpu_forward::TernaryDeltanetGpuForward;
+// Use sites spell the full path (the import died in the e1ee836 move;
+// the bin's required-features row still guarantees the lib features).
 
 fn hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);

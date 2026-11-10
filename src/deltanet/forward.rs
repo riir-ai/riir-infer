@@ -1944,7 +1944,11 @@ impl PrefillContext {
 /// fold reads the CTX-gated fields (table + scratch, armed by the adapter
 /// from the weights table) — no gated types in this signature, so a default
 /// build compiles the block out entirely. `layer_idx` addresses the table's
-/// per-layer rows and the capture sink.
+/// per-layer rows and the capture sink. The targeted allow names the
+/// default posture: every read sits behind `closed_form_write`, so a
+/// `-D warnings` build without the feature would otherwise red the
+/// otherwise-meaningful parameter (the cfg-row-implication class).
+#[cfg_attr(not(feature = "closed_form_write"), allow(unused_variables))]
 #[inline]
 fn batched_mlp(
     prefill_ctx: &mut PrefillContext,
