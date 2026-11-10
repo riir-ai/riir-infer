@@ -550,6 +550,19 @@ fn e2e_fixture(out: &Path, ckpt_dir: &Path) {
             .collect::<Vec<_>>(),
     );
     dump_bin(out, "confs", &draft.confidences);
+    // Layer-0 bisect dumps: the trace snapshots each layer's input normed
+    // rows (x_in), the pre-layer residual (x), the post-norm+rope q/k/v,
+    // the post-attention residual add (h), and the post-MLP stream (out).
+    // The vendor arm hooks layer 0's attention + MLP returns and diffs the
+    // same points — a 33-magnitude e2e miss localizes to embed/ctx,
+    // attention, or MLP in ONE extra run.
+    let l0 = &tr.layers[0];
+    dump_bin(out, "l0_x", &l0.x);
+    dump_bin(out, "l0_x_in", &l0.x_in);
+    dump_bin(out, "l0_q", &l0.q);
+    dump_bin(out, "l0_k", &l0.k);
+    dump_bin(out, "l0_h", &l0.h);
+    dump_bin(out, "l0_out", &l0.out);
     // Tail-trace diagnostics (the vendor mirror diffs these to localize a
     // mismatch without a second run): the proposal rows (the pinned
     // normed-row fold over the stash raw), the tail rms, and the walk's

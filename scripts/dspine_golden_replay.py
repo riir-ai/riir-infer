@@ -530,6 +530,28 @@ def e2e_arm(fix: str, raw_root: str) -> int:
     tail = RefinementTail(model, SynHead(), tg, tsv)
 
     block_ids = mx.array([[anchor] + [mask_id] * (t - 1)], dtype=mx.int32)
+
+    # Layer-0 bisect hooks: record the attention's o_proj output and the
+    # layer's post-MLP return on layer 0.
+    l0 = model.layers[0]
+    l0_attn_out = {}
+    l0_layer_out = {}
+    orig_attn_call = l0.self_attn.__call__
+    orig_layer_call = l0.__call__
+
+    def rec_attn(x, x_ctx, rope, cache=None):
+        out = orig_attn_call(x, x_ctx, rope, cache)
+        l0_attn_out["v"] = np.array(out.astype(mx.float32)).astype(np.float32)
+        return out
+
+    def rec_layer(x_normed, residual, x_ctx, rope, cache=None):
+        out = orig_layer_call(x_normed, residual, x_ctx, rope, cache)
+        l0_layer_out["v"] = np.array(out.astype(mx.float32)).astype(np.float32)
+        return out
+
+    l0.self_attn.__call__ = rec_attn
+    l0.__call__ = rec_layer
+
     rows, stash = model(None, block_ids, caches=caches)
     # The tail's row convention: the PROPOSAL rows [γ=T-1, H] (batch + anchor
     # slot squeezed — the vendor generator passes x[0, 1:]; _split_stash
@@ -566,6 +588,36 @@ def e2e_arm(fix: str, raw_root: str) -> int:
         print(f"    diag: proposal rows max abs {rd:.3e} (bf16-round class ≤ ~0.008)")
     except Exception as e:  # noqa: BLE001 — diagnostics never fail the arm
         print(f"    diag: proposal-row diff unavailable ({e})")
+
+    # Layer-0 bisect: embed→norm input, attention o_proj (vs rust h − x,
+    # the bf16 add inverts to ±1 ulp), and the post-MLP stream.
+    try:
+        x_np = read_f32(f"{fix}/l0_x.f32.bin").reshape(t, H)
+        x_in_ref = read_f32(f"{fix}/l0_x_in.f32.bin").reshape(t, H)
+        emb = np.stack([anchor_emb, mask_emb])
+        blocks = np.tile(emb, (1, 1))[[0] + [1] * (t - 1)]
+        x0 = blocks.astype(np.float32)
+        x_in0 = np.array(
+            l0.input_layernorm(mx.array(x0).astype(mx.bfloat16)).astype(mx.float32)
+        ).astype(np.float32)
+        print(
+            f"    diag: l0 x_in max abs {np.abs(x_in0 - x_in_ref).max():.3e} | "
+            f"rust x vs embeds {np.abs(x0 - x_np).max():.3e}"
+        )
+        h_ref = read_f32(f"{fix}/l0_h.f32.bin").reshape(t, H)
+        ao_proxy = h_ref - x_np
+        if "v" in l0_attn_out:
+            ao_v = l0_attn_out["v"].reshape(t, H)
+            print(
+                f"    diag: l0 attn max abs {np.abs(ao_v - ao_proxy).max():.3e} "
+                f"(vendor vs rust h−x; bf16-add class ≤ ~0.01)"
+            )
+        out_ref = read_f32(f"{fix}/l0_out.f32.bin").reshape(t, H)
+        if "v" in l0_layer_out:
+            lo_v = l0_layer_out["v"].reshape(t, H)
+            print(f"    diag: l0 out max abs {np.abs(lo_v - out_ref).max():.3e}")
+    except Exception as e:  # noqa: BLE001 — diagnostics never fail the arm
+        print(f"    diag: layer-0 bisect unavailable ({e})")
     return rc
 
 
