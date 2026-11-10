@@ -380,14 +380,21 @@ def vendor_replay(fix: str, g: dict, raw_root: str) -> int:
 
 
 def parse_manifest(path: str) -> dict[str, str]:
-    out = {}
+    """Every `- ` line's `k=v` tokens land in the dict (colon lines:
+    the pre-colon key maps to the token string too, for the geometry row)."""
+    out: dict[str, str] = {}
     for line in open(path, encoding="utf-8"):
         line = line.strip()
-        if line.startswith("- ") and ":" in line:
-            k, v = line[2:].split(":", 1)
+        if not line.startswith("- "):
+            continue
+        body = line[2:]
+        if ":" in body:
+            k, v = body.split(":", 1)
             out[k.strip()] = v.strip()
-        elif line.startswith("- "):
-            out[line[2:].strip()] = ""
+        for tok in body.replace(":", " ").split():
+            if "=" in tok:
+                k, v = tok.split("=", 1)
+                out[k] = v
     return out
 
 
@@ -425,8 +432,8 @@ def e2e_arm(fix: str, raw_root: str) -> int:
     t, gamma, V, H, nf, ctx_rows, k = (
         geo["T"], geo["gamma"], geo["V"], geo["H"], geo["nf"], geo["ctx_rows"], geo["k"],
     )
-    anchor = int(man["anchor_token"].split()[0])
-    mask_id = int(man["mask_token_id"].split("=")[1].split()[0])
+    anchor = int(man["anchor_token"])
+    mask_id = int(man["mask_token_id"])
     rc = 0
 
     def verdict(name: str, ok: bool, detail: str) -> None:
