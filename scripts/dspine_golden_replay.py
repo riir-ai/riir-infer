@@ -540,12 +540,12 @@ def main() -> None:
     ap.add_argument("--inspect", action="store_true")
     ap.add_argument("--e2e", action="store_true", help="the main-path golden arm")
     args = ap.parse_args()
+    if args.e2e:
+        raise SystemExit(e2e_arm(args.fixtures, args.raw) or 0)
     g = parse_geometry(f"{args.fixtures}/MANIFEST.md")
     if args.inspect:
         inspect(args.fixtures, g)
         return
-    if args.e2e:
-        raise SystemExit(e2e_arm(args.fixtures, args.raw) or 0)
     raise SystemExit(vendor_replay(args.fixtures, g, args.raw) or 0)
 
 
