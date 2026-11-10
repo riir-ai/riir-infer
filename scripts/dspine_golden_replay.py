@@ -537,7 +537,7 @@ def e2e_arm(fix: str, raw_root: str) -> int:
     proposal = rows.reshape(t, H)[1:]
     v_tokens, v_cand = tail.greedy(proposal, stash, anchor)
     v_tokens_np = np.array(v_tokens).astype(np.int64).ravel()
-    v_cand_np = np.array(v_cand).astype(np.int64).ravel()
+    v_cand_np = np.array(v_cand).astype(np.int64).reshape(gamma, k)
 
     # ── the diff ──
     cand_mism = int((v_cand_np != cand_ref.astype(np.int64)).sum())
@@ -551,7 +551,11 @@ def e2e_arm(fix: str, raw_root: str) -> int:
         "e2e tokens",
         tok_mism == 0,
         f"{tok_mism}/{gamma} chain tokens differ"
-        + ("" if tok_mism == 0 else f" — vendor {v_tokens_np.tolist()} vs rust {tokens_ref.tolist()}"),
+        + (
+            ""
+            if tok_mism == 0
+            else f" — vendor {v_tokens_np.tolist()} vs rust {tokens_ref.tolist()}"
+        ),
     )
     # Diagnostics: the proposal-row fold (the vendor x_in vs the Rust
     # recomputed rows — a mismatch here localizes the tail vs the block).
