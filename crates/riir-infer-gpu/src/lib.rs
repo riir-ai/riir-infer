@@ -904,6 +904,11 @@ pub mod qwen38_dflash2_gpu;
 // (implies ternary_gemv_cuda_raw; CUDA-only like its target).
 #[cfg(all(feature = "ternary_gemv_cuda_raw", not(target_os = "macos")))]
 pub mod qwen38_prefix_cache;
+// Plan 630 / Issue 1201 T1 — the FlashStates cell's deterministic trace
+// generator (device-free; the digest half rides blake3). Feature-gated
+// so the default serving tree carries zero extra deps.
+#[cfg(feature = "flashstates_tracegen")]
+pub mod flashstates_tracegen;
 pub mod qwen38_spec;
 #[cfg(all(feature = "qwen38_spec", not(target_os = "macos")))]
 pub mod qwen38_spec_cudarc;

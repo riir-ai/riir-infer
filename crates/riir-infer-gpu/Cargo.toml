@@ -431,6 +431,11 @@ lm_head_cpu = []
 # the GOAT gate; NEVER in `production` before that (the env-switch law:
 # an opt-in feature's env is PROMOTE-ONLY).
 cq3 = ["dep:half", "katgpt-core/meld"]
+# Plan 630 / Issue 1201 T1 — the FlashStates cell's deterministic trace
+# generator (device-free; the digest half rides blake3). Opt-in feature
+# so the default serving tree carries zero extra deps; the [[test]] row
+# below is its required-features pair (the green-zero law).
+flashstates_tracegen = ["dep:blake3"]
 # GPU-resident training-forward dispatch helpers on the gemma dispatch
 # (generic kernel launches; consumed by the engine-side test suite — the
 # kv_f16_gates "test-only home" precedent for cross-crate test surface).
@@ -990,3 +995,11 @@ required-features = ["qwen38_specdec"]
 name = "flashmemory_decode_gate"
 path = "src/bin/flashmemory_decode_gate.rs"
 required-features = ["flashmemory_budget_gate"]
+
+# Plan 630 / Issue 1201 T1 — the trace generator's pins (the digest
+# freeze + the structure/accounting contract). The whole-file #![cfg]
+# compiles to nothing without the feature; this row is its pair.
+[[test]]
+name = "flashstates_tracegen_pins"
+path = "tests/flashstates_tracegen_pins.rs"
+required-features = ["flashstates_tracegen"]
