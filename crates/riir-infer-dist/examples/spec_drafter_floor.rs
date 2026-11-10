@@ -539,8 +539,7 @@ fn main() -> Result<()> {
             / (tokens.len() - read_lo) as f64;
         // The bigram NLL on the same rows (train-fit table, add-α over the
         // SEEN-context vocabulary).
-        let mut bi: std::collections::HashMap<(u32, u32), u64> =
-            std::collections::HashMap::new();
+        let mut bi: std::collections::HashMap<(u32, u32), u64> = std::collections::HashMap::new();
         let mut ctx_tot: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
         for w in tokens[..read_lo].windows(2) {
             *bi.entry((w[0], w[1])).or_insert(0) += 1;
@@ -555,7 +554,11 @@ fn main() -> Result<()> {
             // context's seen share) — never zero-probability on unseen
             // pairs, still train-only knowledge.
             let uni_p = (counts.get(&w[1]).copied().unwrap_or(0) as f64 + alpha) / denom;
-            let lambda = if c > 0.0 { c / (c + alpha * vocab) } else { 0.0 };
+            let lambda = if c > 0.0 {
+                c / (c + alpha * vocab)
+            } else {
+                0.0
+            };
             let p = lambda * (n / c.max(1.0)) + (1.0 - lambda) * uni_p;
             bi_nll += -p.ln();
         }

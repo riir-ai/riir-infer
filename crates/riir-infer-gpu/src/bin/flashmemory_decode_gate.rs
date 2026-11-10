@@ -556,10 +556,7 @@ fn main() -> Result<()> {
         // Issue 1114): clamp to the largest anchor-validated rung — the
         // 128K axis IS that rung (131,072 ≤ 131,136), and the walk needs
         // ≥ steps + 2 rows.
-        gpu_config.block_size = gpu_config
-            .block_size
-            .min(131_072)
-            .max(steps + 2);
+        gpu_config.block_size = gpu_config.block_size.min(131_072).max(steps + 2);
         let mut gpu = riir_infer_gpu::ternary_deltanet_gpu_forward::TernaryDeltanetGpuForward::new(
             &ctx,
             &gpu_config,
@@ -724,10 +721,7 @@ fn main() -> Result<()> {
                 .expect("Metal ctx (--metal requires a Metal device)");
             let mut gpu_config = config.clone();
             // The same 128K single-buffer bound (see the dense arm).
-            gpu_config.block_size = gpu_config
-                .block_size
-                .min(131_072)
-                .max(steps + 2);
+            gpu_config.block_size = gpu_config.block_size.min(131_072).max(steps + 2);
             let mut gpu =
                 riir_infer_gpu::ternary_deltanet_gpu_forward::TernaryDeltanetGpuForward::new(
                     &ctx,

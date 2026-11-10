@@ -395,8 +395,8 @@ impl GateProjWeights {
     /// (the measurement tooling's constructor over the a/b gates;
     /// `cols` must be a multiple of 32, asserted).
     pub fn from_dense_q8_0(dense: &[f32], rows: usize, cols: usize) -> Self {
-        use bytemuck::Zeroable;
         use crate::quant::q8kv::{Q8_BLOCK_SIZE, quantize_row_q8_0};
+        use bytemuck::Zeroable;
         assert_eq!(dense.len(), rows * cols, "dense buffer size mismatch");
         assert!(
             cols.is_multiple_of(Q8_BLOCK_SIZE),
@@ -405,7 +405,10 @@ impl GateProjWeights {
         let nb = cols / Q8_BLOCK_SIZE;
         let mut blocks = vec![crate::quant::q8kv::BlockQ8_0::zeroed(); rows * nb];
         for r in 0..rows {
-            quantize_row_q8_0(&dense[r * cols..(r + 1) * cols], &mut blocks[r * nb..(r + 1) * nb]);
+            quantize_row_q8_0(
+                &dense[r * cols..(r + 1) * cols],
+                &mut blocks[r * nb..(r + 1) * nb],
+            );
         }
         Self::Q8_0(blocks, rows, cols)
     }
@@ -414,9 +417,7 @@ impl GateProjWeights {
     /// [`ProjWeights::dequant_to_dense`] twin).
     pub fn dequant_to_dense(&self) -> Vec<f32> {
         match self {
-            Self::Ternary(w) => {
-                QwenDeltaNetTernaryWeights::dequant_proj_to_dense(w)
-            }
+            Self::Ternary(w) => QwenDeltaNetTernaryWeights::dequant_proj_to_dense(w),
             Self::Dense(data, _, _) => data.clone(),
             Self::Q8_0(blocks, rows, cols) => {
                 use crate::quant::q8kv::{Q8_BLOCK_SIZE, dequantize_row_q8_0};
@@ -490,8 +491,8 @@ impl ProjWeights {
     /// block layout matching the Q4K/Q6K arms). The measurement tooling's
     /// constructor; `cols` must be a multiple of 32 (asserted).
     pub fn from_dense_q8_0(dense: &[f32], rows: usize, cols: usize) -> Self {
-        use bytemuck::Zeroable;
         use crate::quant::q8kv::{Q8_BLOCK_SIZE, quantize_row_q8_0};
+        use bytemuck::Zeroable;
         assert_eq!(dense.len(), rows * cols, "dense buffer size mismatch");
         assert!(
             cols.is_multiple_of(Q8_BLOCK_SIZE),
@@ -500,7 +501,10 @@ impl ProjWeights {
         let nb = cols / Q8_BLOCK_SIZE;
         let mut blocks = vec![crate::quant::q8kv::BlockQ8_0::zeroed(); rows * nb];
         for r in 0..rows {
-            quantize_row_q8_0(&dense[r * cols..(r + 1) * cols], &mut blocks[r * nb..(r + 1) * nb]);
+            quantize_row_q8_0(
+                &dense[r * cols..(r + 1) * cols],
+                &mut blocks[r * nb..(r + 1) * nb],
+            );
         }
         Self::Q8_0(blocks, rows, cols)
     }
@@ -1443,7 +1447,8 @@ fn convert_ternary_layer_to_proj_layer(
             ProjWeights::Ternary(t) => convert_ternary_ref(t, trainable),
             #[cfg(feature = "ternary_q2_resident")]
             ProjWeights::TernaryQ2(q) => convert_ternary_ref(&q.planes_cow(), trainable),
-            ProjWeights::Q4K(_, rows, cols) | ProjWeights::Q6K(_, rows, cols)
+            ProjWeights::Q4K(_, rows, cols)
+            | ProjWeights::Q6K(_, rows, cols)
             | ProjWeights::Q8_0(_, rows, cols) => {
                 if *rows == 0 {
                     Proj::empty()

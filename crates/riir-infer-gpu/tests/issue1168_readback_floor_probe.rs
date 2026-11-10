@@ -33,11 +33,7 @@
 //!     --test issue1168_readback_floor_probe -- --nocapture --ignored
 //! ```
 
-#![cfg(all(
-    feature = "ternary_gemv",
-    target_os = "macos",
-    not(debug_assertions)
-))]
+#![cfg(all(feature = "ternary_gemv", target_os = "macos", not(debug_assertions)))]
 
 use std::time::Instant;
 

@@ -126,7 +126,10 @@ pub fn mount_from_envelope(
 /// Refuses an empty table (mounting nothing is `None`, not an empty table —
 /// the demote posture is explicit at the call site).
 pub fn mount(pairs: Vec<(usize, QuantErrorLora)>) -> WriteOverlays {
-    assert!(!pairs.is_empty(), "closed_form_write: empty mount — use None");
+    assert!(
+        !pairs.is_empty(),
+        "closed_form_write: empty mount — use None"
+    );
     let mut layers: Vec<(usize, Vec<QuantErrorLora>)> = Vec::new();
     let mut max_rank = 0usize;
     for (layer, pair) in pairs {
@@ -317,7 +320,10 @@ impl CaptureSink {
             self.n = n;
         }
         debug_assert_eq!(self.mlp, mlp, "capture sink: mlp width changed mid-prefill");
-        debug_assert_eq!(self.n, n, "capture sink: residual width changed mid-prefill");
+        debug_assert_eq!(
+            self.n, n,
+            "capture sink: residual width changed mid-prefill"
+        );
         let idx = self.layers.iter().position(|&l| l == layer).unwrap();
         // First observed layer sizes the row bookkeeping; every layer observes
         // the same seq_len rows in the same prefill.
@@ -333,7 +339,7 @@ impl CaptureSink {
     /// Harvest `positions` (ascending, in-bounds) into the constructor's
     /// `LayerCapture` rows — one capture per edited layer, in `layers` order
     /// (`FactWriteModel::edited_layers` order).
-        pub fn harvest(
+    pub fn harvest(
         &self,
         positions: &[usize],
     ) -> Vec<katgpt_core::closed_form_weight_write::LayerCapture> {
@@ -346,7 +352,12 @@ impl CaptureSink {
             .iter()
             .copied()
             .reduce(|a, b| if b > a { b } else { a })
-            .map(|max_p| assert!(max_p < self.rows, "capture harvest: position past the prefill"))
+            .map(|max_p| {
+                assert!(
+                    max_p < self.rows,
+                    "capture harvest: position past the prefill"
+                )
+            })
             .unwrap_or(());
         self.layers
             .iter()
@@ -558,12 +569,7 @@ impl katgpt_core::closed_form_weight_write::FactWriteModel for QwenFactWriteMode
         logits[target] as f64 - lse
     }
 
-    fn free_generate(
-        &mut self,
-        prefix: &[u32],
-        max_new: usize,
-        stop: Option<u32>,
-    ) -> Vec<u32> {
+    fn free_generate(&mut self, prefix: &[u32], max_new: usize, stop: Option<u32>) -> Vec<u32> {
         assert!(!prefix.is_empty(), "free_generate: empty prefix");
         let v = self.config.vocab_size;
         // Prefill bootstraps the caches; the last position's logits pick the
@@ -607,8 +613,7 @@ impl katgpt_core::closed_form_weight_write::FactWriteModel for QwenFactWriteMode
                 Some(t) => {
                     let rows: Vec<(usize, QuantErrorLora)> = t.into_rows();
                     let kept: Vec<_> = rows.into_iter().filter(|(l, _)| *l != layer).collect();
-                    self.weights.closed_form_overlays = (!kept.is_empty())
-                        .then(|| mount(kept));
+                    self.weights.closed_form_overlays = (!kept.is_empty()).then(|| mount(kept));
                 }
             }
             return;
@@ -622,10 +627,8 @@ impl katgpt_core::closed_form_weight_write::FactWriteModel for QwenFactWriteMode
             .take()
             .map(|t| t.into_rows())
             .unwrap_or_default();
-        let mut rows: Vec<(usize, QuantErrorLora)> = existing
-            .into_iter()
-            .filter(|(l, _)| *l != layer)
-            .collect();
+        let mut rows: Vec<(usize, QuantErrorLora)> =
+            existing.into_iter().filter(|(l, _)| *l != layer).collect();
         rows.extend(pairs.iter().map(|p| (layer, p.clone())));
         rows.sort_by_key(|(l, _)| *l);
         self.weights.closed_form_overlays = Some(mount(rows));
@@ -656,7 +659,9 @@ mod tests {
         let mut b = Vec::with_capacity(out_dim * rank);
         let mut s = seed;
         let mut next = move || {
-            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((s >> 33) as f32 / (u32::MAX as f32)) - 0.5
         };
         for _ in 0..rank * in_dim {
@@ -769,7 +774,9 @@ mod tests {
             let mut s = 0x9E3779B97F4A7C15u64;
             let fill = |buf: &mut [f32], s: &mut u64| {
                 for v in buf.iter_mut() {
-                    *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    *s = s
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
                     *v = 0.125 + ((*s >> 40) as f32 / (u32::MAX as f32)) * 0.25;
                 }
             };
@@ -814,11 +821,16 @@ mod tests {
             }
         }
 
-        let rope = crate::rope::RopeFreqTable::new(cfg.rope_theta, crate::deltanet::effective_rotary_dim(&cfg));
+        let rope = crate::rope::RopeFreqTable::new(
+            cfg.rope_theta,
+            crate::deltanet::effective_rotary_dim(&cfg),
+        );
         let prompt: Vec<usize> = vec![3, 1, 4, 1, 5];
         let v = cfg.vocab_size;
 
-        let run = |w: &QwenDeltaNetWeights, ctx_overlays: Option<&crate::closed_form_write::WriteOverlays>| -> (Vec<f32>, Vec<u32>) {
+        let run = |w: &QwenDeltaNetWeights,
+                   ctx_overlays: Option<&crate::closed_form_write::WriteOverlays>|
+         -> (Vec<f32>, Vec<u32>) {
             let mut cache = HybridCache::with_layer_types(&cfg, &w.layer_types);
             let mut scratch = HybridForwardScratch::new(&cfg);
             let mut ctx = PrefillContext::new(&cfg, 64);

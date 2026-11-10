@@ -647,7 +647,9 @@ impl QuantWeight {
                         ) {
                             return;
                         }
-                        if let Some(mm) = crate::gemm_dense_f16_metal_zero_copy::gemm_mm_for_posture() {
+                        if let Some(mm) =
+                            crate::gemm_dense_f16_metal_zero_copy::gemm_mm_for_posture()
+                        {
                             mm.dispatch(client, w, *m, *n, &x, &out, p)
                                 .expect("dense-f16 gemm dispatch");
                         } else {
@@ -913,9 +915,7 @@ impl Qwen38WgpuForward {
                     include_str!("gemm_dense_f16h_metal_tensor.metal"),
                 )?;
             } else {
-                eprintln!(
-                    "[drift-guard] RIIR_DRIFT_GUARD unset — exact twin not installed"
-                );
+                eprintln!("[drift-guard] RIIR_DRIFT_GUARD unset — exact twin not installed");
             }
         }
         #[cfg(not(all(feature = "metal_tensor_gemm", target_os = "macos")))]

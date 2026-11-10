@@ -20,44 +20,32 @@
 use riir_infer_core::gguf_loader::GgufFile;
 use riir_infer_core::tokenizer::BpeTokenizer;
 use riir_infer_gpu::qwen38_dense_cubecl::Qwen38WgpuForward;
-use riir_infer_gpu::qwen38_specdec::{DraftLayersDump, DFlashCpu, StFile, parse_vendor_config};
+use riir_infer_gpu::qwen38_specdec::{DFlashCpu, DraftLayersDump, StFile, parse_vendor_config};
 
 const CAPTURE_LAYERS: &[usize] = &[5, 19, 33, 47, 61];
 
 fn main() {
-    let fixture =
-        std::fs::read_to_string("/tmp/i1179_fixture_prompt.txt").unwrap();
+    let fixture = std::fs::read_to_string("/tmp/i1179_fixture_prompt.txt").unwrap();
     let spec = StFile::open(std::path::Path::new(
         "/Users/katopz/uzu27b/speculator/model.safetensors",
     ))
     .unwrap();
     let cfg = parse_vendor_config(
-        &std::fs::read_to_string("/Users/katopz/uzu27b/speculator/config.json")
-            .unwrap(),
+        &std::fs::read_to_string("/Users/katopz/uzu27b/speculator/config.json").unwrap(),
     )
     .unwrap();
     let mut draft = DFlashCpu::load(&spec, &cfg).unwrap();
 
     let gguf_path = "/Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf";
-    let mut fwd = Qwen38WgpuForward::new(
-        std::path::Path::new(gguf_path),
-        8192,
-        512,
-    )
-    .unwrap();
+    let mut fwd = Qwen38WgpuForward::new(std::path::Path::new(gguf_path), 8192, 512).unwrap();
     let gg = GgufFile::open(std::path::Path::new(gguf_path)).unwrap();
 
     let tok = BpeTokenizer::from_gguf(&gg).unwrap();
-    let prompt: Vec<u32> = tok
-        .encode(&fixture)
-        .into_iter()
-        .map(|t| t as u32)
-        .collect();
+    let prompt: Vec<u32> = tok.encode(&fixture).into_iter().map(|t| t as u32).collect();
     println!("[realctx] prompt tokens {}", prompt.len());
 
     // Prefill + capture the draft taps at every prompt position.
-    let (feats, last_logits) =
-        fwd.ingest_capture(&prompt, 0, CAPTURE_LAYERS).unwrap();
+    let (feats, last_logits) = fwd.ingest_capture(&prompt, 0, CAPTURE_LAYERS).unwrap();
     let d = 5120usize;
     let captured = CAPTURE_LAYERS.len();
     let mut packed = vec![0.0f32; prompt.len() * d * captured];
@@ -70,8 +58,7 @@ fn main() {
     // layer-major dump for the uzu twin (it packs per-buffer)
     let mut layer_major = vec![0.0f32; prompt.len() * d * captured];
     for (li, f) in feats.iter().enumerate() {
-        layer_major[li * prompt.len() * d..(li + 1) * prompt.len() * d]
-            .copy_from_slice(f);
+        layer_major[li * prompt.len() * d..(li + 1) * prompt.len() * d].copy_from_slice(f);
     }
     std::fs::write(
         "/tmp/i1179_prompt_feats.f32",
@@ -102,18 +89,18 @@ fn main() {
     let kvproj = draft.accept_kvproj_debug(&packed, 4).unwrap();
     std::fs::write("/tmp/i1179_my_kvproj.f32", bytemuck::cast_slice(&kvproj)).unwrap();
     println!("[realctx] wrote /tmp/i1179_my_kvproj.f32 (4 rows x 5 layers x 2048)");
-        let cached_k = draft.dump_cached_k(0, 0, 1);
+    let cached_k = draft.dump_cached_k(0, 0, 1);
     std::fs::write("/tmp/i1179_my_cachedk.f32", bytemuck::cast_slice(&cached_k)).unwrap();
     println!("[realctx] wrote /tmp/i1179_my_cachedk.f32 (L0 row0 K, 1024 = 8 heads x 128)");
 
-    let t_prev =
-        gg.dequant_tensor_row("token_embd.weight", best as usize, d).unwrap();
+    let t_prev = gg
+        .dequant_tensor_row("token_embd.weight", best as usize, d)
+        .unwrap();
     let mask = gg
         .dequant_tensor_row("token_embd.weight", 248070, d)
         .unwrap();
 
-    let dump: DraftLayersDump =
-        draft.draft_layers_dump(&t_prev, &mask).unwrap();
+    let dump: DraftLayersDump = draft.draft_layers_dump(&t_prev, &mask).unwrap();
 
     // lm_head f32 table, argmax chain (first-index ties).
     let vocab = fwd.config.vocab_size;
@@ -144,7 +131,11 @@ fn main() {
     println!("[realctx] my chain: {chain:?}");
     std::fs::write(
         "/tmp/i1179_my_chain.txt",
-        chain.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(" "),
+        chain
+            .iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<_>>()
+            .join(" "),
     )
     .unwrap();
 
@@ -194,7 +185,6 @@ fn main() {
         println!("[realctx] wrote /tmp/i1179_my_qkvg.f32 (L0 qkvg out on conv_pre[0])");
     }
 
-
     // Mixer-parity: MY L0 attention output on conv_pre[0] (their side runs
     // mixer.encode on the same input + same state).
     {
@@ -202,9 +192,18 @@ fn main() {
         let positions: Vec<usize> = (603..603 + rows16).collect();
         let (cos_t, sin_t) = draft.rope_tables_for(&positions);
         let attn_out = draft.dump_attention_out(0, &dump.conv_pre[0], rows16, &cos_t, &sin_t);
-        std::fs::write("/tmp/i1179_my_attnout.f32", bytemuck::cast_slice(&attn_out.0)).unwrap();
-        std::fs::write("/tmp/i1179_my_preproj.f32", bytemuck::cast_slice(&attn_out.1)).unwrap();
-        println!("[realctx] wrote /tmp/i1179_my_attnout.f32 + my_preproj.f32 (L0 attention, post/pre out_proj)");
+        std::fs::write(
+            "/tmp/i1179_my_attnout.f32",
+            bytemuck::cast_slice(&attn_out.0),
+        )
+        .unwrap();
+        std::fs::write(
+            "/tmp/i1179_my_preproj.f32",
+            bytemuck::cast_slice(&attn_out.1),
+        )
+        .unwrap();
+        println!(
+            "[realctx] wrote /tmp/i1179_my_attnout.f32 + my_preproj.f32 (L0 attention, post/pre out_proj)"
+        );
     }
-
 }

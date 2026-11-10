@@ -649,22 +649,42 @@ fn apply_family_ablation(
                 });
             }
             if family == F::Norms {
-                round_trip(&mut weights.final_norm, "output_norm.weight".into(), &mut rows);
+                round_trip(
+                    &mut weights.final_norm,
+                    "output_norm.weight".into(),
+                    &mut rows,
+                );
                 for (i, layer) in weights.layers.iter_mut().enumerate() {
-                    round_trip(&mut layer.input_norm, format!("blk.{i}.attn_norm.weight"), &mut rows);
+                    round_trip(
+                        &mut layer.input_norm,
+                        format!("blk.{i}.attn_norm.weight"),
+                        &mut rows,
+                    );
                     round_trip(
                         &mut layer.post_attn_norm,
                         format!("blk.{i}.post_attention_norm.weight"),
                         &mut rows,
                     );
                     if !layer.linear_norm.is_empty() {
-                        round_trip(&mut layer.linear_norm, format!("blk.{i}.ssm_norm.weight"), &mut rows);
+                        round_trip(
+                            &mut layer.linear_norm,
+                            format!("blk.{i}.ssm_norm.weight"),
+                            &mut rows,
+                        );
                     }
                     if !layer.attn_q_norm.is_empty() {
-                        round_trip(&mut layer.attn_q_norm, format!("blk.{i}.attn_q_norm.weight"), &mut rows);
+                        round_trip(
+                            &mut layer.attn_q_norm,
+                            format!("blk.{i}.attn_q_norm.weight"),
+                            &mut rows,
+                        );
                     }
                     if !layer.attn_k_norm.is_empty() {
-                        round_trip(&mut layer.attn_k_norm, format!("blk.{i}.attn_k_norm.weight"), &mut rows);
+                        round_trip(
+                            &mut layer.attn_k_norm,
+                            format!("blk.{i}.attn_k_norm.weight"),
+                            &mut rows,
+                        );
                     }
                 }
             }
@@ -678,7 +698,11 @@ fn apply_family_ablation(
                         );
                     }
                     F::GdnDt if !layer.dt_bias.is_empty() => {
-                        round_trip(&mut layer.dt_bias, format!("blk.{i}.ssm_dt.bias"), &mut rows);
+                        round_trip(
+                            &mut layer.dt_bias,
+                            format!("blk.{i}.ssm_dt.bias"),
+                            &mut rows,
+                        );
                     }
                     F::GdnA if !layer.a_log.is_empty() => {
                         round_trip(&mut layer.a_log, format!("blk.{i}.ssm_a"), &mut rows);
@@ -853,7 +877,10 @@ fn run_family_ablation(
             sum_inc_lse += a.inc_nll;
             sum_ab_lse += b.inc_nll;
         }
-        println!("\n# paired golden readout (Issue 1188 T1, one frozen read, {} positions):", n);
+        println!(
+            "\n# paired golden readout (Issue 1188 T1, one frozen read, {} positions):",
+            n
+        );
         println!(
             "#   pooled Δ-NLL {pooled:+.3e} nats/token | mean |Δ| {:.3e} | max |Δ| {max_abs:.3e}",
             (sum_ab - sum_inc).abs() / n as f64,
@@ -884,7 +911,9 @@ fn run_family_ablation(
             print!(" pos{} {delta:+.3e}", score_from + i);
         }
         println!();
-        println!("# tool verdict: RANK ONLY — the posture decision is owner-gated (the lossy-surface promotion rule)");
+        println!(
+            "# tool verdict: RANK ONLY — the posture decision is owner-gated (the lossy-surface promotion rule)"
+        );
     }
     Ok(())
 }

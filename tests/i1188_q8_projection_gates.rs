@@ -10,7 +10,7 @@
 use bytemuck::Zeroable;
 use riir_infer_core::deltanet::ternary_weights::{GateProjWeights, ProjWeights};
 use riir_infer_core::quant::q8kv::{
-    dequantize_row_q8_0, gemv_q8_0_row, quantize_row_q8_0, BlockQ8_0, Q8_BLOCK_SIZE,
+    BlockQ8_0, Q8_BLOCK_SIZE, dequantize_row_q8_0, gemv_q8_0_row, quantize_row_q8_0,
 };
 
 /// Deterministic weight-shaped fixture values (no RNG — the determinism
@@ -53,7 +53,10 @@ fn proj_q8_matvec_matches_dense_reference() {
     let (rows, cols) = (300usize, 256usize); // ≥ 256 rows → the rayon arm
     let dense = fixture_values(rows * cols);
     let proj = ProjWeights::from_dense_q8_0(&dense, rows, cols);
-    let x = fixture_values(cols).iter().map(|v| v * 10.0).collect::<Vec<_>>();
+    let x = fixture_values(cols)
+        .iter()
+        .map(|v| v * 10.0)
+        .collect::<Vec<_>>();
 
     let mut y = vec![0.0f32; rows];
     proj.matvec_into(&mut y, &x);
@@ -86,7 +89,10 @@ fn proj_q8_matvec_matches_dense_reference() {
 fn proj_q8_refuses_non_multiple_cols_loud() {
     let dense = fixture_values(8 * 100); // 100 % 32 != 0
     let result = std::panic::catch_unwind(|| ProjWeights::from_dense_q8_0(&dense, 8, 100));
-    assert!(result.is_err(), "cols=100 must refuse (not a multiple of 32)");
+    assert!(
+        result.is_err(),
+        "cols=100 must refuse (not a multiple of 32)"
+    );
 }
 
 #[test]
@@ -102,7 +108,10 @@ fn gate_proj_q8_round_trip_and_matvec() {
     for (a, b) in dense.iter().zip(back.iter()) {
         max_err = max_err.max((a - b).abs());
     }
-    assert!(max_err < 0.05 / 127.0 * 1.5 + 1e-6, "gate max err {max_err}");
+    assert!(
+        max_err < 0.05 / 127.0 * 1.5 + 1e-6,
+        "gate max err {max_err}"
+    );
 
     let x = fixture_values(cols);
     let mut y = vec![0.0f32; rows];

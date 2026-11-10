@@ -32,7 +32,9 @@
 #![cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
 
 use katgpt_core::TernaryGroupWeights;
-use riir_infer_gpu::gemm_ternary_metal_tensor::{MetalTensorGemm, MetalTileConfig, MetalWeightCache};
+use riir_infer_gpu::gemm_ternary_metal_tensor::{
+    MetalTensorGemm, MetalTileConfig, MetalWeightCache,
+};
 
 /// G1 scale-relative bound — bench_1113's bar (bench_645 lineage).
 const G1_REL_LIMIT: f64 = 1e-5;
@@ -62,31 +64,66 @@ const DEFAULT_PS: &[usize] = &[512, 2048, 4096];
 const SWEEP: &[(&str, MetalTileConfig)] = &[
     (
         "ktile64_64x128x4sg",
-        MetalTileConfig { nra: 64, nrb: 128, nk_chunk: 4, nsg: 4 },
+        MetalTileConfig {
+            nra: 64,
+            nrb: 128,
+            nk_chunk: 4,
+            nsg: 4,
+        },
     ),
     (
         "ktile128_64x128x4sg",
-        MetalTileConfig { nra: 64, nrb: 128, nk_chunk: 8, nsg: 4 },
+        MetalTileConfig {
+            nra: 64,
+            nrb: 128,
+            nk_chunk: 8,
+            nsg: 4,
+        },
     ),
     (
         "ktile64_64x256x4sg",
-        MetalTileConfig { nra: 64, nrb: 256, nk_chunk: 4, nsg: 4 },
+        MetalTileConfig {
+            nra: 64,
+            nrb: 256,
+            nk_chunk: 4,
+            nsg: 4,
+        },
     ),
     (
         "ktile64_128x128x4sg",
-        MetalTileConfig { nra: 128, nrb: 128, nk_chunk: 4, nsg: 4 },
+        MetalTileConfig {
+            nra: 128,
+            nrb: 128,
+            nk_chunk: 4,
+            nsg: 4,
+        },
     ),
     (
         "ktile64_64x128x8sg",
-        MetalTileConfig { nra: 64, nrb: 128, nk_chunk: 4, nsg: 8 },
+        MetalTileConfig {
+            nra: 64,
+            nrb: 128,
+            nk_chunk: 4,
+            nsg: 8,
+        },
     ),
     (
         "ktile64_64x128x2sg",
-        MetalTileConfig { nra: 64, nrb: 128, nk_chunk: 4, nsg: 2 },
+        MetalTileConfig {
+            nra: 64,
+            nrb: 128,
+            nk_chunk: 4,
+            nsg: 2,
+        },
     ),
     (
         "k32_64x128x4sg",
-        MetalTileConfig { nra: 64, nrb: 128, nk_chunk: 2, nsg: 4 },
+        MetalTileConfig {
+            nra: 64,
+            nrb: 128,
+            nk_chunk: 2,
+            nsg: 4,
+        },
     ),
 ];
 
@@ -428,7 +465,11 @@ fn g2_ktile64_composed_geometry_sweep() {
                         launch_metal(gemm, cache, &input, p * m);
                     }
                     let dt = t0.elapsed().as_secs_f64() / launches as f64;
-                    assert!(dt > 0.0, "{shape_name} P={p} arm {}: zero-length timing — the loud-zero guard", configs[ai].0);
+                    assert!(
+                        dt > 0.0,
+                        "{shape_name} P={p} arm {}: zero-length timing — the loud-zero guard",
+                        configs[ai].0
+                    );
                     row[ai] = dt;
                 }
             }

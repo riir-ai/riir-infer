@@ -19,7 +19,7 @@
 //!
 //! Instrument-grade: classification only, never a serving path.
 
-use crate::gguf_loader::{GgufFile, GgmlType};
+use crate::gguf_loader::{GgmlType, GgufFile};
 use std::fmt;
 
 /// A model tensor family (the ranking unit).
@@ -193,7 +193,10 @@ pub fn classify(name: &str) -> Option<Classified> {
     // Globals are ONLY the three bare names — a per-layer suffix without
     // its `blk.N.` prefix is foreign grammar and must MISS (never guess).
     if layer.is_none()
-        && !matches!(rest, "token_embd.weight" | "output.weight" | "output_norm.weight")
+        && !matches!(
+            rest,
+            "token_embd.weight" | "output.weight" | "output_norm.weight"
+        )
     {
         return None;
     }
@@ -353,8 +356,7 @@ mod tests {
             ("blk.4.ffn_up.weight", Family::FfnUp),
             ("blk.4.ffn_down.weight", Family::FfnDown),
         ] {
-            let c = classify(name)
-                .unwrap_or_else(|| panic!("{name} must classify"));
+            let c = classify(name).unwrap_or_else(|| panic!("{name} must classify"));
             assert_eq!(c.family, family, "{name}");
             assert_eq!(c.layer, Some(4), "{name}");
         }
@@ -371,8 +373,7 @@ mod tests {
             ("blk.5.ssm_norm.weight", Family::Norms),
             ("blk.5.ffn_gate.weight", Family::FfnGate),
         ] {
-            let c = classify(name)
-                .unwrap_or_else(|| panic!("{name} must classify"));
+            let c = classify(name).unwrap_or_else(|| panic!("{name} must classify"));
             assert_eq!(c.family, family, "{name}");
             assert_eq!(c.layer, Some(5), "{name}");
         }
@@ -381,9 +382,15 @@ mod tests {
     #[test]
     fn unknown_and_malformed_names_miss() {
         assert!(classify("blk.0.unknown_thing.weight").is_none());
-        assert!(classify("blk.x.attn_q.weight").is_none(), "non-numeric layer");
+        assert!(
+            classify("blk.x.attn_q.weight").is_none(),
+            "non-numeric layer"
+        );
         assert!(classify("blk.0").is_none(), "no dot after the layer index");
-        assert!(classify("nextn.layer.0.weight").is_none(), "foreign grammar");
+        assert!(
+            classify("nextn.layer.0.weight").is_none(),
+            "foreign grammar"
+        );
     }
 
     /// Every family's slug round-trips through `parse`, and the storage

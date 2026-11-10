@@ -27,24 +27,51 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
     let na: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
     let nb: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if na <= 0.0 || nb <= 0.0 { 0.0 } else { dot / (na * nb) }
+    if na <= 0.0 || nb <= 0.0 {
+        0.0
+    } else {
+        dot / (na * nb)
+    }
 }
 
 fn main() {
-    let spec = StFile::open(std::path::Path::new("/Users/katopz/uzu27b/speculator/model.safetensors")).unwrap();
-    let cfg = parse_vendor_config(&std::fs::read_to_string("/Users/katopz/uzu27b/speculator/config.json").unwrap()).unwrap();
+    let spec = StFile::open(std::path::Path::new(
+        "/Users/katopz/uzu27b/speculator/model.safetensors",
+    ))
+    .unwrap();
+    let cfg = parse_vendor_config(
+        &std::fs::read_to_string("/Users/katopz/uzu27b/speculator/config.json").unwrap(),
+    )
+    .unwrap();
     let mut draft = DFlashCpu::load(&spec, &cfg).unwrap();
-    let gg = GgufFile::open(std::path::Path::new("/Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf")).unwrap();
-    let t_prev = gg.dequant_tensor_row("token_embd.weight", 79, 5120).unwrap();
-    let mask = gg.dequant_tensor_row("token_embd.weight", 248070, 5120).unwrap();
-    println!("emb t_prev max|.|={:?} mask max={:?}", stats(&t_prev).0, stats(&mask).0);
-    println!("t_prev nan={} mask nan={}", stats(&t_prev).2, stats(&mask).2);
+    let gg = GgufFile::open(std::path::Path::new(
+        "/Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf",
+    ))
+    .unwrap();
+    let t_prev = gg
+        .dequant_tensor_row("token_embd.weight", 79, 5120)
+        .unwrap();
+    let mask = gg
+        .dequant_tensor_row("token_embd.weight", 248070, 5120)
+        .unwrap();
+    println!(
+        "emb t_prev max|.|={:?} mask max={:?}",
+        stats(&t_prev).0,
+        stats(&mask).0
+    );
+    println!(
+        "t_prev nan={} mask nan={}",
+        stats(&t_prev).2,
+        stats(&mask).2
+    );
     // Norm-scales NaN check: reload just that tensor from the artifact.
     let scales = spec
         .f32_vec_pub("speculator.draft_model.layers.0.pre_mixer_norm.scales")
         .unwrap();
     let nan_scales = scales.iter().filter(|v| v.is_nan()).count();
-    let mx = scales.iter().fold(0.0f32, |m, v| if v.is_nan() { m } else { m.max(v.abs()) });
+    let mx = scales
+        .iter()
+        .fold(0.0f32, |m, v| if v.is_nan() { m } else { m.max(v.abs()) });
     println!(
         "pre_mixer_norm.scales: len={} nan={} max|.|={mx} first6={:?}",
         scales.len(),
@@ -77,6 +104,9 @@ fn main() {
     println!("draft_hidden max|.|={mx} inf={inf} nan={nan}");
     for (r, row) in hidden.as_chunks::<5120>().0.iter().take(3).enumerate() {
         let (mx, inf, nan) = stats(row);
-        println!("  row {r}: max={mx:.4} inf={inf} nan={nan} first3={:?}", &row[..3]);
+        println!(
+            "  row {r}: max={mx:.4} inf={inf} nan={nan} first3={:?}",
+            &row[..3]
+        );
     }
 }

@@ -559,9 +559,8 @@ mod tests {
         // three ups from the crate dir — crates/riir-infer-dist -> repo root ->
         // the git/ sibling set). Header, digest, and one score at the seated
         // width. Skips loud without it.
-        let path = std::path::Path::new(
-            "../../../riir-train/data/bonsai_mtp/head/bonsai_mtp_head_v1.bin",
-        );
+        let path =
+            std::path::Path::new("../../../riir-train/data/bonsai_mtp/head/bonsai_mtp_head_v1.bin");
         if !path.exists() {
             eprintln!("skip: no bonsai_mtp_head_v1.bin on this box");
             return;

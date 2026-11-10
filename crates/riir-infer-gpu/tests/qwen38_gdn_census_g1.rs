@@ -57,7 +57,10 @@ fn census_instrument_g1() {
         std::thread::sleep(Duration::from_millis(2));
         c.mark(&client, "beta_decay", &[]).expect("mark");
         let rep = c.finish().expect("finish");
-        assert!(rep.chunks == 0, "a 3-mark run is a partial group, not a chunk");
+        assert!(
+            rep.chunks == 0,
+            "a 3-mark run is a partial group, not a chunk"
+        );
         assert_eq!(rep.rows.len(), 1, "one partial group row");
         let sleep_wall = rep.rows[0][0];
         assert!(
@@ -78,12 +81,10 @@ fn census_instrument_g1() {
         let src = client.create_from_slice(bytemuck::cast_slice(&vec![1.0f32; 512 * 2560]));
         let w = client.create_from_slice(bytemuck::cast_slice(&vec![1.0f32; 2560]));
         let dst = client.create_from_slice(bytemuck::cast_slice(&vec![0.0f32; 512 * 2560]));
-        let launch = |client: &Client| {
-            unsafe {
-                riir_infer_gpu::norms_cubecl::RmsNormBatchedCubeCL::launch::<
-                    riir_infer_gpu::cubecl_runtime::ActiveRuntime,
-                >(client, src.clone(), w.clone(), dst.clone(), 512, 2560, 1e-6);
-            }
+        let launch = |client: &Client| unsafe {
+            riir_infer_gpu::norms_cubecl::RmsNormBatchedCubeCL::launch::<
+                riir_infer_gpu::cubecl_runtime::ActiveRuntime,
+            >(client, src.clone(), w.clone(), dst.clone(), 512, 2560, 1e-6);
         };
         // Warm the pipeline OUTSIDE any timed arm — a cold compile reads
         // ~6 ms and would poison the reference.
@@ -102,11 +103,13 @@ fn census_instrument_g1() {
         // Census arm: hazard-pinned markers around the SAME launches on the
         // SAME buffers — marker b's ReadWrite on dst carries the RAW edge
         // against the block's last write, so it cannot retire early.
-        c.mark(&client, "sandwich_a", std::slice::from_ref(&dst)).expect("mark a");
+        c.mark(&client, "sandwich_a", std::slice::from_ref(&dst))
+            .expect("mark a");
         for _ in 0..10 {
             launch(&client);
         }
-        c.mark(&client, "sandwich_b", std::slice::from_ref(&dst)).expect("mark b");
+        c.mark(&client, "sandwich_b", std::slice::from_ref(&dst))
+            .expect("mark b");
         let rep = c.finish().expect("finish");
         let measured = rep.rows.last().expect("row")[0];
         // The sync reference carries host-side submission + poll overhead
@@ -125,11 +128,13 @@ fn census_instrument_g1() {
         // Linearity: 30 launches ≈ 3× the 10-launch wall (the same hazard
         // chain, three times the work).
         pollster::block_on(client.sync()).expect("pre sync");
-        c.mark(&client, "sandwich_c", std::slice::from_ref(&dst)).expect("mark c");
+        c.mark(&client, "sandwich_c", std::slice::from_ref(&dst))
+            .expect("mark c");
         for _ in 0..30 {
             launch(&client);
         }
-        c.mark(&client, "sandwich_d", std::slice::from_ref(&dst)).expect("mark d");
+        c.mark(&client, "sandwich_d", std::slice::from_ref(&dst))
+            .expect("mark d");
         let rep30 = c.finish().expect("finish");
         let measured30 = rep30.rows.last().expect("row")[0];
         assert!(
@@ -156,7 +161,10 @@ fn census_instrument_g1() {
         std::thread::sleep(Duration::from_millis(2));
         c.mark(&client, "scan", &[]).expect("mark");
         let rep = c.finish().expect("finish");
-        assert_eq!(rep.chunks, 1, "17 marks = one full chunk group + 2 open marks");
+        assert_eq!(
+            rep.chunks, 1,
+            "17 marks = one full chunk group + 2 open marks"
+        );
         assert_eq!(rep.rows.len(), 2, "one full row + one single-section row");
         assert!(
             rep.inter_chunk_ms >= 5.0 && rep.inter_chunk_ms <= 80.0,

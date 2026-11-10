@@ -1315,10 +1315,7 @@ impl HybridForwardScratch {
             residual: vec![0.0; config.n_embd],
             rotation_buf: vec![0.0; rotation_len],
             #[cfg(feature = "closed_form_write")]
-            closed_form_rank_scratch: vec![
-                0.0;
-                config.mlp_hidden.min(config.n_embd)
-            ],
+            closed_form_rank_scratch: vec![0.0; config.mlp_hidden.min(config.n_embd)],
             #[cfg(feature = "sink_audit")]
             sink_audit_q: None,
         }

@@ -4771,22 +4771,24 @@ impl TernaryDeltanetGpuForward {
                 // failure (Ready + None) is unreachable, so the nested
                 // if-let form this replaces had no silent skip to lose.
                 match sealed.state() {
-                    crate::ane_prefill::AnePrefillState::Ready(_) if let Some((bytes, ceiling)) = sealed.bank_bytes() => {
-                            eprintln!(
-                                "[Issue 726] ANE prefill bank ready: {} programs in {:.1}s, {:.2}/{:.2} GB budget{}",
-                                gdn_layers.len() * 2 + down_landed,
-                                compile_started.elapsed().as_secs_f32(),
-                                bytes as f64 / 1e9,
-                                ceiling as f64 / 1e9,
-                                if down_landed > 0 {
-                                    format!(
-                                        " (+{down_landed} down via ladder, {down_refusals} refusals)"
-                                    )
-                                } else {
-                                    String::new()
-                                }
-                            );
-                        }
+                    crate::ane_prefill::AnePrefillState::Ready(_)
+                        if let Some((bytes, ceiling)) = sealed.bank_bytes() =>
+                    {
+                        eprintln!(
+                            "[Issue 726] ANE prefill bank ready: {} programs in {:.1}s, {:.2}/{:.2} GB budget{}",
+                            gdn_layers.len() * 2 + down_landed,
+                            compile_started.elapsed().as_secs_f32(),
+                            bytes as f64 / 1e9,
+                            ceiling as f64 / 1e9,
+                            if down_landed > 0 {
+                                format!(
+                                    " (+{down_landed} down via ladder, {down_refusals} refusals)"
+                                )
+                            } else {
+                                String::new()
+                            }
+                        );
+                    }
                     crate::ane_prefill::AnePrefillState::Unavailable(reason) => {
                         eprintln!(
                             "[Issue 726] ANE prefill unavailable after {:.1}s: {reason} — prefill fail-opens to GPU",
@@ -11991,10 +11993,7 @@ impl TernaryDeltanetGpuForward {
     #[cfg(feature = "flashmemory_budget_metal")]
     pub fn fm_selected_fraction(&self, layer_idx: usize, pos: usize) -> Option<f64> {
         let st = self.fm_state.get(layer_idx)?.as_ref()?;
-        let counts = self
-            .client
-            .read_one(st.sel_counts.clone())
-            .ok()?;
+        let counts = self.client.read_one(st.sel_counts.clone()).ok()?;
         let counts: Vec<u32> = bytemuck::cast_slice(&counts).to_vec();
         let sel_raw = self.client.read_one(st.sel.clone()).ok()?;
         let sel: Vec<u32> = bytemuck::cast_slice(&sel_raw).to_vec();

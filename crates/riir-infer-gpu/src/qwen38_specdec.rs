@@ -963,13 +963,13 @@ impl DFlashCpu {
                         );
                     }
                 } // k_row borrow ends — the vendor snapshot below reads dst.
-                  // V: raw (value_norm absent in this config).
-                  // Vendor-exact append (I1179_VENDOR_NUMERICS=1): quantize
-                  // the FINAL per-head normed+roped K row and the raw V row
-                  // per (row, kv_head) — the same H128·signs int8 basis the
-                  // vendor prefix cache stores (attention_block_vendor's read
-                  // side; never written before this — the T1 fixture cells
-                  // panicked on the empty prefix slice).
+                // V: raw (value_norm absent in this config).
+                // Vendor-exact append (I1179_VENDOR_NUMERICS=1): quantize
+                // the FINAL per-head normed+roped K row and the raw V row
+                // per (row, kv_head) — the same H128·signs int8 basis the
+                // vendor prefix cache stores (attention_block_vendor's read
+                // side; never written before this — the T1 fixture cells
+                // panicked on the empty prefix slice).
                 if self.vendor_numerics {
                     let row_base = self.ctx_len * DRAFT_GROUPS;
                     // Snapshot both head rows from dst (immutable copies;

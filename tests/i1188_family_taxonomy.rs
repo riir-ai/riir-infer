@@ -9,7 +9,7 @@
 //! storage-class partition must stay load-bearing (every per-layer family
 //! ablatable in v1).
 
-use riir_infer_core::family_census::{classify, Family, StorageClass};
+use riir_infer_core::family_census::{Family, StorageClass, classify};
 
 /// Every tensor name recorded in the committed census fixture, verbatim,
 /// with the family the census printed. A header change on the target GGUF

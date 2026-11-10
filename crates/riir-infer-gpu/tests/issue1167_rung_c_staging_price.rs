@@ -856,7 +856,10 @@ fn g1b_double_buffer_variant_gate() {
 
     let variant = MetalTensorGemm::new_with_config(cfg)
         .expect("double-buffer variant pipeline must compile at the promoted posture");
-    assert!(variant.double_buffered(), "engagement: context built with the pin ON must report double_buffered");
+    assert!(
+        variant.double_buffered(),
+        "engagement: context built with the pin ON must report double_buffered"
+    );
     assert_eq!(
         variant.threadgroup_mem_bytes(),
         single_tile * 2,
@@ -873,9 +876,16 @@ fn g1b_double_buffer_variant_gate() {
         let input_buf = variant.upload_f32(&input);
         let output_buf = variant.create_output(p * rows);
         variant.launch(
-            &pos, &neg, &scale, &input_buf, &output_buf,
-            fx.blocks64 as u32, fx.groups_per_row as u32,
-            fx.cols as u32, fx.rows as u32, p as u32,
+            &pos,
+            &neg,
+            &scale,
+            &input_buf,
+            &output_buf,
+            fx.blocks64 as u32,
+            fx.groups_per_row as u32,
+            fx.cols as u32,
+            fx.rows as u32,
+            p as u32,
         );
         let got = variant.read_f32(&output_buf, p * rows);
 
@@ -891,7 +901,11 @@ fn g1b_double_buffer_variant_gate() {
             "  G1b variant {rows}x{cols} p={p}: worst_rel={:.3e} at [{}] {}",
             worst.0,
             worst.1,
-            if worst.0 < G1_REL_LIMIT { "PASS" } else { "FAIL" }
+            if worst.0 < G1_REL_LIMIT {
+                "PASS"
+            } else {
+                "FAIL"
+            }
         );
         assert!(
             worst.0 < G1_REL_LIMIT,
@@ -906,7 +920,10 @@ fn g1b_double_buffer_variant_gate() {
     riir_infer_gpu::gemm_ternary_metal_tensor::set_metal_tensor_double_buffer(false);
     let incumbent = MetalTensorGemm::new_with_config(cfg)
         .expect("incumbent pipeline must compile at the promoted posture");
-    assert!(!incumbent.double_buffered(), "the phase-B context must report the incumbent posture");
+    assert!(
+        !incumbent.double_buffered(),
+        "the phase-B context must report the incumbent posture"
+    );
     assert_eq!(incumbent.threadgroup_mem_bytes(), single_tile);
 
     for (case, &(rows, cols, p)) in G1_CASES.iter().enumerate() {
@@ -917,9 +934,16 @@ fn g1b_double_buffer_variant_gate() {
         let input_buf = incumbent.upload_f32(&input);
         let output_buf = incumbent.create_output(p * rows);
         incumbent.launch(
-            &pos, &neg, &scale, &input_buf, &output_buf,
-            fx.blocks64 as u32, fx.groups_per_row as u32,
-            fx.cols as u32, fx.rows as u32, p as u32,
+            &pos,
+            &neg,
+            &scale,
+            &input_buf,
+            &output_buf,
+            fx.blocks64 as u32,
+            fx.groups_per_row as u32,
+            fx.cols as u32,
+            fx.rows as u32,
+            p as u32,
         );
         let got = incumbent.read_f32(&output_buf, p * rows);
 

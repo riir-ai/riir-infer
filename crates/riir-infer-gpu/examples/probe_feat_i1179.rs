@@ -12,7 +12,11 @@ fn main() {
     let gg = GgufFile::open(std::path::Path::new(gguf_path)).unwrap();
     let tok = BpeTokenizer::from_gguf(&gg).unwrap();
     let prompt_text = std::fs::read_to_string("../riir-ai/scripts/uzu_t2_prompt.txt").unwrap();
-    let prompt: Vec<u32> = tok.encode(&prompt_text).into_iter().map(|t| t as u32).collect();
+    let prompt: Vec<u32> = tok
+        .encode(&prompt_text)
+        .into_iter()
+        .map(|t| t as u32)
+        .collect();
     println!("prompt {} tokens", prompt.len());
 
     let vocab = fwd.config.vocab_size;
@@ -29,7 +33,9 @@ fn main() {
     // prefill consumes the prompt; the LAST position's logits come from the
     // prefill itself. For the capture test: prefill all but the last token,
     // then forward_token_capture the LAST token at its position.
-    let (_, logits) = fwd.ingest_capture(&prompt[..prompt.len() - 1], 0, &[]).unwrap();
+    let (_, logits) = fwd
+        .ingest_capture(&prompt[..prompt.len() - 1], 0, &[])
+        .unwrap();
     let _ = logits;
     let last = *prompt.last().unwrap();
     let pos = prompt.len() - 1;
@@ -37,11 +43,17 @@ fn main() {
     let feat = &caps[0];
     let sum_sq: f32 = feat.iter().map(|v| v * v).sum();
     let inv = 1.0 / (sum_sq / e as f32 + eps).sqrt();
-    let normed: Vec<f32> = feat.iter().zip(out_norm.iter()).map(|(&f, &w)| f * inv * w).collect();
+    let normed: Vec<f32> = feat
+        .iter()
+        .zip(out_norm.iter())
+        .map(|(&f, &w)| f * inv * w)
+        .collect();
     let mut top: Vec<(u32, f32)> = Vec::new();
     for (v, lrow) in lm_head.chunks_exact(e).enumerate().take(vocab) {
         let mut acc = 0.0f32;
-        for i in 0..e { acc += lrow[i] * normed[i]; }
+        for i in 0..e {
+            acc += lrow[i] * normed[i];
+        }
         if top.len() < 5 {
             top.push((v as u32, acc));
             top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -50,7 +62,12 @@ fn main() {
             top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         }
     }
-    let mut actual: Vec<(u32, f32)> = logits63.iter().copied().enumerate().map(|(i, v)| (i as u32, v)).collect();
+    let mut actual: Vec<(u32, f32)> = logits63
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(i, v)| (i as u32, v))
+        .collect();
     actual.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     println!("reconstructed-from-capture top5 = {:?}", &top[..5]);
     println!("forward's own logits   top5 = {:?}", &actual[..5]);

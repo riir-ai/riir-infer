@@ -398,7 +398,9 @@ mod tests {
         }
         let mut blocks = vec![BlockQ8_0::zeroed(); 2];
         quantize_row_q8_0(&src, &mut blocks);
-        let x: Vec<f32> = (0..2 * Q8_BLOCK_SIZE).map(|i| ((i as f32) * 0.11).cos()).collect();
+        let x: Vec<f32> = (0..2 * Q8_BLOCK_SIZE)
+            .map(|i| ((i as f32) * 0.11).cos())
+            .collect();
 
         let fused = gemv_q8_0_row(&blocks, &x);
 
