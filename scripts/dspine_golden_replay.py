@@ -531,7 +531,11 @@ def e2e_arm(fix: str, raw_root: str) -> int:
 
     block_ids = mx.array([[anchor] + [mask_id] * (t - 1)], dtype=mx.int32)
     rows, stash = model(None, block_ids, caches=caches)
-    v_tokens, v_cand = tail.greedy(rows, stash, anchor)
+    # The tail's row convention: the PROPOSAL rows [γ=T-1, H] (batch + anchor
+    # slot squeezed — the vendor generator passes x[0, 1:]; _split_stash
+    # reconstructs T = n+1 from the stash contract).
+    proposal = rows.reshape(t, H)[1:]
+    v_tokens, v_cand = tail.greedy(proposal, stash, anchor)
     v_tokens_np = np.array(v_tokens).astype(np.int64).ravel()
     v_cand_np = np.array(v_cand).astype(np.int64).ravel()
 
@@ -552,7 +556,7 @@ def e2e_arm(fix: str, raw_root: str) -> int:
     # Diagnostics: the proposal-row fold (the vendor x_in vs the Rust
     # recomputed rows — a mismatch here localizes the tail vs the block).
     try:
-        rows_np = np.array(rows.astype(mx.float32)).astype(np.float32)[0, 1:]
+        rows_np = np.array(rows.astype(mx.float32)).astype(np.float32).reshape(t, H)[1:]
         prop_ref = read_f32(f"{fix}/proposal_rows.f32.bin").reshape(gamma, H)
         rd = float(np.abs(rows_np - prop_ref).max())
         print(f"    diag: proposal rows max abs {rd:.3e} (bf16-round class ≤ ~0.008)")
