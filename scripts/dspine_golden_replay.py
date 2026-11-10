@@ -469,6 +469,8 @@ def e2e_arm(fix: str, raw_root: str) -> int:
     cfg_raw = json.load(open(f"{ckpt_dir}/config.json", encoding="utf-8"))
     if cfg_raw.get("layer_types") is not None:
         cfg_raw["layer_types"] = ["full_attention"] * len(cfg_raw["layer_types"])
+    cfg_raw["use_sliding_window"] = False
+    cfg_raw["sliding_window"] = None
     json.dump(cfg_raw, open(shadow / "config.json", "w", encoding="utf-8"))
     for f in os.listdir(ckpt_dir):
         if f.endswith(".safetensors"):
