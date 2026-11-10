@@ -124,7 +124,7 @@ svd_lbit = []
 # 882+883 substrate, katgpt-rs Bench 886). OPT-IN per the
 # no-default-consumer rule — the dashboard is an offline instrument,
 # never a serving path.
-vk_calibration = ["katgpt-core/fitted_anchor_tables"]
+vk_calibration = []
 # gemma2_qkv (riir-infer Issue 013 T1, 2026-09-28): the serve-shaped
 # quantized-KV gemma-2 forward — `transformer::gemma2_quantized` (the
 # `forward_gemma2_f16` layer stack with the KV cache behind the
@@ -134,7 +134,7 @@ vk_calibration = ["katgpt-core/fitted_anchor_tables"]
 # substrate) and pulls katgpt-kv/kvarn (the designated backend, BOUNDARY
 # allowlist row added with this feature). OPT-IN: a measurement-lane
 # capability, never a default-feature serving path.
-gemma2_qkv = ["katgpt-core/fitted_value_tables", "dep:katgpt-kv", "katgpt-kv/kvarn"]
+gemma2_qkv = ["dep:katgpt-kv", "katgpt-kv/kvarn"]
 # vk_p1_g1 (riir-infer Issue 013 T1, 2026-09-28): the P1 model-bound G1
 # bin — calibration slice → FittedTokenTable, then the PPL arms
 # (f16 control / plain-KVarN / mean-removed) + the cache-level MSE replay
@@ -297,7 +297,7 @@ twt_gemma2 = ["twt_profile", "vk_calibration"]
 # usage_rate_eviction for the sink pins and the baseline arms).
 kv_eviction = [
     "deltanet_inference",
-    "katgpt-core/differential_kv_eviction",
+    "katgpt-core/usage_rate_eviction",
 ]
 
 # sink_audit (katgpt-rs Issue 981 T1/T2): the ONE-TIME per-checkpoint census
@@ -334,7 +334,6 @@ sink_audit = [
 # promotion is katgpt-rs-side and waits on the gates.
 fitted_v_tables = [
     "vk_calibration",
-    "katgpt-core/fitted_value_tables",
     "dep:katgpt-kv",
     "katgpt-kv/kvarn",
 ]
@@ -348,10 +347,10 @@ fitted_v_tables = [
 # forwards katgpt-core's `fitted_v_reconstruct` (the P3 read-path
 # substrate). OPT-IN, measurement-only: promotion is katgpt-rs-side and
 # waits on the gates.
-vk_p3_tg = ["fitted_v_tables", "katgpt-core/fitted_v_reconstruct"]
+vk_p3_tg = ["fitted_v_tables"]
 
 # katgpt-core forwards.
-sparse_mlp = ["katgpt-core/sparse_mlp"]
+sparse_mlp = []
 # riir-infer Issue 1189 — the closed-form fact-write lane (Cells A/B):
 # overlay-at-dequant apply (`closed_form_write::WriteOverlays` folded after
 # the down-proj matvec/matmat at every dense MLP site), the teacher-forced
@@ -361,11 +360,11 @@ sparse_mlp = ["katgpt-core/sparse_mlp"]
 # overlays = byte-identical demote (the base artifact never moves; the
 # envelope pins the base BLAKE3). Serving-posture promotion is OWNER-GATED
 # (bench-946 league posture is not silently re-based).
-closed_form_write = ["deltanet_inference", "katgpt-core/closed_form_weight_write", "katgpt-core/subspace_phase_gate"]
-domain_latent = ["katgpt-core/domain_latent"]
+closed_form_write = ["deltanet_inference", "katgpt-core/quant_error_lora"]
+domain_latent = []
 dllm = ["katgpt-core/dllm"]
-simd_lut_q4k = ["katgpt-core/simd_lut_dequant"]
-causal_validation = ["katgpt-core/adaptive_causal_calibration"]
+simd_lut_q4k = []
+causal_validation = ["katgpt-core/causal_head_importance"]
 deltanet_inference = ["katgpt-core/deltanet_inference"]
 gemma4_inference = ["katgpt-core/gemma4_inference"]
 q2_0_ternary_bridge = ["katgpt-core/ternary_group_scale"]
@@ -439,7 +438,7 @@ bonsai2_hadamard = ["deltanet_ternary_inference"]
 # was dead, Benches 927+930). Packs the packed-load + rotation features plus
 # the katgpt-core probe. OPT-IN, measurement-only (report; no shipped-path
 # change).
-issue929_bonsai2_probe = ["bonsai2_hadamard", "katgpt-core/loop_alignment_probe"]
+issue929_bonsai2_probe = ["bonsai2_hadamard"]
 # katgpt-rs Issue 933 T4 — the fixed-query modelless AttnRes probe on the
 # gemma-2 f16 forward (E5, Research 619 MSAR): deterministic exponential-
 # depth profile replacing the learned `score_weight` for checkpoints
