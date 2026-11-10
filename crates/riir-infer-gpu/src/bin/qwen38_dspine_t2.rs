@@ -40,6 +40,7 @@ const DEFAULT_CKPT_DIR: &str = "/Users/katopz/uzu27b/models/Qwen3.8-27B-DSpine-b
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut fixtures_dir = String::new();
+    let mut e2e_dir = String::new();
     let mut ckpt_dir = DEFAULT_CKPT_DIR.to_string();
     let mut i = 1usize;
     while i < args.len() {
@@ -47,6 +48,10 @@ fn main() {
             "--fixtures" => {
                 i += 1;
                 fixtures_dir = args[i].clone();
+            }
+            "--e2e" => {
+                i += 1;
+                e2e_dir = args[i].clone();
             }
             "--checkpoint" => {
                 i += 1;
@@ -62,6 +67,8 @@ fn main() {
 
     if !fixtures_dir.is_empty() {
         write_fixtures(Path::new(&fixtures_dir));
+    } else if !e2e_dir.is_empty() {
+        e2e_fixture(Path::new(&e2e_dir), Path::new(&ckpt_dir));
     } else {
         shape_walk(Path::new(&ckpt_dir));
     }
@@ -434,4 +441,167 @@ fn blake3_file(path: &Path) -> String {
     let mut hasher = Hasher::new();
     std::io::copy(&mut f, &mut hasher).expect("blake3 read");
     hasher.finalize().to_hex().to_string()
+}
+
+// ── mode 3: the E2E main-path golden fixture (plan 492 T0-residue (b)) ──
+//
+// The Bench-959 lesson: the piecewise replay drove the PIECE functions and
+// never the main inline loop — the message-gate hyperbola shipped at the
+// oracle birth and survived every piecewise pin. This mode drives the REAL
+// `draft_block` main path (5 layers + bridge writes + the serial tail, one
+// call, the vendor-exact rounded posture) on the shape-walk's synthetic
+// posture and dumps EVERYTHING the vendor mirror needs to rebuild the same
+// inputs in MLX: the geometry + seeds (MANIFEST.txt), the two embed rows the
+// block consumes (anchor + mask, bf16-rounded — the stand-in table the vendor
+// side must inject), the raw f32 context captures (pre-bf16-round), and the
+// draft's outputs (tokens / candidates / confidences) plus the tail-trace
+// diagnostics (proposal rows + per-row candidates + idx + probs + the last-
+// write stash pieces) so a mismatch localizes without a second run.
+//
+// The vendor arm (`dspine_golden_replay.py --e2e`) regenerates lm_head and
+// feats from the SAME LCG (seed 777, same draw order: head first, feats
+// second — bit-identical by construction, no 1.25 GB head dump), loads the
+// SAME checkpoint through the vendor's own loader, injects the embed rows +
+// captures, and drives DSpineCodeBridge.__call__ + RefinementTail.greedy
+// end-to-end. The diff bar: chain TOKENS + per-row candidates vs the dump.
+// Confidences are disclosed but excluded from the bar (the vendor greedy
+// path returns no probs; the score→prob walk is pinned piecewise in (d)).
+#[allow(clippy::too_many_lines)]
+fn e2e_fixture(out: &Path, ckpt_dir: &Path) {
+    let t0 = std::time::Instant::now();
+    let st_path = ckpt_dir.join("model.safetensors");
+    let cfg_json = std::fs::read_to_string(ckpt_dir.join("config.json"))
+        .unwrap_or_else(|e| panic!("config.json: {e}"));
+    let cfg = parse_config_json(&cfg_json).unwrap_or_else(|e| panic!("config: {e}"));
+    let digest = blake3_file(&st_path);
+    println!("[t2.e2e] checkpoint blake3 {digest}");
+    if !digest.starts_with(EXPECTED_CKPT_BLAKE3_PREFIX) {
+        eprintln!("[t2.e2e] ⛔ blake3 {digest} does not start with the 1183 pin — refusing");
+        std::process::exit(2);
+    }
+    let w = load_dspine_safetensors(&st_path, &cfg).unwrap_or_else(|e| panic!("load: {e}"));
+
+    // The shape-walk synthetic posture, verbatim (seed, draw order, scales):
+    // lm_head first, feats second.
+    let mut rng = Lcg(777);
+    let lm_head: Vec<f32> = (0..cfg.vocab_size * cfg.n_embd)
+        .map(|_| rng.next_bf16())
+        .collect();
+    let tables = build_serial_tables(
+        &lm_head,
+        &w.model_norm,
+        &w.bridge.feature_write_weights[cfg.n_layer - 1],
+        &w.pv_weight(),
+        &w.bridge.codebook,
+        &cfg,
+    );
+    let mut drafter = DspineDrafter::new(cfg.clone(), w);
+    drafter
+        .set_block_size(8)
+        .unwrap_or_else(|e| panic!("block size: {e}"));
+    let nf = cfg.target_layer_ids.len();
+    let ctx_rows = 32usize;
+    let feats: Vec<f32> = (0..ctx_rows * nf * cfg.n_embd)
+        .map(|_| rng.next_f32() * 0.02)
+        .collect();
+    drafter
+        .append_context(&feats, 0)
+        .unwrap_or_else(|e| panic!("append: {e}"));
+    let embed_row = |tok: u32| -> Vec<f32> {
+        let mut h = blake3::Hasher::new();
+        h.update(&tok.to_le_bytes());
+        let hex = h.finalize().to_hex();
+        (0..cfg.n_embd)
+            .map(|i| {
+                let b = u32::from_str_radix(&hex[(i % 32)..(i % 32) + 1], 16).unwrap_or(0);
+                ((b as f32 / 15.0) * 2.0 - 1.0) * 0.02
+            })
+            .collect()
+    };
+
+    let anchor_token = 151_644u32;
+    let anchor_pos = ctx_rows;
+    let (draft, tr) = drafter
+        .draft_block_trace(anchor_token, anchor_pos, &embed_row, &lm_head, &tables)
+        .unwrap_or_else(|e| panic!("draft: {e}"));
+    let t = drafter.served_block_size();
+    let gamma = t - 1;
+    assert_eq!(draft.tokens.len(), gamma);
+
+    std::fs::create_dir_all(out).unwrap_or_else(|e| panic!("mkdir {out:?}: {e}"));
+    dump_bin(out, "anchor_emb", &embed_row(anchor_token));
+    dump_bin(out, "mask_emb", &embed_row(cfg.mask_token_id));
+    dump_bin(out, "feats", &feats);
+    // The synthetic bf16-valued head, dumped whole (~1.25 GB at the b16
+    // geometry): the Python LCG replay of 312M sequential draws would be
+    // minutes of pure-Python u64 wrapping and an entire avoidable
+    // bit-exactness risk — the dump makes the vendor arm a PURE replay
+    // (zero input reconstruction).
+    dump_bin(out, "lm_head", &lm_head);
+    dump_u32_bin(out, "tokens", &draft.tokens);
+    dump_u32_bin(
+        out,
+        "candidates",
+        &draft
+            .candidates
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>(),
+    );
+    dump_bin(out, "confs", &draft.confidences);
+    // Tail-trace diagnostics (the vendor mirror diffs these to localize a
+    // mismatch without a second run): the proposal rows (the pinned
+    // normed-row fold over the stash raw), the tail rms, and the walk's
+    // idx/probs tables. The stash raw itself is internal — the proposal
+    // rows + tail_rms pin it well enough to localize.
+    dump_bin(out, "proposal_rows", &tr.tail.proposal_rows);
+    dump_bin(out, "tail_rms", &tr.tail.rms);
+    dump_u32_bin(
+        out,
+        "tail_idx",
+        &tr.tail
+            .idx
+            .iter()
+            .flatten()
+            .map(|&v| v as u32)
+            .collect::<Vec<_>>(),
+    );
+    dump_bin(
+        out,
+        "tail_probs",
+        &tr.tail.probs.iter().flatten().copied().collect::<Vec<_>>(),
+    );
+    let mut manifest = String::new();
+    manifest.push_str("# E2E main-path golden fixture (plan 492 T0-residue (b))\n");
+    manifest.push_str(&format!(
+        "- geometry: T={t} gamma={gamma} V={} H={} nf={nf} ctx_rows={ctx_rows} k={}\n",
+        cfg.vocab_size, cfg.n_embd, cfg.head_topk
+    ));
+    manifest.push_str(&format!(
+        "- anchor_token={anchor_token} anchor_pos={anchor_pos} mask_token_id={}\n",
+        cfg.mask_token_id
+    ));
+    manifest.push_str("- lcg_seed=777 draw_order=lm_head,feats lm_head_scale=bf16 feats_scale=0.02 (provenance only — lm_head/feats are DUMPED; the vendor arm reconstructs nothing)\n");
+    manifest.push_str("- checkpoint_blake3=");
+    manifest.push_str(&digest);
+    manifest.push('\n');
+    manifest.push_str("- embed_rows: anchor_emb/mask_emb bf16-ROUNDED (the vendor stand-in table returns these verbatim)\n");
+    manifest.push_str(
+        "- feats: RAW f32 (the Rust side rounds bf16 before fc — the vendor arm casts bf16 too)\n",
+    );
+    manifest.push_str("- diff bar: tokens + candidates (the vendor greedy returns no probs; confs/tail_probs are diagnostics)\n");
+    std::fs::write(out.join("MANIFEST.txt"), manifest).unwrap_or_else(|e| panic!("manifest: {e}"));
+    println!(
+        "[t2.e2e] wrote {} — chain [{}, …] conf {:.3} ({}, {:.1}s)",
+        out.display(),
+        draft
+            .tokens
+            .first()
+            .map(|t| t.to_string())
+            .unwrap_or_default(),
+        draft.confidences.first().copied().unwrap_or(0.0),
+        draft.tokens.len(),
+        t0.elapsed().as_secs_f32()
+    );
 }

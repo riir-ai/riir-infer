@@ -376,16 +376,176 @@ def vendor_replay(fix: str, g: dict, raw_root: str) -> int:
     return rc
 
 
+# ─────────────────── the E2E main-path golden arm ───────────────────
+
+
+def parse_manifest(path: str) -> dict[str, str]:
+    out = {}
+    for line in open(path, encoding="utf-8"):
+        line = line.strip()
+        if line.startswith("- ") and ":" in line:
+            k, v = line[2:].split(":", 1)
+            out[k.strip()] = v.strip()
+        elif line.startswith("- "):
+            out[line[2:].strip()] = ""
+    return out
+
+
+def e2e_arm(fix: str, raw_root: str) -> int:
+    """Plan 492 T0-residue (b) — the MAIN-PATH golden piece.
+
+    Drives the vendor's own pipeline end-to-end on the fixture inputs the
+    Rust `qwen38_dspine_t2 --e2e` dump carries (a pure replay — lm_head,
+    feats, and the embed rows are dumped, nothing reconstructed), and diffs
+    the draft's OUTPUTS (chain tokens + per-row candidates) against the
+    Rust `draft_block` main path. The piecewise replay drives the PIECE
+    functions; this arm drives `DSpineCodeBridge.__call__` inside the
+    vendor's full 5-layer block forward + `RefinementTail.greedy` — the
+    inline composition the 1193 gate bug hid in.
+
+    Bar: tokens bit-exact (0 mismatches) and candidates bit-exact.
+    Sub-ULP matmul/softmax fold-order differences may flip near-tie top-k
+    boundaries — a small candidate-flip count with TOKENS still exact is
+    reported as PASS-with-disclosure (the chain never enters the flipped
+    lane); token mismatches FAIL.
+    """
+    import mlx.core as mx
+
+    sys.path.insert(0, os.path.join(raw_root, "dspine_mlx"))
+    from dspine_mlx.bridge import build_serial_tables
+    from dspine_mlx.model import load_draft
+    from dspine_mlx.propose import RefinementTail
+
+    man = parse_manifest(f"{fix}/MANIFEST.txt")
+    geo = {}
+    for tok in man["geometry"].split():
+        if "=" in tok:
+            k, v = tok.split("=")
+            geo[k] = int(v)
+    t, gamma, V, H, nf, ctx_rows, k = (
+        geo["T"], geo["gamma"], geo["V"], geo["H"], geo["nf"], geo["ctx_rows"], geo["k"],
+    )
+    anchor = int(man["anchor_token"].split()[0])
+    mask_id = int(man["mask_token_id"].split("=")[1].split()[0])
+    rc = 0
+
+    def verdict(name: str, ok: bool, detail: str) -> None:
+        nonlocal rc
+        print(("[PASS] " if ok else "[FAIL] ") + name + ": " + detail)
+        if not ok:
+            rc = 1
+
+    # ── the dumped inputs (pure replay — reconstruct nothing) ──
+    anchor_emb = read_f32(f"{fix}/anchor_emb.f32.bin")
+    mask_emb = read_f32(f"{fix}/mask_emb.f32.bin")
+    feats = read_f32(f"{fix}/feats.f32.bin")
+    lm_head = read_f32(f"{fix}/lm_head.f32.bin").reshape(V, H)
+    tokens_ref = read_u32(f"{fix}/tokens.u32.bin")
+    cand_ref = read_u32(f"{fix}/candidates.u32.bin").reshape(gamma, k)
+    assert lm_head.shape[0] * lm_head.shape[1] == V * H, "lm_head geometry"
+
+    # ── the vendor pipeline, their own loader + classes ──
+    ckpt = man["checkpoint_blake3"]  # pin presence only; load_draft reads the dir
+    ckpt_dir = os.environ.get("DSPINE_CKPT_DIR")
+    if not ckpt_dir:
+        raise SystemExit("DSPINE_CKPT_DIR must name the DSpine checkpoint dir")
+    model, cfg = load_draft(ckpt_dir)
+    assert int(cfg.vocab_size) == V and int(cfg.hidden_size) == H, "cfg geometry"
+
+    head_w = mx.array(lm_head).astype(mx.bfloat16)
+
+    class SynHead:
+        """HeadAccess stand-in over the dumped synthetic head (dense)."""
+
+        quantized = False
+
+        def __init__(self):
+            self.weight = head_w
+
+        def rows(self, ids):
+            return head_w[mx.array(np.asarray(ids).astype(np.int32))]
+
+        def rows_range(self, a, b):
+            return head_w[a:b]
+
+        def matmul(self, rows):
+            return rows.astype(mx.float32) @ head_w.astype(mx.float32).T
+
+    class SynEmbed:
+        """embed_tokens stand-in: the two dumped bf16-rounded rows."""
+
+        def __init__(self):
+            self.table = mx.array(np.stack([anchor_emb, mask_emb])).astype(
+                mx.bfloat16
+            )
+
+        def __call__(self, ids):
+            return self.table[mx.array(np.asarray(ids).astype(np.int32))]
+
+    model._embed_tokens = SynEmbed()
+    model.set_block_size(t)
+
+    caches = model.make_cache()
+    model.append_context(
+        mx.array(feats).reshape(1, ctx_rows, nf * H).astype(mx.bfloat16), caches
+    )
+
+    bridge = model.selected_prefix_bridge
+    tg, tsv = build_serial_tables(
+        head_rows=SynHead().rows_range,
+        vocab_size=V,
+        norm_w=model.norm.weight,
+        write_w=bridge.feature_write_weights[-1],
+        pv_w=bridge.packed_weight[bridge.rank :],
+        codebook=bridge.codebook,
+    )
+    tail = RefinementTail(model, SynHead(), tg, tsv)
+
+    block_ids = mx.array([[anchor] + [mask_id] * (t - 1)], dtype=mx.int32)
+    rows, stash = model(None, block_ids, caches=caches)
+    v_tokens, v_cand = tail.greedy(rows, stash, anchor)
+    v_tokens_np = np.array(v_tokens).astype(np.int64).ravel()
+    v_cand_np = np.array(v_cand).astype(np.int64).ravel()
+
+    # ── the diff ──
+    cand_mism = int((v_cand_np != cand_ref.astype(np.int64)).sum())
+    verdict(
+        "e2e candidates",
+        cand_mism == 0,
+        f"{cand_mism}/{cand_ref.size} candidate slots differ (matmul fold-order ULP class)",
+    )
+    tok_mism = int((v_tokens_np != tokens_ref.astype(np.int64)).sum())
+    verdict(
+        "e2e tokens",
+        tok_mism == 0,
+        f"{tok_mism}/{gamma} chain tokens differ"
+        + ("" if tok_mism == 0 else f" — vendor {v_tokens_np.tolist()} vs rust {tokens_ref.tolist()}"),
+    )
+    # Diagnostics: the proposal-row fold (the vendor x_in vs the Rust
+    # recomputed rows — a mismatch here localizes the tail vs the block).
+    try:
+        rows_np = np.array(rows.astype(mx.float32)).astype(np.float32)[0, 1:]
+        prop_ref = read_f32(f"{fix}/proposal_rows.f32.bin").reshape(gamma, H)
+        rd = float(np.abs(rows_np - prop_ref).max())
+        print(f"    diag: proposal rows max abs {rd:.3e} (bf16-round class ≤ ~0.008)")
+    except Exception as e:  # noqa: BLE001 — diagnostics never fail the arm
+        print(f"    diag: proposal-row diff unavailable ({e})")
+    return rc
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fixtures", default=DEFAULT_FIXTURES)
     ap.add_argument("--raw", default=DEFAULT_RAW)
     ap.add_argument("--inspect", action="store_true")
+    ap.add_argument("--e2e", action="store_true", help="the main-path golden arm")
     args = ap.parse_args()
     g = parse_geometry(f"{args.fixtures}/MANIFEST.md")
     if args.inspect:
         inspect(args.fixtures, g)
         return
+    if args.e2e:
+        raise SystemExit(e2e_arm(args.fixtures, args.raw) or 0)
     raise SystemExit(vendor_replay(args.fixtures, g, args.raw) or 0)
 
 
