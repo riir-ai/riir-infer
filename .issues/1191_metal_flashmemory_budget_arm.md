@@ -2,6 +2,8 @@
 
 **Status:** OPEN — `- [ ]` tasks below. Claimed lane; forward-only per the compute law (2026-11-09): the T4 measured cell runs on METAL, never a long CPU cell. CPU stays as the short parity snapshot only.
 
+**LARGE-UPDATE 2026-11-11 (~15:45 +0700, lane `zed-95d14db9@m3` — under the owner's speed directive; the prior lease `amo-zed-1191metal@amo` expired 10:35Z with the raise unshipped and the 128k lane stalled 3 days on the CPU fallback at 1.1 tok/s):** the parked capacity call LANDED — `FM_MAX_SEL` 128 → 1024 + `FM_MAX_BLOCKS_SMEM` 2048 → 4096 (parity-faithful per issue 1200's own analysis; the CPU rule has no cap, the GPU constant was the fork). Envelope tests 7/7 at `--features flashmemory_budget_metal` (the 1200 incident thresholds re-pinned as cap-independent arithmetic facts; the refusal fixture is now cap-relative; the T4 operating geometry — 2049 blocks at both operating rhos — pinned IN-envelope). Metal smoke green on amo (dense 12.5 / ρ 10.7–12.2 tok/s at ctx 2048) and **the 128K Metal trio is RUNNING on amo** (`~/riir-bench/i1117_128k_metal/`, separate out dir — device-posture bins never mix with the CPU trio's). The bmo CPU ρ=0.30 restart (job `01a1c9ac`, exclusive) stays queued for the host-identity leg. `--resume` stays unproven for sparse arms — riir-infer issue 1204 (the state-rebuild replay is missing from the code); the Metal trio runs fresh, not resumed.
+
 **Claimed:** amo-zed-1191metal@amo, 1794220517, expires 2026-11-11T10:35:17+00:00
 
 ## Why

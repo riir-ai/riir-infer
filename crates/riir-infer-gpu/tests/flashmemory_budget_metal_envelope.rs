@@ -4,10 +4,14 @@
 //! writes into, and the block count must never exceed the shared-memory
 //! slice. Pure arithmetic (no device): the host mirror
 //! [`fm_budget_select_count`] is pinned operation-for-operation against
-//! the kernel's f32 rule, and the refusal thresholds are pinned to the
-//! issue's MEASURED failure points — the 32k ρ0.3 arm panicked
-//! host-side at n_blocks 429 (`index 512, len 512`), the 128k ρ0.15 arm
-//! WEDGED the device uninterruptible at n_blocks 857.
+//! the kernel's f32 rule, the refusal fires for any config past the
+//! CURRENT capacity (FM_MAX_SEL 1024 / smem 4096 — raised 2026-11-11,
+//! owner speed directive, parity-faithful per issue 1200), and the
+//! issue's MEASURED arithmetic facts stay pinned as absolutes — the 32k
+//! ρ0.3 arm panicked host-side at n_blocks 429→429+ (`index 512, len
+//! 512`) when the cap was 128, the 128k ρ0.15 arm WEDGED the device at
+//! n_blocks 857. The T4 operating geometry (block-64 @ 128K = 2049
+//! blocks, ρ 0.15/0.3) must be IN-envelope — that is the raise's point.
 //!
 //! Posture: `--features flashmemory_budget_metal` (the module is
 //! feature-gated in lib.rs; this row is the reader+count protection —
@@ -49,14 +53,16 @@ fn select_count_pins_the_issue_measured_thresholds() {
     assert_eq!(fm_budget_select_count(512, 0.3), 154);
     // The bankable clean arm: rho 0.15 x 512 -> 77 (no overflow).
     assert_eq!(fm_budget_select_count(512, 0.15), 77);
-    // The exact boundaries: LAST passing / FIRST overflowing block count.
-    assert_eq!(fm_budget_select_count(428, 0.3) as usize, FM_MAX_SEL);
-    assert_eq!(fm_budget_select_count(429, 0.3) as usize, FM_MAX_SEL + 1);
+    // The exact boundaries under the OLD cap (128 — the incident facts,
+    // kept as absolute arithmetic pins: the count arithmetic is
+    // cap-independent).
+    assert_eq!(fm_budget_select_count(428, 0.3), 128);
+    assert_eq!(fm_budget_select_count(429, 0.3), 129);
     // The 128k wedge threshold: the frozen log line was pos 54,784
     // (n_blocks 856, count 128 — clean); the NEXT token opened block 857
     // (count 129) and the device wedged.
-    assert_eq!(fm_budget_select_count(856, 0.15) as usize, FM_MAX_SEL);
-    assert_eq!(fm_budget_select_count(857, 0.15) as usize, FM_MAX_SEL + 1);
+    assert_eq!(fm_budget_select_count(856, 0.15), 128);
+    assert_eq!(fm_budget_select_count(857, 0.15), 129);
     // Degenerate rows: n=1 keeps only the current block; small n clamps
     // to the whole row.
     assert_eq!(fm_budget_select_count(1, 0.9), 1);
@@ -64,25 +70,26 @@ fn select_count_pins_the_issue_measured_thresholds() {
 }
 
 #[test]
-#[should_panic(expected = "budget rule needs 154 selection slots")]
-fn envelope_check_refuses_the_32k_panic_config() {
-    fm_budget_envelope_check("test", 512, 0.3);
-}
-
-#[test]
-#[should_panic(expected = "budget rule needs 129 selection slots")]
-fn envelope_check_refuses_the_128k_wedge_config() {
-    fm_budget_envelope_check("test", 857, 0.15);
+#[should_panic(expected = "selection slots")]
+fn envelope_check_refuses_past_the_current_cap() {
+    // One step past the largest n_blocks the CURRENT cap admits at this
+    // rho — the refusal fixture stays cap-relative, never re-pinned by
+    // hand when the capacity moves again.
+    let max = fm_budget_max_n_blocks(0.3);
+    fm_budget_envelope_check("test", max + 1, 0.3);
 }
 
 #[test]
 fn envelope_check_passes_the_in_envelope_configs() {
-    // The pre-registered operating point and the bankable clean arms —
-    // these must NEVER refuse (the refusal is byte-neutral below the cap).
+    // The bankable clean arms from the 128-cap era — refusal is
+    // byte-neutral below the cap, so these keep passing after a raise.
     fm_budget_envelope_check("test", 512, 0.15);
-    fm_budget_envelope_check("test", 428, 0.3);
-    fm_budget_envelope_check("test", 856, 0.15);
+    fm_budget_envelope_check("test", 512, 0.3);
     fm_budget_envelope_check("test", 1, 0.15);
+    // THE T4 OPERATING GEOMETRY — 128K at block-64 = 2049 blocks. These
+    // refused before the 2026-11-11 raise and must NEVER refuse now:
+    fm_budget_envelope_check("test", 2049, 0.15);
+    fm_budget_envelope_check("test", 2049, 0.3);
 }
 
 #[test]
@@ -99,14 +106,15 @@ fn max_n_blocks_is_maximal_for_the_operating_rhos() {
             "max not maximal at rho={rho}: n={max} (n+1 also fits)"
         );
     }
-    // The named operating points, pinned: block-64 envelopes 54.8K at
-    // rho 0.15 and 27.4K at rho 0.3 (the issue's honest envelope finding).
-    assert_eq!(fm_budget_max_n_blocks(0.15), 856);
-    assert_eq!(fm_budget_max_n_blocks(0.3), 428);
+    // The named operating geometry, pinned: at block-64 @ 128K (2049
+    // blocks) both operating rhos must fit — that is the 2026-11-11
+    // raise's acceptance fact (ρ0.3 → 615 picks, ρ0.15 → 308).
+    assert!(fm_budget_max_n_blocks(0.15) >= 2049);
+    assert!(fm_budget_max_n_blocks(0.3) >= 2049);
 }
 
 #[test]
-#[should_panic(expected = "2049 blocks > the 2048 shared-memory ceiling")]
+#[should_panic(expected = "shared-memory ceiling")]
 fn blocks_check_refuses_past_the_smem_slice() {
     fm_budget_blocks_check("test", FM_MAX_BLOCKS_SMEM + 1);
 }
