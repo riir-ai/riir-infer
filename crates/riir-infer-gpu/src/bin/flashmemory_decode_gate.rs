@@ -362,6 +362,27 @@ fn arm_bin_path(out: &std::path::Path, name: &str) -> std::path::PathBuf {
     out.join(format!("{name}.bin"))
 }
 
+/// The KV-bytes proxy sample at one position — the `retain_every` sampling's
+/// single home: the fresh loop and the resume replay both call it, so a
+/// resumed arm's `mean_selected_fraction` is RECOMPUTED over the same
+/// samples in the same order (never estimated from the prefix's mean) and
+/// matches a fresh run's exactly. `None` = the layer is absent or the
+/// reduction denominator is zero (the caller counts nothing).
+fn selection_sample(
+    fm: &FlashMemoryDecodeState,
+    last_attn_layer: usize,
+    pos: usize,
+) -> Option<f64> {
+    let st = fm.layers[last_attn_layer].as_ref()?;
+    let selection = st.selector.selection();
+    let (selected, total, _) = kv_reduction_ratio(selection, &st.block_cache, pos + 1);
+    if total > 0 {
+        Some(selected as f64 / total as f64)
+    } else {
+        None
+    }
+}
+
 fn percentile_with_support(rows: &mut [f32], p: f64) -> (f32, usize) {
     rows.sort_by(|a, b| a.total_cmp(b));
     let n = rows.len();
@@ -872,21 +893,6 @@ fn main() -> Result<()> {
         let mut arm_argmax = vec![0usize; steps];
         let mut selected_sum = 0f64;
         let mut selected_n = 0f64;
-        // The KV-bytes proxy sample at one position — the `retain_every`
-        // sampling's single home: the fresh loop and the resume replay both
-        // call it, so a resumed arm's `mean_selected_fraction` is RECOMPUTED
-        // over the same samples in the same order (never estimated from the
-        // prefix's mean) and matches a fresh run's exactly.
-        let mut sample_selection = |fm: &FlashMemoryDecodeState, pos: usize| {
-            if let Some(st) = &fm.layers[last_attn_layer] {
-                let selection = st.selector.selection();
-                let (selected, total, _) = kv_reduction_ratio(selection, &st.block_cache, pos + 1);
-                if total > 0 {
-                    selected_sum += selected as f64 / total as f64;
-                    selected_n += 1.0;
-                }
-            }
-        };
         let mut start_pos = 0usize;
         if let Some((prefix, cursor)) = resumed.as_ref() {
             // --resume: rebuild the flashmemory + KV/GDN state by replaying
@@ -921,7 +927,10 @@ fn main() -> Result<()> {
                 arm_nll[pos] = nll(logits, tokens[pos + 1]) as f32;
                 arm_argmax[pos] = argmax(logits);
                 if pos % args.retain_every == 0 && pos > 0 {
-                    sample_selection(&fm, pos);
+                    if let Some(frac) = selection_sample(&fm, last_attn_layer, pos) {
+                        selected_sum += frac;
+                        selected_n += 1.0;
+                    }
                 }
             }
             if arm_nll[..*cursor] != prefix.nll[..*cursor]
@@ -958,7 +967,10 @@ fn main() -> Result<()> {
             arm_nll[pos] = nll(logits, tokens[pos + 1]) as f32;
             arm_argmax[pos] = argmax(logits);
             if pos % args.retain_every == 0 && pos > 0 {
-                sample_selection(&fm, pos);
+                if let Some(frac) = selection_sample(&fm, last_attn_layer, pos) {
+                    selected_sum += frac;
+                    selected_n += 1.0;
+                }
             }
             // Per-bucket prefix: a mid-arm kill keeps the counted rows — the
             // same progressive persistence the dense arm has. The m3 v2 run
