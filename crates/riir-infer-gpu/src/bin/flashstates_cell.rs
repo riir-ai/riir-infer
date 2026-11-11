@@ -437,15 +437,17 @@ impl DriveCapture {
             let off_g = ((idx * self.n_gdn + gl) * self.gdn_elems * 4) as u64;
             let off_c = ((idx * self.n_gdn + gl) * self.conv_elems * 4) as u64;
             unsafe {
+                // SRC is the layer's own (small) state buffer — offset 0;
+                // the arena slot offset belongs to the DST only.
                 copy_range_f32_launch(
                     &self.client,
-                    gdn_h.clone().offset_start(off_g),
+                    gdn_h.clone(),
                     self.arena_gdn.clone().offset_start(off_g),
                     self.gdn_elems,
                 );
                 copy_range_f32_launch(
                     &self.client,
-                    conv_h.clone().offset_start(off_c),
+                    conv_h.clone(),
                     self.arena_conv.clone().offset_start(off_c),
                     self.conv_elems,
                 );
