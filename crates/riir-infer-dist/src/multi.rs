@@ -34,9 +34,12 @@
 //! only sends are 8-byte replies, which never fill a socket buffer, with
 //! a `recv` between them (the same invariant T2.3a rests on).
 //!
-//! Scope notes (honest residue): kernel-level micro-batching is NOT
-//! here — two streams' tokens still compute as two `step` calls on the
-//! tail (batching them into one dispatch is a forwarder rung — Phase 4
+//! Scope notes (honest residue): kernel-level micro-batching (one
+//! batched dispatch for both streams) is NOT here — with the fused-batch
+//! layer interleave armed (issue 1199 rung b, `RIIR_TAIL_LAYER_INTERLEAVE`),
+//! two streams' tokens compute as interleaved PER-LAYER legs on the tail
+//! (the CPU-stage alternation-tax fix), still two separate dispatches per
+//! layer; true kernel micro-batching remains a forwarder rung (Phase 4
 //! measured batch-1 decode launch-bound, so the rung is real, and it is
 //! not this module's). Admission: the static door ([`run_head_multi`])
 //! pins the request table; the joining door ([`run_head_multi_admit`],
@@ -90,6 +93,21 @@ fn async_finish_armed() -> bool {
             Ok("1") | Ok("true") | Ok("on")
         )
     })
+}
+
+/// Issue 1199 rung (b), PROMOTE-ONLY: the tail's fused batch interleaves
+/// its streams at LAYER granularity instead of alternating whole-step
+/// chains (the alternation tax — tail fwd 2.6–2.9× under 2-stream
+/// round-robin, 1198's T1 evidence). Exact-literal arm; unset or any
+/// other value = the incumbent submit/finish rounds, byte-identical.
+/// Read per BatchN frame (not OnceLock) on purpose: the measurement rigs
+/// flip the arm between cells in-process, and the read is once per fused
+/// batch (µs against a ms-scale batch), never per token.
+fn tail_layer_interleave_armed() -> bool {
+    matches!(
+        std::env::var("RIIR_TAIL_LAYER_INTERLEAVE").as_deref(),
+        Ok("1") | Ok("true") | Ok("on")
+    )
 }
 
 impl StepTiming {
@@ -999,19 +1017,66 @@ pub fn run_tail_multi<T: Transport>(
                     track.next_pos += 1;
                     steps += 1;
                 }
-                for (row, &(seq, pos)) in batch_rows.iter().enumerate() {
-                    let stage: &mut dyn StageCompute = &mut *stages[seq as usize];
-                    let lo = row * hidden_dim;
-                    stage.step_submit(0, pos, &batch_hidden[lo..lo + hidden_dim]);
-                }
-                for &(seq, pos) in batch_rows.iter() {
-                    let logits = stages[seq as usize].step_finish();
-                    on_logits(seq, pos, logits);
-                    let id = argmax_first(logits);
-                    let mut reply_buf = [0u8; 8];
-                    reply_buf[..4].copy_from_slice(&seq.to_le_bytes());
-                    reply_buf[4..].copy_from_slice(&id.to_le_bytes());
-                    link.send_frame(FrameKind::TokenStream, &reply_buf)?;
+                if tail_layer_interleave_armed()
+                    && batch_rows
+                        .iter()
+                        .all(|(s, _)| stages[*s as usize].layer_split_supported())
+                {
+                    // Issue 1199 rung (b): layer-granular interleave — all
+                    // rows begin, then one LAYER across every stream per
+                    // pass (both streams' layer-L legs reuse the shared
+                    // layer-L weights back to back), then end + replies in
+                    // the head's FIFO order. Per-stream arithmetic is the
+                    // same begin→ascending-layers→end walk the whole-step
+                    // call runs, so the composition is bit-identical by
+                    // construction (the interleave G1 gate pins it against
+                    // 1-box oracle).
+                    let (lo, hi) = stages[batch_rows[0].0 as usize].layer_split_range();
+                    let mismatched = batch_rows
+                        .iter()
+                        .any(|(s, _)| stages[*s as usize].layer_split_range() != (lo, hi));
+                    if mismatched {
+                        let win = (lo, hi);
+                        return Err(proto(format!(
+                            "fused batch: rows report different layer windows {win:?} — interleave refused"
+                        )));
+                    }
+                    let t = t_now(st.armed);
+                    for (row, &(seq, pos)) in batch_rows.iter().enumerate() {
+                        let h0 = row * hidden_dim;
+                        stages[seq as usize].step_begin(0, pos, &batch_hidden[h0..h0 + hidden_dim]);
+                    }
+                    for layer in lo..hi {
+                        for &(seq, _) in batch_rows.iter() {
+                            stages[seq as usize].step_layer(layer);
+                        }
+                    }
+                    for &(seq, pos) in batch_rows.iter() {
+                        let logits = stages[seq as usize].step_end();
+                        on_logits(seq, pos, logits);
+                        let id = argmax_first(logits);
+                        let mut reply_buf = [0u8; 8];
+                        reply_buf[..4].copy_from_slice(&seq.to_le_bytes());
+                        reply_buf[4..].copy_from_slice(&id.to_le_bytes());
+                        link.send_frame(FrameKind::TokenStream, &reply_buf)?;
+                    }
+                    t_add(t, &mut st.fwd_ns);
+                    st.flush("tail", false);
+                } else {
+                    for (row, &(seq, pos)) in batch_rows.iter().enumerate() {
+                        let stage: &mut dyn StageCompute = &mut *stages[seq as usize];
+                        let lo = row * hidden_dim;
+                        stage.step_submit(0, pos, &batch_hidden[lo..lo + hidden_dim]);
+                    }
+                    for &(seq, pos) in batch_rows.iter() {
+                        let logits = stages[seq as usize].step_finish();
+                        on_logits(seq, pos, logits);
+                        let id = argmax_first(logits);
+                        let mut reply_buf = [0u8; 8];
+                        reply_buf[..4].copy_from_slice(&seq.to_le_bytes());
+                        reply_buf[4..].copy_from_slice(&id.to_le_bytes());
+                        link.send_frame(FrameKind::TokenStream, &reply_buf)?;
+                    }
                 }
             }
             k => return Err(proto(format!("unexpected {k:?} frame mid-stream"))),

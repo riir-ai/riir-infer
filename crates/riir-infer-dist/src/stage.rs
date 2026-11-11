@@ -3,7 +3,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use riir_infer_core::deltanet::ternary_forward::forward_qwen_deltanet_ternary_range;
+use riir_infer_core::deltanet::ternary_forward::{
+    forward_qwen_deltanet_ternary_layer_at, forward_qwen_deltanet_ternary_range,
+};
 use riir_infer_core::deltanet::{
     HybridCache, HybridForwardScratch, QwenDeltaNetTernaryWeights, WeightScope,
     effective_rotary_dim,
@@ -60,6 +62,51 @@ pub trait StageCompute {
     /// defer); pairing with [`Self::step_finish`] stays EXACTLY ONE — the
     /// same bit-for-bit law as `submit`+`finish`.
     fn schedule_async_finish(&mut self) {}
+
+    /// Layer-granular step split (issue 1199 rung b): the tail's fused
+    /// batch can interleave its streams at LAYER granularity — both
+    /// streams' layer-L legs run back to back, so the shared layer-L
+    /// weights stay resident while the per-stream state slices stay
+    /// small — instead of alternating whole-step chains. The split is
+    /// `step_begin` → one [`Self::step_layer`] per layer of
+    /// [`Self::layer_split_range`] in ascending order → [`Self::step_end`],
+    /// which composes back into exactly [`Self::step`] per stream (same
+    /// helper, same pool posture, same per-layer order — the G1 bar is the
+    /// 1-box oracle, pinned by `tests/multi_stream_interleave_g1.rs`).
+    /// Default: unsupported — the tail falls back to the whole-step
+    /// submit/finish rounds. A backend that reports support must refuse
+    /// (loud) any out-of-order split call; misuse is a protocol bug,
+    /// never a silent skip.
+    fn layer_split_supported(&self) -> bool {
+        false
+    }
+
+    /// The absolute layer window the split walks (`range.lo..range.hi`).
+    /// Only meaningful when [`Self::layer_split_supported`]; all rows of
+    /// one fused batch must report the SAME window (the tail refuses
+    /// mismatched windows loud — one stage cannot interleave layers
+    /// another stage does not own).
+    fn layer_split_range(&self) -> (usize, usize) {
+        (0, self.n_layer() as usize)
+    }
+
+    /// Begin a split step: the first stage performs its embedding lookup
+    /// from `token` (ignoring `input`); later stages copy `input`
+    /// (`hidden_dim` wide) into their hidden buffer. Refuses a double
+    /// begin.
+    fn step_begin(&mut self, _token: u32, _pos: usize, _input: &[f32]) {}
+
+    /// Run ONE layer of the split (absolute index, strictly ascending —
+    /// a skip or repeat refuses loud). Must follow a [`Self::step_begin`].
+    fn step_layer(&mut self, _layer: usize) {}
+
+    /// Complete the split: the last stage runs final norm + LM head and
+    /// the return is the logits; otherwise the hidden out. Exactly the
+    /// slice [`Self::step_finish`] would have returned. Refuses an
+    /// incomplete split (layers missing).
+    fn step_end(&mut self) -> &[f32] {
+        unimplemented!("step_end on a stage that does not support the layer split")
+    }
 
     /// Run this stage's window over one prefill CHUNK of consecutive
     /// positions `base_pos..base_pos + n` (T2.3b). The first stage reads
@@ -183,6 +230,16 @@ pub struct TernaryCpuStage {
     x: Vec<f32>,
     range: LayerRange,
     handshake: StageHandshake,
+    /// Issue 1199 rung (b): the in-flight layer-split cursor. `Some`
+    /// between `step_begin` and `step_end`; the strict ordering (no double
+    /// begin, no skipped/repeated layer, no early end) is refused loud —
+    /// a mis-ordered split is a protocol bug, never a silent skip.
+    split: Option<SplitCursor>,
+}
+
+struct SplitCursor {
+    pos: usize,
+    next_layer: usize,
 }
 
 impl TernaryCpuStage {
@@ -208,6 +265,7 @@ impl TernaryCpuStage {
             x,
             range,
             handshake,
+            split: None,
         })
     }
 }
@@ -262,6 +320,81 @@ impl StageCompute for TernaryCpuStage {
             self.config.n_embd
         };
         &self.x[..width]
+    }
+
+    fn layer_split_supported(&self) -> bool {
+        true
+    }
+
+    fn layer_split_range(&self) -> (usize, usize) {
+        (self.range.lo as usize, self.range.hi as usize)
+    }
+
+    fn step_begin(&mut self, token: u32, pos: usize, input: &[f32]) {
+        assert!(
+            self.split.is_none(),
+            "step_begin inside an unfinished split — the tail's interleave protocol is mis-ordered"
+        );
+        let n = self.config.n_embd;
+        if self.range.is_first() {
+            riir_infer_core::deltanet::ternary_forward::ternary_embed_token_into(
+                &mut self.x,
+                &self.weights,
+                n,
+                token as usize,
+            );
+        } else {
+            self.x[..n].copy_from_slice(&input[..n]);
+        }
+        self.split = Some(SplitCursor {
+            pos,
+            next_layer: self.range.lo as usize,
+        });
+    }
+
+    fn step_layer(&mut self, layer: usize) {
+        let Some(cur) = self.split.as_mut() else {
+            panic!("step_layer {layer} outside a split — step_begin must run first");
+        };
+        assert!(
+            layer == cur.next_layer,
+            "step_layer {layer} != expected {} — the split walks strictly ascending",
+            cur.next_layer
+        );
+        let pos = cur.pos;
+        forward_qwen_deltanet_ternary_layer_at(
+            &mut self.x,
+            &self.weights,
+            &mut self.cache,
+            pos,
+            &self.config,
+            &mut self.scratch,
+            &self.rope,
+            layer,
+        );
+        cur.next_layer += 1;
+    }
+
+    fn step_end(&mut self) -> &[f32] {
+        let Some(cur) = self.split.take() else {
+            panic!("step_end outside a split — step_begin must run first");
+        };
+        assert!(
+            cur.next_layer == self.range.hi as usize,
+            "step_end with layers [{}, {}) unrun — the split must walk every layer",
+            cur.next_layer,
+            self.range.hi
+        );
+        if self.range.is_last(self.config.n_layer as u32) {
+            riir_infer_core::deltanet::ternary_forward::forward_qwen_deltanet_ternary_finalize_into(
+                &mut self.x,
+                &self.weights,
+                &self.config,
+                &mut self.scratch,
+            );
+            return &self.x[..self.config.vocab_size];
+        }
+        &self.x[..self.config.n_embd]
     }
 }
 

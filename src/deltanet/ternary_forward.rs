@@ -1508,6 +1508,73 @@ pub fn forward_qwen_deltanet_ternary_range<'a>(
     })
 }
 
+/// The stage step split's finalize leg (issue 1199 rung b): final RMSNorm
+/// then LM head into `x`, inside the same decode-pool wrapper the range
+/// entry point uses — the split's end phase keeps the incumbent's pool
+/// posture (the head matvec is real parallel work; running it off-pool
+/// would trade a pool hop per step for nothing). Hook = `None`, exactly
+/// the range path. Begin's embedding leg needs no wrapper (row dequant,
+/// no parallel work): only this leg and the per-layer legs carry the
+/// pool.
+#[cfg(feature = "multi_host")]
+pub fn forward_qwen_deltanet_ternary_finalize_into(
+    x: &mut [f32],
+    weights: &QwenDeltaNetTernaryWeights,
+    config: &Config,
+    scratch: &mut HybridForwardScratch,
+) {
+    let rotation = weights.rotation.as_ref();
+    super::on_decode_pool(move || {
+        ternary_lm_head_into(x, weights, config, scratch, rotation, None);
+    })
+}
+
+/// The stage step split's ONE-LAYER leg (issue 1199 rung b): run the
+/// absolute `layer_idx`'s body inside the same decode-pool wrapper the
+/// range entry point uses, so begin + per-layer legs + end compose back
+/// into exactly [`forward_qwen_deltanet_ternary_range`] — same helper, same
+/// pool posture, same per-layer order. Bit-identity is by construction and
+/// pinned by the dist-crate interleave gates (`multi_stream_interleave_g1`).
+///
+/// The hook arms are hardcoded `None` — the range entry point the stages
+/// ride passes exactly that (the capture/TWT hooks are audition machinery,
+/// never a stage posture).
+#[cfg(feature = "multi_host")]
+#[allow(clippy::too_many_arguments)]
+pub fn forward_qwen_deltanet_ternary_layer_at(
+    x: &mut [f32],
+    weights: &QwenDeltaNetTernaryWeights,
+    cache: &mut HybridCache,
+    pos: usize,
+    config: &Config,
+    scratch: &mut HybridForwardScratch,
+    rope_freq: &crate::rope::RopeFreqTable,
+    layer_idx: usize,
+) {
+    let layer_weights = &weights.layers[layer_idx];
+    let is_linear = weights.layer_types[layer_idx] == DeltaNetLayerType::DeltaNet;
+    let rotation = weights.rotation.as_ref();
+    super::on_decode_pool(move || {
+        qwen_deltanet_ternary_layer_body(
+            x,
+            layer_weights,
+            is_linear,
+            &mut cache.deltanet_state.recurrent_states[layer_idx],
+            &mut cache.deltanet_state.conv_states[layer_idx],
+            &mut cache.kv_cache.layers[layer_idx],
+            pos,
+            layer_idx,
+            config,
+            scratch,
+            rope_freq,
+            rotation,
+            None,
+            None,
+            None,
+        );
+    })
+}
+
 /// Embedding lookup — ternary wte row dequant + folded-basis restore.
 /// VERBATIM extraction from [`forward_qwen_deltanet_ternary_body`] (step 1)
 /// shared with the FlashMemory decode body (Issue 1117). Issue 980: a
@@ -1515,7 +1582,10 @@ pub fn forward_qwen_deltanet_ternary_range<'a>(
 /// restored right after the lookup — Hadamard first, sign second (the
 /// inverse of the folded-matmul transform; fork build_inp_embd:
 /// `h = s * (H z)`).
-fn ternary_embed_token_into(
+///
+/// Public for the stage step split (issue 1199 rung b): the split's begin
+/// phase is exactly this call on the first stage.
+pub fn ternary_embed_token_into(
     x: &mut [f32],
     weights: &QwenDeltaNetTernaryWeights,
     n_embd: usize,
@@ -1534,7 +1604,10 @@ fn ternary_embed_token_into(
 /// [`forward_qwen_deltanet_ternary_body`] (steps 3–4) shared with the
 /// FlashMemory decode body (Issue 1117). Writes logits into
 /// `x[..config.vocab_size]`.
-fn ternary_lm_head_into(
+///
+/// Public for the stage step split (issue 1199 rung b): the split's end
+/// phase is exactly this call on the last stage.
+pub fn ternary_lm_head_into(
     x: &mut [f32],
     weights: &QwenDeltaNetTernaryWeights,
     config: &Config,
