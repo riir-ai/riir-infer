@@ -38,5 +38,5 @@ The rig job's corpus recipe (`/tmp/i1188_corpus.txt`, "the market prose paragrap
 - [x] Corpus recipe reconstructed + unit committed; ×28 digest byte-matches the pin.
 - [x] bmo model presence + full sha256 verified over the bridge.
 - [x] Plan committed (this file) with the job body; highwater 630→631.
-- [ ] Rig job queued (`agent-mail rig run bmo --exclusive`, notify amo) — same commit as the queueing act.
+- [x] Rig job queued (`agent-mail rig run bmo --exclusive`, notify amo) — same commit as the queueing act.
 - [ ] Run lands: 16/16 engagement + determinism + sanity gates; T2 ranked table written; bench record; issue rows closed.
