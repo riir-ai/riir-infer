@@ -1,7 +1,9 @@
 # Issue 1186 — CQ3 league cell on the qwen3.8 dense lane (Cactus whole-model quant, katgpt-rs issue 987 lead A3)
 
 **Status:** IN PROGRESS — T1 + T2a LANDED 2026-11-09 (this box); T2b/T3/T4 open. Execution routes 4090 (league lane — the Bout law applies; run ALONE, box state recorded, engagement proof first).
-**Claimed:** zed-m3-cq3@0, 1794167021, expires 2026-11-10T19:43:41+00:00
+**Lease closed:** zed-m3-cq3@0, 1794167021, was expires 2026-11-10T19:43:41+00:00 — EXPIRED (T2b opponent-half state: amo job 01a1bceb has NO log on amo 2026-11-11 — its artifacts need re-verification or a re-run of scripts/cq3_league/prep_opponent_arm.sh before T3); lane re-taken by amo-zed-1186cq3
+**Claimed:** amo-zed-1186cq3, 1794385650, expires 2026-11-13T08:27:30+00:00
+(scope: T2b ours half — the capture seam + cq3_quantize driver + its fixture battery; then T3 the 4090 window ALONE with the PROVENANCE line, T4 the GOAT verdict)
 
 ## What the lead asks (from 987)
 
