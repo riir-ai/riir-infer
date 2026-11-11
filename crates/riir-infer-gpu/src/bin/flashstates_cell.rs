@@ -1038,14 +1038,17 @@ fn run_a1(
         let mut gdn_handles = Vec::with_capacity(cell.n_gdn);
         for gl in 0..cell.n_gdn {
             let li = cell.n_attn + gl;
-            gdn_handles.push((
-                cell.fwd
-                    .gdn_state_handle(li)
-                    .ok_or("gdn state slot missing")?,
-                cell.fwd
-                    .conv_state_handle(li)
-                    .ok_or("conv state slot missing")?,
-            ));
+            let g = cell.fwd.gdn_state_handle(li);
+            let c = cell.fwd.conv_state_handle(li);
+            if g.is_none() || c.is_none() {
+                return Err(format!(
+                    "a1 sink gather: layer {li} (gl {gl}, n_attn {}, n_gdn {}, types {}) has no state slot",
+                    cell.n_attn,
+                    cell.n_gdn,
+                    cell.fwd.config.layer_types.len()
+                ));
+            }
+            gdn_handles.push((g.expect("checked"), c.expect("checked")));
         }
         let arena_elems = span * cell.n_gdn * cell.gdn_elems;
         let arena_conv_elems = span * cell.n_gdn * cell.conv_elems;
