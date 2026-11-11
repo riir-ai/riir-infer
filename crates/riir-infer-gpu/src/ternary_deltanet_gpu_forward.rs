@@ -5363,16 +5363,34 @@ impl TernaryDeltanetGpuForward {
     /// create_bind_group on the first unaligned slot).
     const RING_SLOT_WORDS: usize = 8;
 
-    /// Plan 626 T3 — env arm for the resident lane: PROMOTE-ONLY, exact
-    /// literal `RIIR_DECODE_RESIDENT=1` arms; unset (or anything else) reads
-    /// false and every caller stays on the incumbent per-token-sync lane
-    /// byte-identically (the demote law — there is no demote literal: an
-    /// opt-in arm's env only ever arms). Read once per process (the OnceLock
+    /// Plan 626 T3 — env arm for the resident lane, PROMOTED 2026-11-12
+    /// (riir-ai issue 1165, delegated verdict session
+    /// `59dafa39-886a-4b77-8df0-ba49aa7bd58c` under the 2026-11-11 gating
+    /// decree): unset keeps the PLATFORM default — macOS ON (the promotion
+    /// evidence is greedy-on-Metal only: the T3 verdict AGREE 2026-11-03,
+    /// all five conditions discharged, condition (4) executed `41f4f4771`;
+    /// the resident lane IS the greedy loop by construction, so non-greedy
+    /// sampling never routes here) — and OFF on every other platform, where
+    /// the incumbent per-token-sync lane stays byte-identically default
+    /// (the cmma promoted-lifecycle pattern,
+    /// `prefill_tiled_flash_m32_enabled`). `RIIR_DECODE_RESIDENT=1` still
+    /// arms anywhere (an opt-in arm's env only ever arms — the demote law);
+    /// any other explicit value (`0`/`off`/garbage) forces the incumbent.
+    /// The league scored bout is the post-flip confirmation: fail = revert
+    /// this default + reopen the issue. Read once per process (the OnceLock
     /// convention — `gemv_ternary_cubecl`'s toggle statics).
     pub fn resident_armed() -> bool {
         static RESIDENT_ARMED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *RESIDENT_ARMED
-            .get_or_init(|| matches!(std::env::var("RIIR_DECODE_RESIDENT").as_deref(), Ok("1")))
+        *RESIDENT_ARMED.get_or_init(|| {
+            let env = std::env::var("RIIR_DECODE_RESIDENT")
+                .unwrap_or_default()
+                .to_lowercase();
+            if env.is_empty() {
+                cfg!(target_os = "macos")
+            } else {
+                matches!(env.as_str(), "1")
+            }
+        })
     }
 
     /// Plan 626 T3 — the resident-lane reach counter: +1 per
