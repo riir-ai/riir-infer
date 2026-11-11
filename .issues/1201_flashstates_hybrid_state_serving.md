@@ -2,6 +2,8 @@
 
 **Status:** Open — distilled from `../.research/023_FlashStates_Hybrid_State_Prefix_Cache.md` (FlashStates, FutureMLS-Lab @ `e2ea9a7`, Apache-2.0); all items opt-in lanes pending T1's pre-registered cell — GOAT or demote, never default by default.
 
+**Claimed:** zed-m3-1201t2b@m3, 1794357600, expires 2026-11-13T01:00:00+00:00
+
 **Lease closed:** zed-m3-i1201t1@m3, 1794356480, was expires 2026-11-11T23:55:00+00:00 — T1 LANDED in the window (plan 630 + the generator + 6 pins; commit `bab043b4`)
 (T1 only — the cell pre-registration: the plan freezes trace/arms/metrics/bars + the deterministic trace generator fixture; T2/T3 implementation lanes stay open)
 
