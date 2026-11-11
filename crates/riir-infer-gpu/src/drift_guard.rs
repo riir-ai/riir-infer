@@ -407,10 +407,10 @@ pub mod metal {
     fn debug_skip(reason: &str) {
         static DONE: OnceLock<()> = OnceLock::new();
         static DEBUG: OnceLock<bool> = OnceLock::new();
-        if *DEBUG.get_or_init(|| std::env::var("RIIR_DRIFT_GUARD_DEBUG").as_deref() == Ok("1")) {
-            if DONE.set(()).is_ok() {
-                eprintln!("[drift-guard] first skip: {reason}");
-            }
+        if (*DEBUG.get_or_init(|| std::env::var("RIIR_DRIFT_GUARD_DEBUG").as_deref() == Ok("1")))
+            && DONE.set(()).is_ok()
+        {
+            eprintln!("[drift-guard] first skip: {reason}");
         }
     }
 

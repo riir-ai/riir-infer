@@ -450,6 +450,16 @@ flashstates_tracegen = ["dep:blake3"]
 # PagedKVCache cannot hold). Opt-in; never a default or production
 # feature until the plan-630 GOAT cell passes.
 flashstates_multi = ["dep:katgpt-kv", "katgpt-kv/radix_prefix_cache"]
+# Plan 630 / Issue 1201 T2 — the cell harness posture: the manager + the
+# tracegen + the Metal forward at the league posture (metal_tensor_gemm's
+# dep leg is target-scoped; inert off macOS). The bin row below carries
+# this as its required-features pair.
+flashstates_cell = [
+    "flashstates_multi",
+    "flashstates_tracegen",
+    "qwen38_wgpu",
+    "metal_tensor_gemm",
+]
 # GPU-resident training-forward dispatch helpers on the gemma dispatch
 # (generic kernel launches; consumed by the engine-side test suite — the
 # kv_f16_gates "test-only home" precedent for cross-crate test surface).
@@ -1017,6 +1027,14 @@ required-features = ["flashmemory_budget_gate"]
 name = "flashstates_tracegen_pins"
 path = "tests/flashstates_tracegen_pins.rs"
 required-features = ["flashstates_tracegen"]
+
+# Plan 630 / Issue 1201 T2 — the cell harness: the arms over the real
+# Metal forward + the manager + the tracegen. --g1 = the correctness
+# posture; measured arms resumable under .benchmarks/flashstates_cell/.
+[[bin]]
+name = "flashstates_cell"
+path = "src/bin/flashstates_cell.rs"
+required-features = ["flashstates_cell"]
 
 # Plan 630 / Issue 1201 T2 — the multi-session manager's gates over the
 # real substrate (the ledger + share + recovery + eviction + round-trip).

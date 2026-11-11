@@ -859,6 +859,17 @@ pub mod qwen38_dense_cudarc;
 pub mod gemm_q4k_tile_cubecl;
 #[cfg(feature = "qwen38_wgpu")]
 pub mod qwen38_dense_cubecl;
+// Plan 630 / Issue 1201 T2 — the FlashStates lane's device range-copy
+// (KV capture staging + GDN boundary-capture arena slots; restore rides
+// the existing KV fill kernel).
+#[cfg(feature = "qwen38_wgpu")]
+pub mod copy_range_cubecl;
+// Issue 1201 T2 — the Metal twin of the 742 T4 single-stream prefix
+// cache (same contract over the wgpu forward's checkpoint/restore; the
+// full-state divergence disclosed in the module doc). The A0+ arm's
+// substrate.
+#[cfg(feature = "qwen38_wgpu")]
+pub mod qwen38_prefix_cache_cubecl;
 // Issue 1150 follow-up 2 — the dense Metal GDN chunked-scan route (the
 // Issue-734-T4 chunkwise family's first wiring; opt-in, lossy-class —
 // see the module's numerics disclosure).

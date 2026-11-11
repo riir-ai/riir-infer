@@ -1425,6 +1425,89 @@ impl Qwen38WgpuForward {
         self.pos = 0;
     }
 
+    /// The compute client (state-io lanes outside this module — the
+    /// FlashStates cell harness — read/write state handles through it).
+    pub fn client(&self) -> &ComputeClient<ActiveRuntime> {
+        &self.client
+    }
+
+    /// The (K, V) cache handles of one attention layer.
+    pub fn kv_cache_handles(&self, li: usize) -> Option<(Handle, Handle)> {
+        Some((
+            self.kv_key_caches.get(li)?.clone()?,
+            self.kv_value_caches.get(li)?.clone()?,
+        ))
+    }
+
+    /// One layer's GDN recurrent-state handle (attention layers carry None).
+    pub fn gdn_state_handle(&self, li: usize) -> Option<Handle> {
+        self.gdn_states.get(li)?.clone()
+    }
+
+    /// One layer's conv-window handle (attention layers carry None).
+    pub fn conv_state_handle(&self, li: usize) -> Option<Handle> {
+        self.conv_states.get(li)?.clone()
+    }
+
+    /// Write ONE layer's state slot in place (the buffer keeps its
+    /// allocation — data move, never a re-home; the restore-over-live
+    /// posture the FlashStates harness walks use). `bytes` is the raw
+    /// little-endian f32 payload, exactly [`Self::state_bytes_len`] long
+    /// for the kind.
+    pub fn write_layer_state(&self, li: usize, kind: StateKind, bytes: &[u8]) {
+        let slot = match kind {
+            StateKind::Gdn => self.gdn_states.get(li).and_then(|s| s.as_ref()),
+            StateKind::Conv => self.conv_states.get(li).and_then(|s| s.as_ref()),
+            StateKind::KvKey => self.kv_key_caches.get(li).and_then(|s| s.as_ref()),
+            StateKind::KvValue => self.kv_value_caches.get(li).and_then(|s| s.as_ref()),
+        };
+        if let Some(h) = slot {
+            self.client
+                .write(h, cubecl::bytes::Bytes::from_bytes_vec(bytes.to_vec()));
+        }
+    }
+
+    /// Read ONE layer's state slot (the per-layer half of
+    /// [`Self::checkpoint_state`] — the FlashStates capture path reads the
+    /// small GDN/conv slots without the whole-window KV rows).
+    pub fn layer_state_bytes(&self, li: usize, kind: StateKind) -> Option<Vec<u8>> {
+        let dims = StateDims {
+            gdn: self.config.n_v_heads * self.config.head_k_dim * self.config.head_v_dim,
+            conv: self.config.l_qkv_out() * self.config.conv_kernel,
+            kv: self.max_ctx * self.config.kvd(),
+        };
+        let (h, len) = match kind {
+            StateKind::Gdn => (self.gdn_states.get(li)?.as_ref()?, dims.gdn),
+            StateKind::Conv => (self.conv_states.get(li)?.as_ref()?, dims.conv),
+            StateKind::KvKey => (self.kv_key_caches.get(li)?.as_ref()?, dims.kv),
+            StateKind::KvValue => (self.kv_value_caches.get(li)?.as_ref()?, dims.kv),
+        };
+        Some(
+            self.client
+                .read_one(h.clone())
+                .map(|b| b.to_vec())
+                .unwrap_or_else(|_| vec![0u8; len * 4]),
+        )
+    }
+
+    /// f32 element count of one layer's state slot for `kind` (the harness
+    /// sizes arenas and staging from it).
+    pub fn state_elems(&self, kind: StateKind) -> usize {
+        match kind {
+            StateKind::Gdn => {
+                self.config.n_v_heads * self.config.head_k_dim * self.config.head_v_dim
+            }
+            StateKind::Conv => self.config.l_qkv_out() * self.config.conv_kernel,
+            StateKind::KvKey | StateKind::KvValue => self.max_ctx * self.config.kvd(),
+        }
+    }
+
+    /// The prompt-ingest chunk (tokens per batched pass) — the drive
+    /// partition's batch width.
+    pub fn chunk_tokens(&self) -> usize {
+        self.chunk
+    }
+
     fn argmax_first(v: &[f32]) -> u32 {
         let mut best = 0usize;
         let mut bv = f32::NEG_INFINITY;

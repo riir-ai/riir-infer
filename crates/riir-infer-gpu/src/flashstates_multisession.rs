@@ -665,6 +665,12 @@ impl FlashStatesManager {
         self.gdn.release(&record.adopted_gdn);
     }
 
+    /// The session's capture cursor (held chunks) — the harness reads it
+    /// to plan its capture-slot range before the walk.
+    pub fn session_held_chunks(&self, session_id: u64) -> usize {
+        self.sessions[&session_id].held_chunks
+    }
+
     /// Tree eviction (leaf-preferential LRU): route each victim's
     /// chunk-major pages to their pools and drop the TREE's hold. Pages
     /// a session still adopts survive on the session's hold.
