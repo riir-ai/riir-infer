@@ -852,10 +852,13 @@ impl Cell {
             }
             let kf: &[f32] = bytemuck::cast_slice(&kb);
             let vf: &[f32] = bytemuck::cast_slice(&vb);
-            for (i, _page_id) in cp.fresh_kv_ids[l].iter().enumerate() {
+            // fresh_kv_ids is the capture slot's FULL table (total chunks);
+            // the fresh rows start at held_chunks — skip the held prefix
+            // (the staging buffer carries fresh_rows only).
+            for (fi, _page_id) in cp.fresh_kv_ids[l].iter().skip(cp.held_chunks).enumerate() {
                 for t in 0..PAGE_TOKENS {
-                    let pos = held_row + i * PAGE_TOKENS + t;
-                    let local = i * PAGE_TOKENS + t;
+                    let pos = held_row + fi * PAGE_TOKENS + t;
+                    let local = fi * PAGE_TOKENS + t;
                     mgr.kv_pool_mut().write_kv(
                         l,
                         cp.capture_slot,
