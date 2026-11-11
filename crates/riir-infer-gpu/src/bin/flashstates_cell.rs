@@ -60,7 +60,13 @@
 //! `manifest.json` (trace digest + args — a digest mismatch on `--resume`
 //! refuses), per-arm `<arm>.rows.jsonl` + `<arm>.progress.json` (the
 //! cursor is temp+rename-written after every request row; a row past the
-//! cursor is ignored on resume). Idempotent: a completed arm re-prints its
+//! cursor is ignored on resume). A resumed A1 arm rebuilds its manager
+//! EMPTY (tree/pools are process state, never persisted) — the requests
+//! past the cursor are all served cold for their sessions (restores read
+//! 0 until captures re-accumulate). That is fine for the G1 posture
+//! (correctness, never bars); a MEASURED cell runs its bars from an
+//! unresumed arm, or discloses the resume boundary.
+//! Idempotent: a completed arm re-prints its
 //! summary from the rows. Long cells: run inside `caffeinate -dis`, GPU
 //! exclusivity attested separately (the bin prints timing only, never
 //! box-state claims — quote `bench_preflight`'s PROVENANCE line beside
@@ -1030,12 +1036,17 @@ fn run_a1(
     let chunk = cell.chunk;
     let turns_total: Vec<usize> = trace.sessions.iter().map(|s| s.turns.len()).collect();
     let mut g1_checked = 0usize;
+    // Sessions register on their first SERVED request of this process —
+    // a resumed run rebuilds the manager empty (the tree/pools are not
+    // persisted), so a request past the cursor is a cold first serve for
+    // its session even mid-trace.
+    let mut started: HashSet<u64> = HashSet::new();
     for (req_idx, r) in requests.iter().enumerate() {
         if req_idx < log.next_req {
             continue;
         }
         let sid = r.session as u64;
-        if r.turn == 0 {
+        if started.insert(sid) {
             mgr.session_start(sid);
         }
         let cont = &trace.sessions[r.session].turns[r.turn].continuation;
