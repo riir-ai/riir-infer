@@ -44,6 +44,14 @@ katgpt-core = { workspace = true }
 # the one sanctioned public upstream; the workspace table already carries
 # the path, so no deeper sibling path is spelled here.
 katgpt-speculative = { workspace = true, optional = true }
+# Plan 630 / Issue 1201 T2 — the FlashStates multi-session lane's named
+# substrate, consumed ONLY behind the crate's `flashstates_multi` feature
+# (opt-in; the boundary law: katgpt-kv is measurement-lane capability,
+# never a default-feature dep). The tree rides katgpt-kv's
+# radix_prefix_cache feature; the KV-row page pool rides
+# katgpt-transformer's PagedKVCache chunk-page seam (Issue 771 T2).
+katgpt-kv = { workspace = true, optional = true }
+katgpt-transformer = { workspace = true }
 # The gpu crate speaks wgpu directly (the runtime's adapter probes + the
 # context selection). The VENDORED `wgpu-hal-30.0.0` ([patch] in the root
 # manifest) is the only hal whose adapter carries
@@ -436,6 +444,12 @@ cq3 = ["dep:half", "katgpt-core/meld"]
 # so the default serving tree carries zero extra deps; the [[test]] row
 # below is its required-features pair (the green-zero law).
 flashstates_tracegen = ["dep:blake3"]
+# Plan 630 / Issue 1201 T2 — the FlashStates multi-session manager: the
+# radix prefix tree (katgpt-kv) + the PagedKVCache chunk-page seam (the
+# KV-row half) + the GDN recurrent-state pool (our half — the page shape
+# PagedKVCache cannot hold). Opt-in; never a default or production
+# feature until the plan-630 GOAT cell passes.
+flashstates_multi = ["dep:katgpt-kv", "katgpt-kv/radix_prefix_cache"]
 # GPU-resident training-forward dispatch helpers on the gemma dispatch
 # (generic kernel launches; consumed by the engine-side test suite — the
 # kv_f16_gates "test-only home" precedent for cross-crate test surface).
@@ -1003,3 +1017,12 @@ required-features = ["flashmemory_budget_gate"]
 name = "flashstates_tracegen_pins"
 path = "tests/flashstates_tracegen_pins.rs"
 required-features = ["flashstates_tracegen"]
+
+# Plan 630 / Issue 1201 T2 — the multi-session manager's gates over the
+# real substrate (the ledger + share + recovery + eviction + round-trip).
+# The whole-file #![cfg] compiles to nothing without the feature; this
+# row is its pair.
+[[test]]
+name = "flashstates_multisession_g1"
+path = "tests/flashstates_multisession_g1.rs"
+required-features = ["flashstates_multi"]

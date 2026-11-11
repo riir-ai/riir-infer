@@ -1114,6 +1114,16 @@ katgpt-core = { path = "../katgpt-rs/crates/katgpt-core" }
 # directly above; members inherit from here — riir-infer-gpu's Issue-966
 # grid_reselect arm is the first member consumer).
 katgpt-speculative = { path = "../katgpt-rs/crates/katgpt-speculative" }
+# Plan 630 / Issue 1201 T2 — the FlashStates multi-session lane's named
+# substrate (the member-consumer inheritance precedent above). katgpt-kv
+# carries the radix prefix tree (feature radix_prefix_cache — the member
+# selects it by name, the root package's kvarn-select posture);
+# katgpt-transformer carries the PagedKVCache chunk-page seam (Issue 771
+# T2) + PAGE_SIZE. default-features = false mirrors the root package's
+# row (kog_cpu_fusion off). Both BOUNDARY-allowlisted (the katgpt-kv row
+# names it measurement-lane capability, never a default-feature dep).
+katgpt-kv = { path = "../katgpt-rs/crates/katgpt-kv", default-features = false }
+katgpt-transformer = { path = "../katgpt-rs/crates/katgpt-transformer", default-features = false }
 
 # ─── Local patches (crates.io forks) ─────────────────────────────────
 # Byte-identical copies of the patched crates.io sources under vendor/

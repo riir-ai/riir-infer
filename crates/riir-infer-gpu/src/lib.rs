@@ -909,6 +909,11 @@ pub mod qwen38_prefix_cache;
 // so the default serving tree carries zero extra deps.
 #[cfg(feature = "flashstates_tracegen")]
 pub mod flashstates_tracegen;
+// Plan 630 / Issue 1201 T2 — the FlashStates multi-session manager (the
+// radix-indexed shared state pool over the named substrate). Same
+// feature-family posture as the tracegen lane.
+#[cfg(feature = "flashstates_multi")]
+pub mod flashstates_multisession;
 pub mod qwen38_spec;
 #[cfg(all(feature = "qwen38_spec", not(target_os = "macos")))]
 pub mod qwen38_spec_cudarc;

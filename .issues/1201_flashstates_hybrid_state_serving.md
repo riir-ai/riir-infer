@@ -5,8 +5,8 @@
 **Lease closed:** zed-m3-i1201t1@m3, 1794356480, was expires 2026-11-11T23:55:00+00:00 — T1 LANDED in the window (plan 630 + the generator + 6 pins; commit `bab043b4`)
 (T1 only — the cell pre-registration: the plan freezes trace/arms/metrics/bars + the deterministic trace generator fixture; T2/T3 implementation lanes stay open)
 
-**Claimed:** zed-m3-i1201t2@m3, 1794362400, expires 2026-11-12T00:30:00+00:00
-(T2's radix-path half — the multi-session manager on the named substrate: RadixPrefixTree + PagedKVCache seam + the GDN state pool, the serve/resume/capture/evict flows, CPU-testable end to end; the A0 Metal port stays open inside T2)
+**Lease closed:** zed-m3-i1201t2@m3, 1794362400, was expires 2026-11-12T00:30:00+00:00 — T2's radix half LANDED in the window (the manager + 5 gates; commit the record commit); the A0 Metal port + the harness bin stay open inside T2
+(T2's radix-path half — the multi-session manager on the named substrate: RadixPrefixTree + PagedKVCache seam + GDN state pool, the serve/resume/capture/evict flows, CPU-testable end to end; the A0 Metal port stays open inside T2)
 
 ## Why
 
