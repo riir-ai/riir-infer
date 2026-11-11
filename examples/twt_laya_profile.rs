@@ -17,6 +17,14 @@
 //!   --calib /path/to/prompts.txt [--svcca] [--stride 4] [--max-rows 4096] \
 //!   [--out .raw/twt/english_profile.json]
 //! ```
+//!
+//! Weights variant (issue 1205): `LAYA_WEIGHTS_VARIANT` selects the storage
+//! posture exactly as every consumer resolves it — unset or `f16` = the
+//! canonical F16 file; `q8`/`q4` = the derived artifact (sidecar-BLAKE3-
+//! verified by the resolver; a typo or a missing artifact fails LOUD, never
+//! falls back). The resolved path + posture + weights BLAKE3 are stamped into
+//! the artifact beside `corpus_blake3`, so a parent-vs-quantized pair run
+//! carries its own provenance.
 
 use std::collections::HashMap;
 use std::io::Write as _;
@@ -80,12 +88,28 @@ fn main() {
     let ckpt_name = checkpoint.subfolder();
     let dir = ensure_checkpoint(&weights_root(), checkpoint)
         .unwrap_or_else(|e| panic!("checkpoint fetch: {e}"));
+    // Issue 1205: the storage posture resolves through the SAME env + sidecar
+    // path every consumer uses — unset/f16 stays the canonical file; q8/q4
+    // load the derived artifact (BLAKE3-verified here, before any forward).
+    let (weights_path, posture) =
+        riir_infer_laya::laya::riir::q8_artifact::resolve_weights_posture(&dir, ckpt_name)
+            .unwrap_or_else(|e| panic!("weights variant: {e}"));
+    eprintln!(
+        "[twt] weights: {} ({})",
+        weights_path.display(),
+        posture.map_or("f16".to_string(), |p| p.label().to_string())
+    );
     let (_agent_cfg, enc_cfg) =
         riir_infer_laya::laya::config::load_checkpoint_configs(&dir, ckpt_name)
             .unwrap_or_else(|e| panic!("configs: {e}"));
     let mut map: HashMap<String, lane_weights::Weights> =
-        lane_weights::load(&dir.join("model.safetensors"), ckpt_name)
+        lane_weights::load(&weights_path, ckpt_name)
             .unwrap_or_else(|e| panic!("weights: {e}"));
+    let weights_blake3 = {
+        let bytes = std::fs::read(&weights_path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", weights_path.display()));
+        blake3_of(&bytes)
+    };
     let encoder = Encoder::from_map(&mut map, enc_cfg.clone(), ckpt_name)
         .unwrap_or_else(|e| panic!("encoder: {e}"));
     let tok = Tok::from_dir(&dir, ckpt_name).unwrap_or_else(|e| panic!("tokenizer: {e}"));
@@ -225,6 +249,19 @@ fn main() {
         .unwrap();
         writeln!(f, "  \"skipped\": {skipped},").unwrap();
         writeln!(f, "  \"corpus_blake3\": \"{}\",", blake3_of(&corpus_bytes)).unwrap();
+        writeln!(
+            f,
+            "  \"weights_path\": \"{}\",",
+            weights_path.display()
+        )
+        .unwrap();
+        writeln!(
+            f,
+            "  \"weights_posture\": \"{}\",",
+            posture.map_or("f16".to_string(), |p| p.label().to_string())
+        )
+        .unwrap();
+        writeln!(f, "  \"weights_blake3\": \"{weights_blake3}\",").unwrap();
         writeln!(f, "  \"eps_grid\": {PRE_REGISTERED_EPS_GRID:?},").unwrap();
         writeln!(f, "  \"forced_blocks\": {forced},").unwrap();
         writeln!(f, "  \"verdict\": \"{}\",", verdict_word(&verdict)).unwrap();
