@@ -29,9 +29,13 @@
 //! complete=0 prefix, temp+rename atomic, so a mid-arm kill keeps the
 //! counted prefix readable post-hoc. On startup a COMPLETE bin whose digest
 //! matches the current inputs is LOADED instead of recomputed; since Issue
-//! 1191 T3 a complete=0 prefix is ALSO loadable under `--resume` (the arm
-//! continues from its cursor — the state rebuild is the deterministic
-//! replay, no serialization needed). The digest pins ctx/steps/block/refresh/rho/compare-from +
+//! 1191 T3 a complete=0 prefix is ALSO loadable under `--resume` (fixed by
+//! issue 1204: the CPU arms replay 0..cursor through fresh state — the
+//! deterministic state rebuild — verify the rebuilt rows against the
+//! prefix, then continue from the cursor; replay + tail costs a full
+//! recompute, so resume buys recovered rows across repeated kills, never
+//! wall time; the lane is CPU-posture-only — the Metal arms rebuild nothing
+//! across a restart and recompute from 0). The digest pins ctx/steps/block/refresh/rho/compare-from +
 //! the corpus bytes + the first 64 MiB of the gguf — a changed corpus or
 //! model at the same paths refuses the stale bin loud (`--fresh` recomputes
 //! anyway). Forward code paths are untouched by this layer.
@@ -463,6 +467,16 @@ fn main() -> Result<()> {
         println!("# recipe → {}", recipe_path.display());
     }
 
+    // --resume under --metal: the resume lane is CPU-posture-only — the GPU
+    // forward keeps its state inside the process, so the Metal arms rebuild
+    // nothing across a restart and recompute from 0 (the digest pins the
+    // posture, so a Metal run never loads a CPU prefix either).
+    if args.resume && args.metal {
+        println!(
+            "# --resume under --metal: the resume lane is CPU-posture-only — Metal arms recompute from 0"
+        );
+    }
+
     // ── Dense reference arm (load-or-compute; the bin persists progressively) ─
     let dense_bin = arm_bin_path(&args.out, "dense");
     let dense = if !args.fresh
@@ -475,15 +489,21 @@ fn main() -> Result<()> {
         );
         loaded
     } else if args.resume
+        && !args.metal
         && let Ok((prefix, cursor)) = load_arm_bin_opts(&dense_bin, &digest, steps, true)
         && cursor > 0
         && cursor < steps
     {
-        // --resume: replay 0..cursor through a fresh cache (deterministic —
-        // the state rebuild costs the skipped steps' compute, never their
-        // wall), then continue from the cursor.
+        // --resume: rebuild the cache state by replaying 0..cursor through a
+        // fresh cache (deterministic — the state rebuild costs the skipped
+        // steps' compute), verify the rebuilt rows against the recovered
+        // prefix, then continue from the cursor. Resume saves no wall time
+        // (replay + tail == a full recompute); its value is the recovered
+        // rows surviving repeated kills. `wall_secs` stays cumulative across
+        // the segments: the prefix's recorded wall + this run's replay+tail
+        // wall.
         println!(
-            "# arm: dense (reference) — RESUME from cursor {cursor}/{} ({} rows recovered)",
+            "# arm: dense (reference) — RESUME from cursor {cursor}/{} ({} rows recovered; replaying 0..{cursor} for the state rebuild)",
             steps, cursor
         );
         let t0 = Instant::now();
@@ -491,10 +511,31 @@ fn main() -> Result<()> {
             HybridCache::with_layer_types_bounded(&config, &weights.layer_types, steps + 2);
         let mut scratch = HybridForwardScratch::new(&config);
         let mut x = vec![0.0f32; x_len];
-        let mut dense_nll = prefix.nll.clone();
-        dense_nll.resize(steps, 0.0);
-        let mut dense_argmax = prefix.argmax.clone();
-        dense_argmax.resize(steps, 0);
+        let mut dense_nll = vec![0.0f32; steps];
+        let mut dense_argmax = vec![0usize; steps];
+        for pos in 0..cursor {
+            let logits = forward_qwen_deltanet_ternary(
+                &mut x,
+                &weights,
+                &mut cache,
+                tokens[pos],
+                pos,
+                &config,
+                &mut scratch,
+                &rope,
+            );
+            dense_nll[pos] = nll(logits, tokens[pos + 1]) as f32;
+            dense_argmax[pos] = argmax(logits);
+        }
+        if dense_nll[..cursor] != prefix.nll[..cursor]
+            || dense_argmax[..cursor] != prefix.argmax[..cursor]
+        {
+            anyhow::bail!(
+                "dense resume: replayed rows 0..{cursor} disagree with the recovered prefix — \
+                 the prefix was written by a different build or posture; delete the prefix \
+                 and run fresh"
+            );
+        }
         for pos in cursor..steps {
             let logits = forward_qwen_deltanet_ternary(
                 &mut x,
@@ -692,7 +733,7 @@ fn main() -> Result<()> {
             arms.push((rho, loaded));
             continue;
         }
-        let resumed = if args.resume {
+        let resumed = if args.resume && !args.metal {
             load_arm_bin_opts(&rho_bin, &digest, steps, true)
                 .ok()
                 .filter(|(_, cursor)| *cursor > 0 && *cursor < steps)
@@ -831,21 +872,70 @@ fn main() -> Result<()> {
         let mut arm_argmax = vec![0usize; steps];
         let mut selected_sum = 0f64;
         let mut selected_n = 0f64;
-        let start_pos = if let Some((prefix, cursor)) = resumed.as_ref() {
-            // --resume: replay 0..cursor (state rebuild — deterministic),
-            // keep the recovered rows, continue from the cursor.
-            println!(
-                "# arm: flashmemory rho={rho} — RESUME from cursor {cursor}/{} ({} rows recovered, sel frac {:.4} so far)",
-                steps, cursor, prefix.mean_selected_fraction
-            );
-            arm_nll[..*cursor].copy_from_slice(&prefix.nll[..*cursor]);
-            arm_argmax[..*cursor].copy_from_slice(&prefix.argmax[..*cursor]);
-            selected_sum = prefix.mean_selected_fraction * (*cursor as f64);
-            selected_n = *cursor as f64;
-            *cursor
-        } else {
-            0
+        // The KV-bytes proxy sample at one position — the `retain_every`
+        // sampling's single home: the fresh loop and the resume replay both
+        // call it, so a resumed arm's `mean_selected_fraction` is RECOMPUTED
+        // over the same samples in the same order (never estimated from the
+        // prefix's mean) and matches a fresh run's exactly.
+        let mut sample_selection = |fm: &FlashMemoryDecodeState, pos: usize| {
+            if let Some(st) = &fm.layers[last_attn_layer] {
+                let selection = st.selector.selection();
+                let (selected, total, _) = kv_reduction_ratio(selection, &st.block_cache, pos + 1);
+                if total > 0 {
+                    selected_sum += selected as f64 / total as f64;
+                    selected_n += 1.0;
+                }
+            }
         };
+        let mut start_pos = 0usize;
+        if let Some((prefix, cursor)) = resumed.as_ref() {
+            // --resume: rebuild the flashmemory + KV/GDN state by replaying
+            // 0..cursor through the fresh state (deterministic), verify the
+            // rebuilt rows against the recovered prefix, then continue from
+            // the cursor. Resume saves no wall time (replay + tail == a full
+            // recompute); its value is the recovered rows surviving repeated
+            // kills.
+            println!(
+                "# arm: flashmemory rho={rho} — RESUME from cursor {cursor}/{} ({} rows recovered; replaying 0..{cursor} for the state rebuild)",
+                steps, cursor
+            );
+            for pos in 0..*cursor {
+                if pos > 0 && pos % 64 == 0 {
+                    let el = t0.elapsed().as_secs_f64();
+                    eprintln!(
+                        "# replay rho={rho} {pos}/{cursor} — {el:.0}s — {:.2} tok/s",
+                        pos as f64 / el
+                    );
+                }
+                let logits = forward_qwen_deltanet_ternary_flashmemory(
+                    &mut x,
+                    &weights,
+                    &mut cache,
+                    &mut fm,
+                    tokens[pos],
+                    pos,
+                    &config,
+                    &mut scratch,
+                    &rope,
+                );
+                arm_nll[pos] = nll(logits, tokens[pos + 1]) as f32;
+                arm_argmax[pos] = argmax(logits);
+                if pos % args.retain_every == 0 && pos > 0 {
+                    sample_selection(&fm, pos);
+                }
+            }
+            if arm_nll[..*cursor] != prefix.nll[..*cursor]
+                || arm_argmax[..*cursor] != prefix.argmax[..*cursor]
+            {
+                anyhow::bail!(
+                    "rho={rho} resume: replayed rows 0..{} disagree with the recovered prefix — \
+                     the prefix was written by a different build or posture; delete the prefix \
+                     and run fresh",
+                    cursor
+                );
+            }
+            start_pos = *cursor;
+        }
         for pos in start_pos..steps {
             if pos > 0 && pos % 64 == 0 {
                 let el = t0.elapsed().as_secs_f64();
@@ -867,25 +957,18 @@ fn main() -> Result<()> {
             );
             arm_nll[pos] = nll(logits, tokens[pos + 1]) as f32;
             arm_argmax[pos] = argmax(logits);
-            if pos % args.retain_every == 0
-                && pos > 0
-                && let Some(st) = &fm.layers[last_attn_layer]
-            {
-                let selection = st.selector.selection();
-                let (selected, total, _) = kv_reduction_ratio(selection, &st.block_cache, pos + 1);
-                if total > 0 {
-                    selected_sum += selected as f64 / total as f64;
-                    selected_n += 1.0;
-                }
+            if pos % args.retain_every == 0 && pos > 0 {
+                sample_selection(&fm, pos);
             }
             // Per-bucket prefix: a mid-arm kill keeps the counted rows — the
             // same progressive persistence the dense arm has. The m3 v2 run
             // lost ~27 h of ρ 0.15 at 94% because only the dense arm wrote
-            // prefixes (issue 1117, the 2026-11-04 post-mortem). The prefix
-            // is post-hoc collection value (a restart recomputes the arm —
-            // resume covers completed bins only); mean_selected_fraction
-            // carries the running sample so a collected prefix still reads
-            // the KV-bytes proxy.
+            // prefixes (issue 1117, the 2026-11-04 post-mortem). Under
+            // `--resume` (CPU posture) the prefix is the recovered-row
+            // anchor: the next run replays 0..cursor for the state rebuild,
+            // verifies the rebuilt rows against it, and continues — the
+            // running `mean_selected_fraction` sample rides along so a
+            // collected prefix still reads the KV-bytes proxy.
             if pos > 0 && pos % args.bucket == 0 {
                 let meta = ArmBinMeta {
                     expected_steps: steps,
@@ -906,6 +989,9 @@ fn main() -> Result<()> {
                 );
             }
         }
+        // `wall` is cumulative across segments, never a speed claim: a
+        // resumed arm adds the prefix segment's recorded wall to this run's
+        // replay+tail wall — replay + tail costs what a full recompute costs.
         let this_wall = t0.elapsed().as_secs_f64();
         let wall = this_wall + resumed.as_ref().map_or(0.0, |(p, _)| p.wall_secs);
         drop(cache);
