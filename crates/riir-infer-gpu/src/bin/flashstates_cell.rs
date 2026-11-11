@@ -568,6 +568,11 @@ struct Cell {
     kvd: usize,
     n_attn: usize,
     n_gdn: usize,
+    /// Layer indices of the attention layers (kind order) — the layer
+    /// kinds are INTERLEAVED (interval pattern), never two blocks; the
+    /// manager's row counts (n_attn/n_gdn) translate through these.
+    attn_ids: Vec<usize>,
+    gdn_ids: Vec<usize>,
     gdn_elems: usize,
     conv_elems: usize,
     /// The cold-stream GDN/conv bytes (indexed by GDN layer, in order) —
@@ -586,13 +591,17 @@ impl Cell {
             "drive chunk {chunk} must be a multiple of the tree page ({PAGE_TOKENS})"
         );
         let mut fwd = Qwen38WgpuForward::new(Path::new(gguf), ctx, chunk)?;
-        let n_attn = fwd
-            .config
-            .layer_types
-            .iter()
-            .filter(|k| **k == Qwen38WgpuLayerType::Attention)
-            .count();
-        let n_gdn = fwd.config.layer_types.len() - n_attn;
+        let mut attn_ids = Vec::new();
+        let mut gdn_ids = Vec::new();
+        for (li, kind) in fwd.config.layer_types.iter().enumerate() {
+            if *kind == Qwen38WgpuLayerType::Attention {
+                attn_ids.push(li);
+            } else {
+                gdn_ids.push(li);
+            }
+        }
+        let n_attn = attn_ids.len();
+        let n_gdn = gdn_ids.len();
         let kvd = fwd.config.kvd();
         let gdn_elems = fwd.state_elems(StateKind::Gdn);
         let conv_elems = fwd.state_elems(StateKind::Conv);
@@ -621,6 +630,8 @@ impl Cell {
             kvd,
             n_attn,
             n_gdn,
+            attn_ids,
+            gdn_ids,
             gdn_elems,
             conv_elems,
             cold_gdn_bytes,
@@ -655,11 +666,11 @@ impl Cell {
         if pr_tokens == 0 {
             for (gl, bytes) in self.cold_gdn_bytes.iter().enumerate() {
                 self.fwd
-                    .write_layer_state(self.n_attn + gl, StateKind::Gdn, bytes);
+                    .write_layer_state(self.gdn_ids[gl], StateKind::Gdn, bytes);
             }
             for (gl, bytes) in self.cold_conv_bytes.iter().enumerate() {
                 self.fwd
-                    .write_layer_state(self.n_attn + gl, StateKind::Conv, bytes);
+                    .write_layer_state(self.gdn_ids[gl], StateKind::Conv, bytes);
             }
             pollster::block_on(client.sync()).ok();
             return Ok(0);
@@ -669,10 +680,10 @@ impl Cell {
         let mut host_v = vec![0.0f32; pr_tokens * self.kvd];
         let staging_k = client.create_from_slice(&vec![0u8; pr_tokens * self.kvd * 4]);
         let staging_v = client.create_from_slice(&vec![0u8; pr_tokens * self.kvd * 4]);
-        for l in 0..self.n_attn {
+        for (l, &li_a) in self.attn_ids.iter().enumerate() {
             let (kcache, vcache) = self
                 .fwd
-                .kv_cache_handles(l)
+                .kv_cache_handles(li_a)
                 .ok_or("attention layer without KV caches")?;
             host_k.fill(0.0);
             host_v.fill(0.0);
@@ -722,7 +733,7 @@ impl Cell {
         // pr_tokens tokens = chunk pr_tokens/PAGE_TOKENS − 1.
         let boundary_chunk = pr_tokens / PAGE_TOKENS - 1;
         for (gl, row) in plan.gdn_pages.iter().enumerate() {
-            let li = self.n_attn + gl;
+            let li = self.gdn_ids[gl];
             let page = mgr.gdn_pool().page(row[boundary_chunk]);
             self.fwd
                 .write_layer_state(li, StateKind::Gdn, bytemuck::cast_slice(&page.recurrent));
@@ -806,10 +817,10 @@ impl Cell {
         let staging_k = client.create_from_slice(&vec![0u8; elem * 4]);
         let staging_v = client.create_from_slice(&vec![0u8; elem * 4]);
         let byte_off = held_row as u64 * self.kvd as u64 * 4;
-        for l in 0..self.n_attn {
+        for (l, &li_a) in self.attn_ids.iter().enumerate() {
             let (kcache, vcache) = self
                 .fwd
-                .kv_cache_handles(l)
+                .kv_cache_handles(li_a)
                 .ok_or("attention layer without KV caches")?;
             unsafe {
                 copy_range_f32_launch(
@@ -1037,7 +1048,7 @@ fn run_a1(
         let client = cell.fwd.client().clone();
         let mut gdn_handles = Vec::with_capacity(cell.n_gdn);
         for gl in 0..cell.n_gdn {
-            let li = cell.n_attn + gl;
+            let li = cell.gdn_ids[gl];
             let g = cell.fwd.gdn_state_handle(li);
             let c = cell.fwd.conv_state_handle(li);
             if g.is_none() || c.is_none() {
