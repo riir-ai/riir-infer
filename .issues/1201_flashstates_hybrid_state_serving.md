@@ -2,7 +2,7 @@
 
 **Status:** Open — distilled from `../.research/023_FlashStates_Hybrid_State_Prefix_Cache.md` (FlashStates, FutureMLS-Lab @ `e2ea9a7`, Apache-2.0); all items opt-in lanes pending T1's pre-registered cell — GOAT or demote, never default by default.
 
-**Lease closed:** zed-m3-1201t2b@m3, 1794369600, was expires 2026-11-13T01:00:00+00:00 — T2's remainder LANDED in the window (the A0 Metal port + the harness bin; commit `8e64a036`); G1-on-model + the measured cells stay open inside T2 pending a qualified Metal box (m3 stalls cache-free — `.issues/1203`; the amo G1 run queued via the fleet)
+**Lease closed:** zed-m3-1201t2b@m3, 1794375000, was expires 2026-11-13T04:00:00+00:00 — T2 remainder code LANDED `8e64a036` + 4 fix commits through `c70c4ce`; amo run: a0 ✓ a0p ✓ (suffix-only uncached on the model) a1 ✓ mechanics (cross-session adoption + within-session restore verified live); OPEN: the G1 deep-compare evidence (g1_checked>0 — the sample set was all resume-skipped in the crashed attempts; fresh run queued as amo job 01a1c9c1) + the measured cells (T3 first for A2)
 
 **Lease closed:** zed-m3-i1201t1@m3, 1794356480, was expires 2026-11-11T23:55:00+00:00 — T1 LANDED in the window (plan 630 + the generator + 6 pins; commit `bab043b4`)
 (T1 only — the cell pre-registration: the plan freezes trace/arms/metrics/bars + the deterministic trace generator fixture; T2/T3 implementation lanes stay open)

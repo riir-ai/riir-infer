@@ -1,6 +1,6 @@
 # Plan 630 — FlashStates-class hybrid state cell: the T1 pre-registration (Issue 1201)
 
-> **Status:** IN PROGRESS — T1 ✅ (pre-registration + tracegen); T2 code LANDED `8e64a036` (the A0 Metal port + the harness bin); T2's G1-on-model + the measured cells await the qualified Metal boxes (m3 stall: `.issues/1203`); T3–T5 open
+> **Status:** IN PROGRESS — T1 ✅; T2 code ✅ `8e64a036`+4 fix commits (Metal port + harness bin); amo run: a0 ✓ a0p ✓ a1 ✓ mechanics (cross-session adoption + within-session restore live on the model; 3 crash-class bugs found+fixed en route — interleaved layer kinds, arena-offset copy, full-table KV fill, resume session registration); G1 deep compares (g1_checked>0) queued on amo (job 01a1c9c1, behind contender jobs); T3–T5 open
 
 ## What this plan is
 
