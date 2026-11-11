@@ -64,6 +64,26 @@ fn load() -> (Config, Arc<QwenDeltaNetTernaryWeights>, ArtifactIdentity) {
     (c, Arc::new(w), id)
 }
 
+/// The real-geometry arm (the T3 deciding cell): a real GGUF checkpoint
+/// loaded FULL-scope once and Arc-shared by every stage — `require_coverage`
+/// lets a full view serve any stage range, and the stage reads only its own
+/// window's tensors. One resident copy (~14 GB for the PQ2_0 27B), the
+/// same checkpoint class the 2-box CPU cells ran.
+fn load_real(gguf: &str) -> (Config, Arc<QwenDeltaNetTernaryWeights>, ArtifactIdentity) {
+    let path = std::path::PathBuf::from(gguf);
+    let id = ArtifactIdentity::of_gguf(&path).expect("identity");
+    let (c, w) = riir_infer_core::gguf_loader::load_qwen_deltanet_ternary_weights_gguf_scoped(
+        &path,
+        |cfg| WeightScope::full(cfg.n_layer),
+    )
+    .expect("load real");
+    eprintln!(
+        "[i1199-cell] real model: n_layer={} n_embd={} block={}",
+        c.n_layer, c.n_embd, c.block_size
+    );
+    (c, Arc::new(w), id)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_arm(
     name: &str,
@@ -72,6 +92,7 @@ fn run_arm(
     id: ArtifactIdentity,
     streams: usize,
     pair_decode: bool,
+    max_new: usize,
 ) -> Vec<HeadReport> {
     let n = config.n_layer as u32;
     let k = n / 2;
@@ -106,7 +127,7 @@ fn run_arm(
     let sock = TcpStream::connect(addr).unwrap();
     let mut link = TcpTransport::new(sock, PeerKey(key), Direction::Downstream).unwrap();
     let reqs: Vec<MultiRequest> = (0..streams)
-        .map(|_| MultiRequest::new(PROMPT.to_vec(), MAX_NEW))
+        .map(|_| MultiRequest::new(PROMPT.to_vec(), max_new))
         .collect();
     let opts = HeadOptions {
         pair_decode,
@@ -132,23 +153,34 @@ fn run_arm(
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let warm = args.iter().any(|a| a == "--warm");
+    let gguf = args
+        .iter()
+        .position(|a| a == "--gguf")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+    // Real-geometry arms decode fewer tokens (each step is ~1000× the
+    // synth step): 3 instrumented windows per stream at s=2.
+    let max_new: usize = if gguf.is_some() { 32 } else { MAX_NEW };
     set_env("RIIR_DIST_STEP_TIMING", "1");
-    let (config, w, id) = load();
+    let (config, w, id) = match &gguf {
+        Some(p) => load_real(p),
+        None => load(),
+    };
 
     if warm {
-        run_arm("warmup", &config, &w, id, 1, false);
+        run_arm("warmup", &config, &w, id, 1, false, max_new);
     }
 
     // Arm 1: serial.
-    run_arm("serial", &config, &w, id, 1, false);
+    run_arm("serial", &config, &w, id, 1, false, max_new);
     // Arm 2: 2-stream round-robin, per-frame path (the taxed arm).
-    run_arm("rr", &config, &w, id, 2, false);
+    run_arm("rr", &config, &w, id, 2, false, max_new);
     // Arm 3: fused batch, interleave OFF.
     set_env("RIIR_TAIL_LAYER_INTERLEAVE", "0");
-    run_arm("batch", &config, &w, id, 2, true);
+    run_arm("batch", &config, &w, id, 2, true, max_new);
     // Arm 4: fused batch, interleave ON (1199 rung b).
     set_env("RIIR_TAIL_LAYER_INTERLEAVE", "1");
-    run_arm("batch+il", &config, &w, id, 2, true);
+    run_arm("batch+il", &config, &w, id, 2, true, max_new);
     set_env("RIIR_TAIL_LAYER_INTERLEAVE", "0");
     eprintln!("[i1199-cell] done — see step-timing[head|tail] lines per arm above");
 }
