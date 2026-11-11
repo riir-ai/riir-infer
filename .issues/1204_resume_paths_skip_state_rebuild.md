@@ -2,6 +2,8 @@
 
 **Status:** OPEN — `- [ ]` tasks below. Found statically 2026-11-11 ~15:20 +0700 by the i1117 128k restart lane (`zed-95d14db9@m3`) while planning the post-timeout re-queue of the killed `rho=0.30` arm (126,784/131,072, job `e5922317`). Monitor-role discipline held on the lane: the 128k re-run was queued as a FRESH recompute precisely because of this finding — `--resume` was not used.
 
+**Claimed:** zed-m3-i1204@m3, 1794407379, expires 2026-11-12T14:29:40+00:00
+
 ## Why
 
 T3 (`5f187da7`, "the durable state dir + --resume") promises in its own commit message and code comments that resume "replays 0..cursor through a fresh cache (deterministic — the state rebuild costs the skipped steps' compute, never their wall)". **The replay loop is not in the code — in either arm.**
