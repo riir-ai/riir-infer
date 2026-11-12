@@ -1,6 +1,8 @@
 # Issue 1208: deletion-mask adapter substrate — codec, PQ2_0 in-distribution application, released-mask league cell, geometry audit
 
-**Status:** Open — GOAT (cell-gated) per riir-train Research 493 track (a); the substrate half of Deletion Tuning (arXiv:2611.10866, "The Surprising Effectiveness of Deleting Weights in LLM Post-Training", NeurIPS 2026, MIT code, released masks HF `Jacklu0831/deletion-tuning-masks`). Every task carries its falsifier; the controlling record is `../riir-train/.research/493_Deletion_Tuning_Mask_Adapters.md`.
+**Status:** Open — GOAT (cell-gated) per riir-train Research 493 track (a)
+**Claimed:** zed-5cdf3ece@amo, 1794465951, expires 2026-11-14T06:45:51+00:00
+Scope: T1 only (the `src/adapter/mask_codec.rs` leaf — FORMAT_VERSION, base-BLAKE3 binding, section map, RLE-then-zstd payload, BLAKE3-over-raw-bits, Ed25519 sig field, the typed refusal battery, the identity pin, the MoE router/gate-logit pack-time refusal, golden fixture + tests). Feature name `deletion_mask` per Research 493's promotion bar; zstd + ed25519-dalek land as optional deps behind it. T2-T8 unclaimed.; the substrate half of Deletion Tuning (arXiv:2611.10866, "The Surprising Effectiveness of Deleting Weights in LLM Post-Training", NeurIPS 2026, MIT code, released masks HF `Jacklu0831/deletion-tuning-masks`). Every task carries its falsifier; the controlling record is `../riir-train/.research/493_Deletion_Tuning_Mask_Adapters.md`.
 
 ## Background
 
