@@ -66,6 +66,12 @@ katgpt-transformer = { workspace = true }
 wgpu = "30"
 # f16 weight storage (the f16 GEMV/attention/epilogue kernels).
 half = { version = "2", optional = true }
+# The Issue-761 dispatch-decomposition counters (the vendored fork's pub
+# statics — the i1203_counters_probe reader). Same =-pin as the umbrella —
+# one lockfile entry, already in the tree transitively via cubecl's wgpu
+# features; the [patch] at the workspace root unifies the instance, so the
+# statics the probe reads ARE the statics the forward's server increments.
+cubecl-wgpu = { version = "=0.11.0-pre.2", optional = true }
 # Lock-free autotune cache (gemv_autotune; read-mostly fit).
 papaya = { version = "0.2", optional = true }
 # blake3-keyed params-handle cache (params_cache).
@@ -351,7 +357,7 @@ deltanet_recurrence_rowpar = []
 # GEMM (gemm_q4k_tile_cubecl). ternary_gemv gates the batched GDN kernels the
 # prefill path composes; chunked prefill + batched prefill are the state-safe
 # prefill kernel set.
-qwen38_wgpu = ["cubecl_runtime", "ternary_gemv", "ternary_deltanet_chunked_prefill", "ternary_attention_batched_prefill", "deltanet_recurrence_rowpar", "deltanet_recurrence_parallel"]
+qwen38_wgpu = ["cubecl_runtime", "ternary_gemv", "ternary_deltanet_chunked_prefill", "ternary_attention_batched_prefill", "deltanet_recurrence_rowpar", "deltanet_recurrence_parallel", "dep:cubecl-wgpu"]
 # Issue 1179 — the qwen3.8 specdec verify lane (the ABOVE-SERIAL half of the uzu
 # beat). T1 rides this feature: the head-only acceptance price cell (the uzu
 # DFlash speculator, CPU f32 draft + the keyed accept over the dense target).
@@ -721,6 +727,19 @@ required-features = ["ternary_gemv_cuda_raw"]
 # check (the G1; the CUDA lane is not runnable on the comparison boxes).
 [[bin]]
 name = "qwen38_wgpu_bench"
+required-features = ["qwen38_wgpu"]
+
+# Issue 1203 E3 — the dispatch-decomposition probe: one warm-up + one
+# measured pp512 through the SAME forward the E1 bench drives, then dumps
+# the vendored fork's Issue-761 counters (launch/enqueue/flush/submit/
+# regulate/write-poll/read, counts + nanos). Compile floor is qwen38_wgpu;
+# the lane builds it with --features qwen38_wgpu,metal_tensor_gemm so the
+# ARMED path is what the counters attribute (the env arms live inside the
+# mtg-gated code — a feature-less build would measure the incumbent and
+# adjudicate nothing). The forward's own load banner ([Issue 1150] armed /
+# [Issue 1176] DEMOTED) rides stderr — the engagement adjudicator.
+[[bin]]
+name = "i1203_counters_probe"
 required-features = ["qwen38_wgpu"]
 
 # Issue 1177 Item 1 — the CUDA-side walk-parity harness: the SAME fixed

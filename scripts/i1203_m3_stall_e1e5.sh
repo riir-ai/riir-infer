@@ -59,6 +59,14 @@ cargo build --release --bin qwen38_wgpu_bench \
 
 BENCH="$TARGET/release/qwen38_wgpu_bench"
 
+# Issue 1203 E3 — build the counters probe in the SAME posture (shared target,
+# incremental over E1's build). Continue-on-fail: E3 falls back to SKIP-LOUD,
+# never fails the window on it.
+say "E3: building i1203_counters_probe (same posture as E1)"
+cargo build --release --bin i1203_counters_probe \
+    --features qwen38_wgpu,metal_tensor_gemm 2>>"$LOG" \
+    && say "E3: probe build OK" || say "E3: probe BUILD FAILED — E3 will skip loud (the counters bin is broken; fix before the next window)"
+
 say "E1a: ARMED posture (envs unset — league default)"
 env -u RIIR_QWEN38_DENSE_MM2D -u RIIR_QWEN38_DENSE_MM2D_F16ACT -u RIIR_QWEN38_ATTN_TENSOR \
     -u RIIR_QWEN38_LMHEAD_Q6K -u RIIR_QWEN38_DENSE_MM2D_RELAXED \
