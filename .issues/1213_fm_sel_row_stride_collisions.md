@@ -48,10 +48,10 @@ The reader anomaly (0.0504) is a second face of the same bug: `fm_selected_fract
 - [x] Root cause + blast radius + the pre-raise runs declared unaffected (count ≤ 128 everywhere).
 - [x] Fix the four stride literals + docs (this commit).
 - [x] Regression lock test (this commit).
-- [ ] Re-run the t2prep gate + the new regression leg on Metal (m3, after the trio frees the GPU).
-- [ ] End-to-end metric validation: short real-model gate cell at ctx 65536 (n_blocks 1024, ρ0.15 → count 154 > 128), assert the completed bin's mean_selected_fraction ≈ 0.15.
-- [ ] Re-run the 128K ρ arms (v2 out dir, dense.bin copied for the digest-match auto-load; ~9 h + ~14 h on m3 Metal) + the completing bench record.
-- [ ] Fold the closure into the issue 1191 T4 record (bench 1209 carries the VOID disclosure).
+- [x] Re-run the t2prep gate + the new regression leg on Metal (m3, post-trio 2026-11-13 04:33: **2 passed** — the regression leg + the three-leg parity, 0.88 s).
+- [x] End-to-end metric validation (PASS 2026-11-13 ~05:1x): ctx 16384 / 9300 steps / ρ0.5 on the fixed build reads **sel = 0.4926 ≈ ρ** through the armed forward + the fixed reader (pre-fix geometry read ~ρ/n_kv ≈ 0.125). The ρ0.9 companion arm was refused at the ctor by the 1200 loud envelope check (as designed — worst-case blocks × 0.9 needs 1843 slots > 1024); the first ctx-65536/256-step attempt was a geometry error (the walk reaches n_blocks 5; its 0.3362 sel is correct tiny-ctx sawtooth). Artifacts: `/tmp/i1213_validate2/{dense,rho_0.50}.bin` + `/tmp/i1213_validate2.log`.
+- [ ] Re-run the 128K ρ arms (v2 out dir `~/riir-bench/i1117_128k_metal_v2/`, dense.bin copied for the digest-match auto-load; ~9 h + ~15 h on m3 Metal, launches after the validation pair frees the GPU) + the completing bench record.
+- [ ] Fold the closure into the issue 1191 T4 record (bench 1209 carries the VOID disclosure — `.benchmarks/1209_i1117_128k_trio_cpu_valid_metal_rho_void.md`).
 
 ## Non-goals
 
