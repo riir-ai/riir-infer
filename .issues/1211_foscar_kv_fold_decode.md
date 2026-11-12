@@ -1,0 +1,35 @@
+# Issue 1211: Fold the Q8KV decode-attention dequant (FOSCAR affine folding)
+
+**Status:** Open — filed from [`.research/026_FOSCAR_Affine_Folding.md`](../.research/026_FOSCAR_Affine_Folding.md) (arXiv:2611.09722); Premise corrected at verdict round 1 (fold directions were inverted — token-wise Q8_0 groups per (position, 32-dim block))
+
+## Premise
+
+`crates/riir-infer-gpu/src/attention_q8kv_cubecl.rs` dequantizes every cached KV element inline (`k_val = block_scale * i8_val` at the Q·K loop; `v_val = v_scale * v_i8` at the PV loop) — one FMUL per element per phase on top of the unpack chain (word read, `get_byte_q8`, `sign_extend_i8`, int→f32 convert, FMA into the accumulator). The Q8_0 grouping here is **token-wise**: one scale per (position, kv_head, 32-dim block) — `scale_idx = pos * kv_scale_stride + kv_group * n_blocks + block_idx`, and the PV twin likewise indexes `pos_i`. FOSCAR (arXiv:2611.09722 §4.1) folds the group scale into the matmul instead — exact arithmetic, z=0 here so no offset corrections exist:
+
+- **QK phase → acc-fold (their Eq 4).** QK^T reduces over head_dim; the scale varies along the reduction (via `block_idx`) AND per position — token-wise K. Per (pos, block): raw dot `Σ_{d∈block} q[d]·i8_f32[d]` (32 FMAs, **no per-element scale FMUL**), then ONE multiply of the 32-wide partial by `block_scale(pos, block)`. The Gemma-2 softcap applies after the fold produces the exact score — ordering safe. No query pre-scaling is possible: the scale differs per position.
+- **PV phase → operand-fold into P (their Eq 3).** PV reduces over positions; `v_scale(pos_i, block)` varies along that reduction axis — token-wise V. Scale the probabilities, not the values: `p'(pos_i, b) = p_i · v_scale(pos_i, b)` computed ONCE per (position, block) into shared memory (8 products per position instead of 256 per-thread FMULs; each block's 32 lane-threads read their shared `p'`), then each thread FMAs `p' · i8_f32` with no per-element scale. The online-softmax denominator division stays after the accumulation, unchanged.
+
+**Honest op accounting:** both folds save exactly **one FMUL per element** (the scale multiply) out of ~5 per-element ops; each adds O(n_blocks) work per position (1 partial multiply in QK; 8 shared-mem products + a sync in PV). The remaining per-element chain (word read, byte extract, sign-extend, convert, FMA) is untouched by the fold. Expectation: single-digit % on the kernel; **the ≥5% bar is in doubt** — the gate demotes if it misses, and that is an acceptable outcome.
+
+## Proof path (pre-registered)
+
+- **Backend + box state (league law):** the gate runs on CubeCL — Metal first, wgpu second; every latency number quotes its backend + `bench_preflight` PROVENANCE line. The paper's issue-throughput framing is the H100/B200 tensor-core-KV regime and does **not** transfer to Q8 on Metal — no "issue-bound" claim is made for this lane without a census measuring it.
+- **Fixture:** `src/quant/kvq_ab.rs` backends at the Q8Absmax posture, run through the existing quantized-forward harness (`forward_gemma2_f16_qkv`) — the A/B adds zero forward-plumbing by construction.
+- **Falsification arm (parity, pinned number):** first measure the incumbent's own max-abs error vs an f64 reference on the fixture; the folded kernel must hold `max_abs_folded_vs_f64 ≤ 2 × max_abs_incumbent_vs_f64` (a measured class, not an assumed one) — the fold is exact-in-class; drift beyond that bound FAILS the gate.
+- **Pre-registered GOAT gate (fold alone):** decode-attention kernel latency A/B, same posture, same shapes incl. one long-context cell. Bar: **≥5% kernel latency gain** AND parity holds → promote into the q8kv dispatch path; otherwise demote = keep the incumbent, record the number in Research 026 §3.
+- **Confound control:** the observed unpack redundancy (`kv_qs[word_idx]` re-read inside the per-element loop — 4× per u32 word, both phases) is a REAL nearby win but **orthogonal to the fold**. It is its own pre-registered arm (T3b), sequenced AFTER the fold verdict — never bundled into the fold A/B. A packed-dot (dp4a-class) rewrite is recorded as unpriced future work under the same rule.
+
+## Tasks
+
+- [ ] **T1.** QK acc-fold: per (pos, block) raw dot over 32 dims + one partial multiply by `block_scale(pos, block)`; drop the per-element `k_val = block_scale * i8_val` FMUL. Keep the sink-guard sidecar path (f32 sink rows bypass the fold — already exact).
+- [ ] **T2.** PV operand-fold into P: per (pos_i, block) `p' = p_i · v_scale` into shared memory; per-thread FMA `p' · i8_f32`; denominator division unchanged. (Implementation note, verdict round 3: the p' table = cube_size × n_blocks f32 — 8 KB at Gemma-2 — on top of the existing 256-float smem; check the shared-memory limit + occupancy cost, or compute p' per block from its own 32 threads with no table.)
+- [ ] **T3.** Parity cell + latency A/B per the proof path (fold ALONE); record the verdict (promote or demote) in Research 026 §3 and this issue's close note.
+- [ ] **T3b.** Unpack-once arm (AFTER T3's verdict): hoist the word read out of the per-element loop — one `kv_qs[word]` read serves its 4 bytes; own A/B, same parity gate, same bar discipline.
+- [-] **T4.** INT4-KV league arm on Ada (4090) — folding + i8-mma / bit-mapped operand feeding for the league models' full-attention layers (Bonsai-2-27B: 16 attention layers; league decode cell tg128 0.970×, KV is F16 today). **Deferred:** lossy arm → requires the league's per-family retention gates + FNV/argmax digit-exact bars armed for a KV-quant family first (the Research-024 `drift_guard` shape is the ready guard). Not started.
+- [-] **T5.** GDN state-readout fold arm — fold the (future, Issue 1207) quantized GDN state's dequant affine into the readout operands (`Ŝ₀ᵀΓx` fixed-state term). Publicly unclaimed lane (prior-art check, Research 026 §2). Rides Issue 1207; not started.
+- [-] **T6.** Second fold site: `crates/riir-infer-gpu/src/qwen_prefill_q8kv_cubecl.rs` (the Issue-771 Q8-KV prefill flash arm, DEFAULT-OFF, dequant-in-register at load — its lane layout already shares one scale across 4 lanes per block). Optional after T3's verdict; excluded from the T3 gate. Not started.
+
+## Constraints
+
+- CubeCL kernel constraints apply (no conditional expressions as values, unrolled reductions, `sync_cube()` between steps) — the rewrite must respect the NativeExpand workarounds documented in the file header; the shared-memory `p'` table in T2 adds one sync per position, priced in the T3 measurement.
+- No change to the store-time format (`src/quant/q8kv.rs` / `kvq_ab.rs` backends): the fold consumes the existing cache bytes; scales read as-is.
