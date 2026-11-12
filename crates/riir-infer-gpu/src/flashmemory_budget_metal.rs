@@ -666,7 +666,9 @@ impl FmBlockGatherMetal {
     /// - `key_cache`/`value_cache`: `[max_seq * n_kv * head_dim]` f32 (the
     ///   existing layout the Metal stack serves).
     /// - `gate`: `[n_head * head_dim]` f32.
-    /// - `sel`: `[n_kv * 128]` u32; `sel_counts`: `[n_kv]` u32.
+    /// - `sel`: `[n_kv * FM_MAX_SEL]` u32 — the row stride IS `FM_MAX_SEL`
+    ///   (must match the select kernel's write stride, issue 1213);
+    ///   `sel_counts`: `[n_kv]` u32.
     /// - `attn_out`: `[n_head * head_dim]` f32.
     pub unsafe fn launch<R: Runtime>(
         client: &ComputeClient<R>,
