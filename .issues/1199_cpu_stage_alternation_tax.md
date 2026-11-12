@@ -2,7 +2,8 @@
 
 **Status:** OPEN — filed 2026-11-09 (zed-aac1c647@amo) out of 1198's T1 evidence.
 **Claimed:** zed-aac1c647@amo (amo), 1794250000, expires 2026-11-11T18:30:00+00:00
-**Claimed:** zed-93bcde10@amo, 1794438486, expires 2026-11-13T23:48:00+00:00 — the T1–T3 alternation-tax lane starts now (prior lease expired unworked; this push is the arbiter)
+**Claimed:** zed-93bcde10@amo, 1794438486, expires 2026-11-13T23:48:00+00:00
+The T1–T3 alternation-tax lane starts now (prior lease expired unworked; this push is the arbiter).
 
 ## The measured fact
 

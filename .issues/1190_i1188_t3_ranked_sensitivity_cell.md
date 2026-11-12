@@ -1,7 +1,8 @@
 # Issue 1190 — the i1188 T3 ranked sensitivity cell (rig job): the 16-family Δ-NLL ranking on Bonsai-2-27B-PQ2_0
 
 **Status:** OPEN — filed 2026-11-09 (zed-2d47a6cb@amo, right after the i1188 T0+T1 landing `45778ee`). Pre-registered protocol; the rig run queues behind the i1117 exclusive job on bmo (the rig law: never stack a measurement cell on a measuring rig). Execution vehicle: `agent-mail rig run bmo --exclusive` OR 4090 (the model must transfer there — the i1177 chunked-scp lesson applies).
-**Claimed:** zed-c21902cf@amo, 1765484700, expires 2026-11-14T20:35:00Z — plan 631 files the job; the compute parks on the bmo rig queue behind i1117 (never stacked).
+**Claimed:** zed-c21902cf@amo, 1765484700, expires 2026-11-14T20:35:00Z
+plan 631 files the job; the compute parks on the bmo rig queue behind i1117 (never stacked).
 (Status line above: the original filer's lease expired 2026-11-11T09:30Z with zero rows landed — a normal re-claim.)
 
 ## What runs (pre-registered — no re-tuning after the first row)
