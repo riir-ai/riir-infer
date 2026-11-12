@@ -1,11 +1,12 @@
 //! Rotary Position Embeddings (`RoPE`) for Gemma 2 (Plan 087).
 //!
-//! Applies complex rotation to Q/K vectors per head:
-//!   For each pair (`q[2i]`, `q[2i+1]`):
+//! Applies complex rotation to Q/K vectors per head, using the **rotate-half**
+//! pairing (HuggingFace `rotate_half` convention — pairs `q[i]` with
+//! `q[i + half]`, `half = head_dim / 2`; NOT adjacent pairs `(2i, 2i+1)`):
 //! ```text
-//! angle = pos / (theta ^ (2i / head_dim))
-//! q[2i]     = q[2i] * cos(angle) - q[2i+1] * sin(angle)
-//! q[2i+1]   = q[2i] * sin(angle) + q[2i+1] * cos(angle)
+//! angle_i = pos / (theta ^ (2i / head_dim))   for i in 0..half
+//! q[i]       = q[i] * cos(angle_i) - q[i+half] * sin(angle_i)
+//! q[i+half]  = q[i] * sin(angle_i) + q[i+half] * cos(angle_i)
 //! ```
 
 /// Pre-computed `RoPE` frequency table.
