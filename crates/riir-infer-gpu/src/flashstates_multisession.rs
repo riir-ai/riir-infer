@@ -382,8 +382,10 @@ impl FlashStatesManager {
         self.tree.unlock(&hit);
 
         // Adopt [held..matched): take the session's hold and extend its
-        // tables. (When the tree forgot part of the session's own prefix,
-        // matched < held: nothing new to adopt — restore rides tables.)
+        // tables. (When the tree forgot part of the session's own prefix
+        // — eviction dropped a tree-hold-only fresh capture under this
+        // live session — matched < held: restore rides the tables, which
+        // evict_to_budget has already truncated past the freed chunks.)
         let new_from = held.min(matched);
         let new_to = matched;
         if new_to > new_from {
@@ -674,11 +676,25 @@ impl FlashStatesManager {
     /// Tree eviction (leaf-preferential LRU): route each victim's
     /// chunk-major pages to their pools and drop the TREE's hold. Pages
     /// a session still adopts survive on the session's hold.
+    ///
+    /// The truncation floor: fresh captures are TREE-HOLD-ONLY (the
+    /// ledger), so eviction can free a LIVE session's own pages — their
+    /// bytes are reuse-clobbered on the next alloc, and a table row that
+    /// kept the id would restore garbage. After the substrate scan, the
+    /// freed set (the victim ids whose pool refcount reached 0 — no
+    /// alloc runs between, so rc 0 is exact) is swept against every
+    /// live session's tables and each affected session TRUNCATES at the
+    /// shallowest freed chunk: tables, adopted-ledger rows, cursor. An
+    /// adopted page never reaches rc 0 through this path (rc ≥ 2
+    /// before), so the sweep only ever eats tree-only spans.
     pub fn evict_to_budget(&mut self) {
         let nl = self.plan.n_layers();
         let n_attn = self.plan.n_attn;
         let kv = &mut self.kv;
         let gdn = &mut self.gdn;
+        let mut victims: Vec<usize> = Vec::new();
+        let mut freed_kv: Vec<usize> = Vec::new();
+        let mut freed_gdn: Vec<usize> = Vec::new();
         self.tree.evict_to_budget(|flat| {
             let chunks = flat.len() / nl;
             let mut kv_rows = vec![Vec::with_capacity(chunks); n_attn];
@@ -694,6 +710,63 @@ impl FlashStatesManager {
             }
             kv.release_chunk_pages(&kv_rows);
             gdn.release(&gdn_flat);
+            victims.extend_from_slice(flat);
+            freed_kv.extend(kv_rows.iter().flatten().copied());
+            freed_gdn.extend_from_slice(&gdn_flat);
         });
+        // No alloc ran since the releases: rc == 0 marks exactly the
+        // pages whose last hold was the tree's. Layer-scoped, so a
+        // mixed victim (its KV freed, its GDN alive on session holds)
+        // cuts only on the KV rows' positions.
+        let freed_kv: Vec<usize> = freed_kv
+            .into_iter()
+            .filter(|&id| self.kv.page_ref_counts[id] == 0)
+            .collect();
+        let freed_gdn: Vec<usize> = freed_gdn
+            .into_iter()
+            .filter(|&id| self.gdn.refcount(id) == 0)
+            .collect();
+        if freed_kv.is_empty() && freed_gdn.is_empty() {
+            return;
+        }
+        for record in self.sessions.values_mut() {
+            // The shallowest CHUNK carrying a freed id — per LAYER class:
+            // the restore needs every layer live at a chunk, so the cut
+            // is the shallower of the two classes' shallowest freed
+            // positions (a KV-freed/GDN-alive chunk still breaks the
+            // layer contract).
+            let mut cut = usize::MAX;
+            let mut cut_kv = usize::MAX;
+            let mut cut_gdn = usize::MAX;
+            for (l, row) in record.tables.iter().enumerate() {
+                for (c, &id) in row.iter().enumerate() {
+                    let is_freed = if l < n_attn {
+                        freed_kv.contains(&id)
+                    } else {
+                        freed_gdn.contains(&id)
+                    };
+                    if is_freed {
+                        cut = cut.min(c);
+                        if l < n_attn {
+                            cut_kv = cut_kv.min(c);
+                        } else {
+                            cut_gdn = cut_gdn.min(c);
+                        }
+                    }
+                }
+            }
+            let _ = (cut_kv, cut_gdn);
+            if cut == usize::MAX {
+                continue;
+            }
+            for row in record.tables.iter_mut() {
+                row.truncate(cut);
+            }
+            for row in record.adopted_kv.iter_mut() {
+                row.truncate(cut);
+            }
+            record.adopted_gdn.truncate(cut * self.plan.n_gdn);
+            record.held_chunks = cut;
+        }
     }
 }

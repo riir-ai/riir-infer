@@ -254,3 +254,61 @@ fn continuous_session_restores_nothing_new() {
         assert_eq!(m.gdn_pool().refcount(id), rc, "page {id} refcount drift");
     }
 }
+
+/// The KV pool's per-page refcount (pub field on the substrate).
+fn kv_refcount(m: &FlashStatesManager, id: usize) -> usize {
+    m.kv_pool().page_ref_counts[id]
+}
+
+#[test]
+fn evicted_tail_under_live_session_truncates_the_cursor_never_dangles() {
+    // The T2-completion floor: fresh captures are TREE-HOLD-ONLY (the
+    // ledger), so tree eviction can free a LIVE session's own pages
+    // (rc 1→0 → free-list → reuse-clobbered). evict_to_budget TRUNCATES
+    // the affected session's cursor AT EVICTION TIME — riding the
+    // dangling table ids would restore garbage (or another session's
+    // state) at the next serve.
+    let mut m = FlashStatesManager::new(tree(2), kv_pool(), GdnStatePool::new(), plan());
+    let a_prompt = tokens(31, 3); // 3 chunks over a 2-chunk budget
+    m.session_start(1);
+    capture(&mut m, 1, 31, &a_prompt);
+    let held_before = m.session_held_chunks(1);
+    assert_eq!(held_before, 3);
+
+    // Eviction fires while session 1 is LIVE: over budget → the oldest
+    // leaf chunks drop, their pages free (tree-hold-only), and the
+    // session's cursor truncates to the surviving prefix.
+    m.evict_to_budget();
+    let held_after = m.session_held_chunks(1);
+    assert!(
+        held_after < held_before,
+        "eviction freed this session's own pages; the cursor must truncate"
+    );
+
+    // Next serve: the resolvable prefix only. Every planned id must
+    // still be held by a pool (rc ≥ 1) — a freed id here is the defect.
+    let resumed = m.serve(1, &a_prompt);
+    assert_eq!(
+        resumed.restore_chunks, held_after,
+        "restore rides the truncated cursor"
+    );
+    for row in resumed.kv_pages.iter().chain(resumed.gdn_pages.iter()) {
+        for &id in row.iter() {
+            assert!(
+                kv_refcount(&m, id) >= 1 || m.gdn_pool().refcount(id) >= 1,
+                "plan carries a freed page id {id}"
+            );
+        }
+    }
+
+    // The truncated session captures forward again from the truncated
+    // cursor (the next capture re-indexes the suffix).
+    let turn2 = [a_prompt.clone(), tokens(32, 1)].concat();
+    let served2 = m.serve(1, &turn2);
+    assert_eq!(
+        served2.restore_chunks, held_after,
+        "turn2's prompt re-matches exactly the surviving prefix"
+    );
+    capture(&mut m, 1, 32, &turn2);
+    assert_eq!(m.session_held_chunks(1), turn2.len() / PAGE_TOKENS);
+}
