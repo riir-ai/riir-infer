@@ -131,6 +131,14 @@ pub mod golden_nll;
 /// apply-at-load behind the same feature.
 #[cfg(feature = "deletion_mask")]
 pub mod adapter;
+/// Offline R/S Jacobian-lens lane (Research 666, katgpt-rs Issue 999,
+/// opt-in `lens`): RelP hand-rule op maps — the LN/identity/half rules and
+/// the exact adjoints (RoPE, projections, causal conv1d) the layer-stack
+/// lens fit composes into `linearize`/`jvp`/`vjp`. Same posture as
+/// `sink_audit` — offline once per checkpoint, never a serving path; the
+/// fit IS the laya stability lane's deferred "headful lens variant".
+#[cfg(feature = "lens")]
+pub mod lens;
 
 /// Plan 622 TokenGate lane switches (T1.5): the `tokengate` compile-time
 /// feature + the `RIIR_TOKENGATE` runtime demote. See the module doc.

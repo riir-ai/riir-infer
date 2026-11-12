@@ -76,6 +76,13 @@ sentencepiece = "0.13"
 [features]
 # Pure-local gates (no dep forwards).
 rotary_value_embedding = []
+# Research 666 (katgpt-rs Issue 999) — the offline R/S Jacobian-lens lane:
+# RelP hand-rule op maps (`lens::ops`) + the layer-stack fit over a headful
+# checkpoint (the laya stability lane's deferred "headful lens variant").
+# Pure-local opt-in, same posture as `sink_audit` — offline once per
+# checkpoint, zero serving-path cost. PoC gates G1–G4 live in
+# katgpt-rs `.issues/999_rs_lens_fit_validate_poc.md`.
+lens = []
 hla = []
 # Issue 049 — the GDN delta-roll state journal (`deltanet::delta_roll`):
 # post-commit state recovery by rank-1 unwind (final state + per-token
