@@ -77,6 +77,17 @@ pub mod deltanet;
 #[cfg(feature = "closed_form_write")]
 pub mod closed_form_write;
 
+/// The katgpt-rs issue-988 T2b real-activation cell (riir-infer Issue
+/// 1206): the capture seam + the offline graft fit/eval harness over the
+/// dense qwen35-hybrid body. The PRIMITIVE is katgpt-core's (`grafts`,
+/// forwarded by this feature); this module hosts the hidden-state
+/// capture (`HiddenCapture` — the sink_audit Option pattern), the
+/// task/split generation, and the report. The serving path never mounts
+/// it; a default build compiles the module (and the scratch field) out
+/// entirely.
+#[cfg(feature = "grafts_cell")]
+pub mod grafts_cell;
+
 /// Ternary-weight transformer structs — only compiles with the ternary
 /// substrate on (mirrors the engine-side gate + comment).
 #[cfg(feature = "ternary_inference")]

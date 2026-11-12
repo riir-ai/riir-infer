@@ -1,0 +1,54 @@
+{
+  "baselines": [
+    {
+      "accuracy": 0.0,
+      "format": "Bare",
+      "n": 1000,
+      "secs": 522.794635542,
+      "task": "ThreeOpAdd10",
+      "wrong_n": 1000
+    },
+    {
+      "accuracy": 0.0,
+      "format": "QaWrap",
+      "n": 1000,
+      "secs": 814.684494416,
+      "task": "ThreeOpAdd10",
+      "wrong_n": 1000
+    },
+    {
+      "accuracy": 0.0,
+      "format": "Bare",
+      "n": 100,
+      "secs": 41.498315542,
+      "task": "TwoOpMul10",
+      "wrong_n": 100
+    },
+    {
+      "accuracy": 0.0,
+      "format": "QaWrap",
+      "n": 100,
+      "secs": 70.710061333,
+      "task": "TwoOpMul10",
+      "wrong_n": 100
+    },
+    {
+      "accuracy": 0.0,
+      "format": "Bare",
+      "n": 100,
+      "secs": 41.340459667,
+      "task": "TwoOpAdd10",
+      "wrong_n": 100
+    },
+    {
+      "accuracy": 0.0,
+      "format": "QaWrap",
+      "n": 100,
+      "secs": 71.987437167,
+      "task": "TwoOpAdd10",
+      "wrong_n": 100
+    }
+  ],
+  "checkpoint_blake3": "70fd9c83d63454ae72e07a29ebdb78f863cfad102d8939f6ec49b2aea32104e2",
+  "issue": "riir-infer issue 1206 (katgpt-rs issue 988 T2b)"
+}

@@ -1298,6 +1298,15 @@ pub struct HybridForwardScratch {
     /// layer up: the census is offline, not per-call).
     #[cfg(feature = "sink_audit")]
     pub sink_audit_q: Option<crate::deltanet::sink_audit::SinkAuditQCapture>,
+    /// The grafts-cell hidden-state capture (riir-infer Issue 1206,
+    /// `grafts_cell`): the residual stream at the END of each layer at one
+    /// armed position, for the offline graft probe/eval lanes. Same shape as
+    /// the sink-audit capture: `None` everywhere except the offline pass,
+    /// cfg-gated so a flag-off build compiles the field out entirely; the
+    /// forward pays one `Option` check per layer when armed, zero cost
+    /// otherwise (the serving path never mounts it).
+    #[cfg(feature = "grafts_cell")]
+    pub grafts_hidden: Option<crate::grafts_cell::HiddenCapture>,
     /// The deletion-mask gate overlay (Issue 1208 T2, `deletion_mask`):
     /// masked SHADOW copies of armed layers' gate projections — the base
     /// weights stay pristine and hot-swap is pointer-swap. `None`
@@ -1333,6 +1342,8 @@ impl HybridForwardScratch {
             closed_form_rank_scratch: vec![0.0; config.mlp_hidden.min(config.n_embd)],
             #[cfg(feature = "sink_audit")]
             sink_audit_q: None,
+            #[cfg(feature = "grafts_cell")]
+            grafts_hidden: None,
             #[cfg(feature = "deletion_mask")]
             gate_mask_overlay: None,
             #[cfg(feature = "deletion_mask")]
@@ -1499,6 +1510,10 @@ fn forward_qwen_deltanet_body<'a>(
         // Grafts-cell capture (Issue 1206, `grafts_cell`): `x` now holds
         // the layer-L residual stream — the probe input the graft lanes
         // read. Armed only in the offline cell pass.
+        #[cfg(feature = "grafts_cell")]
+        if let Some(cap) = scratch.grafts_hidden.as_mut() {
+            cap.capture(layer_idx, pos, &x[..n]);
+        }
     }
 
     // 3. Final RMSNorm

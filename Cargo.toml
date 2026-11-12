@@ -337,6 +337,15 @@ sink_audit = [
     "attention_to_answer",
 ]
 
+# grafts_cell (riir-infer Issue 1206, 2026-11-12): the katgpt-rs issue-988
+# T2b real-activation cell — the offline graft-fitting + eval harness over
+# the dense qwen35-hybrid body. Forwards katgpt-core/grafts (the primitive
+# stays there; this repo hosts the capture seam + the cell). The capture
+# field on HybridForwardScratch is cfg-gated: a default build compiles it
+# out entirely (the Plan-287 G3 lesson), and the forward branch is one
+# None check on the armed path only.
+grafts_cell = ["katgpt-core/grafts", "deltanet_inference"]
+
 
 
 # fitted_v_tables (riir-infer Issue 013 T1, 2026-09-28): the model-bound P1
@@ -487,6 +496,15 @@ name = "i1188_family_taxonomy"
 [[test]]
 name = "i1188_q8_projection_gates"
 required-features = ["deltanet_ternary_inference"]
+
+# riir-infer Issue 1206 — the grafts T2b real-activation cell bin
+# (baseline → probes → table → switch → four sealed arms → BLAKE3-pinned
+# report). Reader protection row (the green-zero law): a default build
+# skips the bin loudly.
+[[bin]]
+name = "grafts_cell"
+path = "src/bin/grafts_cell.rs"
+required-features = ["grafts_cell"]
 
 # Issue 1208 T1 — the deletion-mask codec battery (the codec lives behind
 # deletion_mask; a default build skips the target loudly, the green-zero law).

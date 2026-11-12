@@ -1,0 +1,97 @@
+{
+  "issue": "riir-infer issue 1206 (katgpt-rs issue 988 T2b)",
+  "checkpoint": "../riir-train/data/Qwen3.5-0.8B-Base-Q8_0.gguf",
+  "checkpoint_blake3": "70fd9c83d63454ae72e07a29ebdb78f863cfad102d8939f6ec49b2aea32104e2",
+  "task": "ThreeOpAdd10",
+  "prompt_format": "FewShot",
+  "split_seed": 159907841,
+  "split_digest": "0a7d8dbe899dd1ba1c843026abc6e1a935f0340194f9f1ed0bc24713f2af160e",
+  "probe_layers": [
+    3,
+    6,
+    9
+  ],
+  "ridge": 0.1,
+  "switch_threshold": 0.5,
+  "bias_delta": 8.0,
+  "scramble_seed": 1592629376,
+  "n_embd": 1024,
+  "solved_n": 400,
+  "dev_n": 200,
+  "sealed_n": 400,
+  "solved_triple_coverage": 0.79,
+  "probe_corr": [
+    0.03264004781757207,
+    0.0387946227582206,
+    0.03987685023436288
+  ],
+  "dev_rows": [
+    {
+      "arm": "baseline",
+      "accuracy": 0.105,
+      "digit_argmax_rate": 1.0,
+      "n": 200,
+      "decided": null,
+      "armed_rate": null
+    },
+    {
+      "arm": "graft_unconditional",
+      "accuracy": 0.41,
+      "digit_argmax_rate": 1.0,
+      "n": 200,
+      "decided": 0.61,
+      "armed_rate": 0.305
+    },
+    {
+      "arm": "graft_conditional",
+      "accuracy": 0.41,
+      "digit_argmax_rate": 1.0,
+      "n": 200,
+      "decided": 0.61,
+      "armed_rate": 0.305
+    },
+    {
+      "arm": "scramble",
+      "accuracy": 0.37,
+      "digit_argmax_rate": 1.0,
+      "n": 200,
+      "decided": 0.62,
+      "armed_rate": 0.31
+    }
+  ],
+  "sealed_rows": [
+    {
+      "arm": "baseline",
+      "accuracy": 0.125,
+      "digit_argmax_rate": 1.0,
+      "n": 400,
+      "decided": null,
+      "armed_rate": null
+    },
+    {
+      "arm": "graft_unconditional",
+      "accuracy": 0.3925,
+      "digit_argmax_rate": 1.0,
+      "n": 400,
+      "decided": 0.5925,
+      "armed_rate": 0.29662077596996245
+    },
+    {
+      "arm": "graft_conditional",
+      "accuracy": 0.3925,
+      "digit_argmax_rate": 1.0,
+      "n": 400,
+      "decided": 0.5925,
+      "armed_rate": 0.29662077596996245
+    },
+    {
+      "arm": "scramble",
+      "accuracy": 0.3975,
+      "digit_argmax_rate": 1.0,
+      "n": 400,
+      "decided": 0.6225,
+      "armed_rate": 0.311639549436796
+    }
+  ],
+  "payload_blake3": "fac21420025b309ec6b2374080fb6ece50f8a304cd74a8edf0428a3438e0a747"
+}
