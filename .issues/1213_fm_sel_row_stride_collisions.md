@@ -1,6 +1,9 @@
 # Issue 1213 — the FM sel row stride stayed 128 through the FM_MAX_SEL raise: the 128K Metal ρ arms measured a collided selector (VOID)
 
-**Status:** OPEN — fix LANDED (this commit), the 128K ρ re-run pending the trio's dense completion. `- [ ]` tasks below.
+**Status:** OPEN — fix LANDED (`5425494e` + `19c12a3c`), regression lock GREEN (2 passed 04:33), e2e validation PASS (ctx 16384 reads sel 0.4926 ≈ ρ); the 128K ρ re-run (v2) is IN FLIGHT — launched 05:11 +0700 Nov 13 on the fixed build, dense auto-loaded (45396.1s wall recorded), pace 12.7% ahead of v1 at the same position, ρ0.15 ETA ~13:25 +0700 Nov 13, ρ0.30 ETA ~02:40 Nov 14 (bound 05:20); sel-checkpoint + completing wakes armed, dedup-guarded (ground truth: `~/riir-bench/i1117_128k_metal_v2/CHECKPOINT_PLAN.md`). Closes at the completing wake on sel ≈ ρ at 128K + the T4 record.
+
+**Claimed:** zed-d565d322@m3, 1794522000, expires 2026-11-14T12:00:00Z
+(scope: the same lane as 1191 — v2 re-run supervision, the sel checkpoint, the completing record that folds this issue's closure)
 
 ## Found by
 
@@ -50,7 +53,7 @@ The reader anomaly (0.0504) is a second face of the same bug: `fm_selected_fract
 - [x] Regression lock test (this commit).
 - [x] Re-run the t2prep gate + the new regression leg on Metal (m3, post-trio 2026-11-13 04:33: **2 passed** — the regression leg + the three-leg parity, 0.88 s).
 - [x] End-to-end metric validation (PASS 2026-11-13 ~05:1x): ctx 16384 / 9300 steps / ρ0.5 on the fixed build reads **sel = 0.4926 ≈ ρ** through the armed forward + the fixed reader (pre-fix geometry read ~ρ/n_kv ≈ 0.125). The ρ0.9 companion arm was refused at the ctor by the 1200 loud envelope check (as designed — worst-case blocks × 0.9 needs 1843 slots > 1024); the first ctx-65536/256-step attempt was a geometry error (the walk reaches n_blocks 5; its 0.3362 sel is correct tiny-ctx sawtooth). Artifacts: `/tmp/i1213_validate2/{dense,rho_0.50}.bin` + `/tmp/i1213_validate2.log`.
-- [ ] Re-run the 128K ρ arms (v2 out dir `~/riir-bench/i1117_128k_metal_v2/`, dense.bin copied for the digest-match auto-load; ~9 h + ~15 h on m3 Metal, launches after the validation pair frees the GPU) + the completing bench record.
+- [ ] Re-run the 128K ρ arms (v2 out dir `~/riir-bench/i1117_128k_metal_v2/`, dense.bin auto-LOADED 05:11 +0700 Nov 13 — IN FLIGHT, 17% of ρ0.15 at 11.1 tok/s at last read; ρ0.15 ETA ~13:25, ρ0.30 ETA ~02:40 Nov 14, bound 05:20; sel checkpoint wakes 14:20/14:25/14:32, completing wakes 08:00/08:05/09:30 Nov 14 — all dedup-guarded) + the completing bench record.
 - [ ] Fold the closure into the issue 1191 T4 record (bench 1209 carries the VOID disclosure — `.benchmarks/1209_i1117_128k_trio_cpu_valid_metal_rho_void.md`).
 
 ## Non-goals
