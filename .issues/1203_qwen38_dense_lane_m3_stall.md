@@ -52,6 +52,37 @@ Read the vendored stack + the dense lane end to end. Findings:
 
 Not blocking 1201 T2: the cell runs on the qualified Metal boxes (amo queued via the fleet); this issue is the m3-arm unblock.
 
+## Upstream prior-art census — DONE (2026-11-13 07:05 +0700, zed-fa3b5839@m3; web + vendor grep, no GPU — inside the T1 read-only posture, diagnosis scope untouched)
+
+Corrects the earlier datum: **gfx-rs/wgpu #9660 was RETRACTED, never fixed** — its own
+author closed it next-day ("Fable 5 created this issue without consulting me"), zero
+maintainer triage, no fix commit exists; the CHECKPOINT_PLAN's "closed with a fix
+~wgpu 22" line was FALSE and is corrected there. Verified "M3 Max" census in
+gfx-rs/wgpu = 4 issues, all unrelated/retracted → **zero open M3-Max perf/stall
+reports upstream**; the box-family prior rests on first-party measurement only.
+
+E5 interpretation aids (verdict class, applicability adjudicated):
+
+1. **#8474 (wgpu MEMBER-filed, OPEN)** — MSL compiler miscompiles
+   `unpack_unorm2x16/snorm2x16_to_float` on M3+ (Chrome crbug.com/dawn/449576833;
+   WebKit polyfill `4ffaa038`). The credible "M3-family Metal misbehaves" instance —
+   correctness, not perf. Our shape? NO: zero `unpack_*2x16` uses in riir-infer-gpu
+   or the vendored cubecl lanes (grep clean). Prior only.
+2. **#9414 (OPEN) — instrumentation trap for E4/E5:** Metal timestamp queries return
+   ALL ZEROS on macOS 26+/Metal 4 (Apple killed `MTLCounterSampleBuffer` reads;
+   `MTL4CounterHeap` unadopted in wgpu-hal 29–30). m3 is macOS 27.2: do NOT add GPU
+   timestamp probes to the diagnosis; wall clock + the Issue-761 CPU-side counters
+   are the instruments (lane already passes `timestamp_writes: None`).
+3. **#8768 (closed dup; Dawn-confirmed)** — Apple's Metal driver allocates in
+   `AGX::Compiler::compileProgram` per render pass — per-submission driver-side
+   compile overhead is a real Apple-driver class; one prior for E2's
+   per-commit-serialization arm (b). Compute-pipeline analog unverified.
+4. Vendor freshness (re-verified): #9328 `wait_while_for` IS in
+   `vendor/wgpu-hal-30.0.0/src/metal/device.rs:2042` (T1 finding stands). #9100,
+   #9215/#9645 (ray-tracing sync), #10013/#10780 (sRGB presentation), #10639/#10640
+   (CPU encode cost, M3 Pro) — all non-shapes for a headless compute lane; recorded
+   so the next dig does not re-read them.
+
 ## References
 
 - `8e64a036` — the 1201 T2 landing whose G1 attempt surfaced this.
