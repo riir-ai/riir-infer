@@ -118,6 +118,40 @@ impl Proj {
         }
     }
 
+    /// matvec against a caller-supplied shadow of THIS projection's data
+    /// (Issue 1208 T2's in-forward overlay): identical kernel, identical
+    /// shape — only the data differs. The shadow's length must match this
+    /// projection's (debug-asserted; the overlay mount refuses mismatches
+    /// at construction). `shadow == None` demotes to the base matvec
+    /// byte-identically (the None = no-op law, mirroring i1189's overlay
+    /// demote shape).
+    #[inline]
+    pub fn matvec_shadowed(&self, x: &[f32], y: &mut [f32], shadow: Option<&[f32]>) {
+        match (self, shadow) {
+            (
+                Self::Dense {
+                    data: _,
+                    rows,
+                    cols,
+                },
+                Some(shadow),
+            ) => {
+                if *rows == 0 {
+                    return;
+                }
+                debug_assert_eq!(shadow.len(), rows * cols);
+                matmul(y, shadow, x, *rows, *cols);
+            }
+            (proj, None) => proj.matvec(x, y),
+            #[cfg(feature = "deltanet_ternary_inference")]
+            (Self::Ternary(_), Some(_)) => {
+                // the overlay is a dense-lane construct; a ternary projection
+                // has no f32 shadow. Loud, not silent.
+                panic!("matvec_shadowed on Proj::Ternary — the deletion overlay is dense-only");
+            }
+        }
+    }
+
     /// Batched matrix-matrix multiply (Issue 597): for each position `p` in
     /// `0..batch`, `y[p*rows..(p+1)*rows] = self @ x[p*cols..(p+1)*cols]`.
     ///
@@ -1730,3 +1764,4 @@ mod tests {
         assert_eq!(weights.wte.len(), config.vocab_size * config.n_embd);
     }
 }
+

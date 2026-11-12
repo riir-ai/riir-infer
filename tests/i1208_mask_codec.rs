@@ -66,10 +66,6 @@ fn wire_version(artifact: &mut [u8], version: u32) {
     artifact[5..9].copy_from_slice(&version.to_le_bytes());
 }
 
-fn wire_base(artifact: &mut [u8], base: &[u8; 32]) {
-    artifact[9..41].copy_from_slice(base);
-}
-
 fn wire_zero_code(artifact: &mut [u8], code: u8) {
     artifact[81] = code;
 }

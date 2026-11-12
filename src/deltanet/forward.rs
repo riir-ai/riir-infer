@@ -1298,6 +1298,15 @@ pub struct HybridForwardScratch {
     /// layer up: the census is offline, not per-call).
     #[cfg(feature = "sink_audit")]
     pub sink_audit_q: Option<crate::deltanet::sink_audit::SinkAuditQCapture>,
+    /// The deletion-mask gate overlay (Issue 1208 T2, `deletion_mask`):
+    /// masked SHADOW copies of armed layers' gate projections — the base
+    /// weights stay pristine and hot-swap is pointer-swap. `None`
+    /// everywhere except the armed run; cfg-gated so a flag-off build
+    /// compiles the field out entirely (the grafts_cell pattern). The
+    /// forward pays one `Option` check per layer when armed, zero
+    /// otherwise.
+    #[cfg(feature = "deletion_mask")]
+    pub gate_mask_overlay: crate::adapter::f32_apply::GateMaskOverlayField,
 }
 
 impl HybridForwardScratch {
@@ -1318,6 +1327,8 @@ impl HybridForwardScratch {
             closed_form_rank_scratch: vec![0.0; config.mlp_hidden.min(config.n_embd)],
             #[cfg(feature = "sink_audit")]
             sink_audit_q: None,
+            #[cfg(feature = "deletion_mask")]
+            gate_mask_overlay: None,
         }
     }
 }
@@ -1438,6 +1449,17 @@ fn forward_qwen_deltanet_body<'a>(
         );
 
         // g. SwiGLU MLP
+        #[cfg(feature = "deletion_mask")]
+        {
+            let shadow = scratch
+                .gate_mask_overlay
+                .as_ref()
+                .and_then(|o| o.shadow_for(layer_idx));
+            layer_weights
+                .gate_proj
+                .matvec_shadowed(&x[..n], &mut scratch.gate, shadow);
+        }
+        #[cfg(not(feature = "deletion_mask"))]
         layer_weights.gate_proj.matvec(&x[..n], &mut scratch.gate);
         layer_weights.up_proj.matvec(&x[..n], &mut scratch.up);
         swiglu(&mut scratch.hidden, &scratch.gate, &scratch.up);
@@ -1459,6 +1481,10 @@ fn forward_qwen_deltanet_body<'a>(
         for (xi, r) in x[..n].iter_mut().zip(&scratch.residual[..n]) {
             *xi += *r;
         }
+
+        // Grafts-cell capture (Issue 1206, `grafts_cell`): `x` now holds
+        // the layer-L residual stream — the probe input the graft lanes
+        // read. Armed only in the offline cell pass.
     }
 
     // 3. Final RMSNorm
@@ -1633,6 +1659,17 @@ fn forward_qwen_deltanet_pruned_body<'a>(
             &layer_weights.post_attn_norm,
             config.rms_norm_eps,
         );
+        #[cfg(feature = "deletion_mask")]
+        {
+            let shadow = scratch
+                .gate_mask_overlay
+                .as_ref()
+                .and_then(|o| o.shadow_for(layer_idx));
+            layer_weights
+                .gate_proj
+                .matvec_shadowed(&x[..n], &mut scratch.gate, shadow);
+        }
+        #[cfg(not(feature = "deletion_mask"))]
         layer_weights.gate_proj.matvec(&x[..n], &mut scratch.gate);
         layer_weights.up_proj.matvec(&x[..n], &mut scratch.up);
         swiglu(&mut scratch.hidden, &scratch.gate, &scratch.up);
@@ -1746,6 +1783,17 @@ fn forward_qwen_deltanet_evictable_body<'a>(
             config.rms_norm_eps,
         );
 
+        #[cfg(feature = "deletion_mask")]
+        {
+            let shadow = scratch
+                .gate_mask_overlay
+                .as_ref()
+                .and_then(|o| o.shadow_for(layer_idx));
+            layer_weights
+                .gate_proj
+                .matvec_shadowed(&x[..n], &mut scratch.gate, shadow);
+        }
+        #[cfg(not(feature = "deletion_mask"))]
         layer_weights.gate_proj.matvec(&x[..n], &mut scratch.gate);
         layer_weights.up_proj.matvec(&x[..n], &mut scratch.up);
         swiglu(&mut scratch.hidden, &scratch.gate, &scratch.up);

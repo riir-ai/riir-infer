@@ -5,5 +5,7 @@
 //! ([`mask_codec`]). Hot-swap dispatch is an extension of the existing
 //! overlay seam (T2), never a parallel system.
 
+#[cfg(feature = "deltanet_inference")]
+pub mod f32_apply;
 pub mod mask_codec;
 pub mod q2_apply;
