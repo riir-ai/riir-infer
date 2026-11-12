@@ -117,8 +117,23 @@ pub fn mount_from_envelope(
             &digest[..4]
         ));
     }
-    let pairs = envelope.pairs_all();
+    let pairs = pairs_in_layer_fold_order(envelope.pairs_all());
     Ok(mount(pairs))
+}
+
+/// The envelope's [`pairs_all`](katgpt_core::closed_form_weight_write::ClosedFormWriteEnvelope::pairs_all)
+/// order is fact-asc then layer-asc; the armed table's canonical order is
+/// LAYER-grouped (a layer's pairs adjacent, fact-asc within — the
+/// `install_fact` composition order the Issue-940 fold pin reads). One
+/// STABLE sort restores it: a multi-fact envelope fed to [`mount`] unsorted
+/// would trip the ascending-groups assert (and in a release build, silently
+/// fold only the first fact's pair at every shared layer). Single-fact
+/// envelopes are already in fold order — the sort is a no-op there.
+pub fn pairs_in_layer_fold_order(
+    mut pairs: Vec<(usize, QuantErrorLora)>,
+) -> Vec<(usize, QuantErrorLora)> {
+    pairs.sort_by_key(|(layer, _)| *layer);
+    pairs
 }
 
 /// Build the overlay table from raw `(edited_layer, pair)` rows (the T2
@@ -440,6 +455,11 @@ impl<'a> QwenFactWriteModel<'a> {
     /// table (the batched MLP fold reads the ctx, not the weights — the
     /// params-free gated plumbing), disarms after.
     fn prefill_logits(&mut self, seq: &[u32]) -> Vec<f32> {
+        // Session-state law: every adapter pass starts from a fresh cache.
+        // `construct` and the probe loop run MANY independent teacher-forced
+        // sequences against ONE binding — a stale GDN recurrence would poison
+        // every capture after the first (Issue 838 H1's per-call reset).
+        self.cache.reset();
         let tokens: Vec<usize> = seq.iter().map(|&t| t as usize).collect();
         let v = self.config.vocab_size;
         let mut logits = vec![0.0f32; v];
@@ -528,6 +548,7 @@ impl katgpt_core::closed_form_weight_write::FactWriteModel for QwenFactWriteMode
         let v = self.config.vocab_size;
         let mut logits = vec![0.0f32; v];
         let edited = self.edited.clone();
+        self.cache.reset();
         self.prefill_ctx.closed_form_capture = Some(CaptureSink::new(edited));
         self.prefill_ctx.closed_form_overlays = self.weights.closed_form_overlays.clone();
         crate::deltanet::forward::prefill_qwen_deltanet_into(
@@ -734,6 +755,70 @@ mod tests {
         let _ = mount(Vec::new());
     }
 
+    /// Deterministic HEALTHY filler over every dense surface the forward
+    /// reads: weights POSITIVE in [0.125, 0.375) and norm gammas pinned to
+    /// 1.0. An all-signed random seed drove the residual stream into a
+    /// degenerate denormal state by layer 1's MLP (key_norm2 ~ 1e-63 — the
+    /// gate round 9/10 probes caught it: sign cancellation through the
+    /// norm/recurrence stack), which made the engagement arm vacuous — the
+    /// correction B·(A·~0) is ~0 no matter the pair. A positive-bounded
+    /// fixture keeps the stream O(1) so the fold's delta lands. Shared by
+    /// the adapter-level tests (the session-state-law pin).
+    fn seeded_dense_fixture(
+        cfg: &crate::types::Config,
+    ) -> crate::deltanet::weights::QwenDeltaNetWeights {
+        let mut w = crate::deltanet::weights::QwenDeltaNetWeights::zeros(cfg);
+        let mut s = 0x9E3779B97F4A7C15u64;
+        let fill = |buf: &mut [f32], s: &mut u64| {
+            for v in buf.iter_mut() {
+                *s = s
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                *v = 0.125 + ((*s >> 40) as f32 / (u32::MAX as f32)) * 0.25;
+            }
+        };
+        let fill_norm_ones = |buf: &mut [f32]| {
+            for v in buf.iter_mut() {
+                *v = 1.0;
+            }
+        };
+        use crate::deltanet::weights::Proj;
+        let fill_proj = |p: &mut Proj, s: &mut u64| match p {
+            Proj::Dense { data, .. } => fill(data, s),
+        };
+        fill(&mut w.wte, &mut s);
+        fill_norm_ones(&mut w.final_norm);
+        fill_proj(&mut w.lm_head, &mut s);
+        for layer in w.layers.iter_mut() {
+            fill_proj(&mut layer.in_proj_qkv, &mut s);
+            fill_proj(&mut layer.in_proj_z, &mut s);
+            fill_proj(&mut layer.in_proj_a, &mut s);
+            fill_proj(&mut layer.in_proj_b, &mut s);
+            fill_proj(&mut layer.out_proj, &mut s);
+            fill_proj(&mut layer.gate_proj, &mut s);
+            fill_proj(&mut layer.up_proj, &mut s);
+            fill_proj(&mut layer.down_proj, &mut s);
+            fill(&mut layer.conv1d_weight, &mut s);
+            // The GDN decay: a_log NEGATIVE small (decay < 1 — the state
+            // forgets slowly instead of blowing up); dt_bias positive
+            // small; per-head norm 1.
+            for v in layer.a_log.iter_mut() {
+                *v = -0.5;
+            }
+            fill(&mut layer.dt_bias, &mut s);
+            fill_norm_ones(&mut layer.linear_norm);
+            fill_proj(&mut layer.attn_wq, &mut s);
+            fill_proj(&mut layer.attn_wk, &mut s);
+            fill_proj(&mut layer.attn_wv, &mut s);
+            fill_proj(&mut layer.attn_wo, &mut s);
+            fill_norm_ones(&mut layer.attn_q_norm);
+            fill_norm_ones(&mut layer.attn_k_norm);
+            fill_norm_ones(&mut layer.input_norm);
+            fill_norm_ones(&mut layer.post_attn_norm);
+        }
+        w
+    }
+
     /// The forward-level G3: with the overlay table MOUNTED but every pair
     /// mounted for a layer the prompt never reaches (or after demount), the
     /// full prefill + decode path is byte-identical to the never-mounted
@@ -762,64 +847,6 @@ mod tests {
                 crate::types::DeltaNetLayerType::Attention,
             ],
         );
-        // Deterministic HEALTHY filler over every dense surface the forward
-        // reads: weights POSITIVE in [0.125, 0.375) and norm gammas pinned to
-        // 1.0. An all-signed random seed drove the residual stream into a
-        // degenerate denormal state by layer 1's MLP (key_norm2 ~ 1e-63 — the
-        // gate round 9/10 probes caught it: sign cancellation through the
-        // norm/recurrence stack), which made the engagement arm vacuous — the
-        // correction B·(A·~0) is ~0 no matter the pair. A positive-bounded
-        // fixture keeps the stream O(1) so the fold's delta lands.
-        fn seeded(w: &mut QwenDeltaNetWeights) {
-            let mut s = 0x9E3779B97F4A7C15u64;
-            let fill = |buf: &mut [f32], s: &mut u64| {
-                for v in buf.iter_mut() {
-                    *s = s
-                        .wrapping_mul(6364136223846793005)
-                        .wrapping_add(1442695040888963407);
-                    *v = 0.125 + ((*s >> 40) as f32 / (u32::MAX as f32)) * 0.25;
-                }
-            };
-            let fill_norm_ones = |buf: &mut [f32]| {
-                for v in buf.iter_mut() {
-                    *v = 1.0;
-                }
-            };
-            use crate::deltanet::weights::Proj;
-            let fill_proj = |p: &mut Proj, s: &mut u64| match p {
-                Proj::Dense { data, .. } => fill(data, s),
-            };
-            fill(&mut w.wte, &mut s);
-            fill_norm_ones(&mut w.final_norm);
-            fill_proj(&mut w.lm_head, &mut s);
-            for layer in w.layers.iter_mut() {
-                fill_proj(&mut layer.in_proj_qkv, &mut s);
-                fill_proj(&mut layer.in_proj_z, &mut s);
-                fill_proj(&mut layer.in_proj_a, &mut s);
-                fill_proj(&mut layer.in_proj_b, &mut s);
-                fill_proj(&mut layer.out_proj, &mut s);
-                fill_proj(&mut layer.gate_proj, &mut s);
-                fill_proj(&mut layer.up_proj, &mut s);
-                fill_proj(&mut layer.down_proj, &mut s);
-                fill(&mut layer.conv1d_weight, &mut s);
-                // The GDN decay: a_log NEGATIVE small (decay < 1 — the state
-                // forgets slowly instead of blowing up); dt_bias positive
-                // small; per-head norm 1.
-                for v in layer.a_log.iter_mut() {
-                    *v = -0.5;
-                }
-                fill(&mut layer.dt_bias, &mut s);
-                fill_norm_ones(&mut layer.linear_norm);
-                fill_proj(&mut layer.attn_wq, &mut s);
-                fill_proj(&mut layer.attn_wk, &mut s);
-                fill_proj(&mut layer.attn_wv, &mut s);
-                fill_proj(&mut layer.attn_wo, &mut s);
-                fill_norm_ones(&mut layer.attn_q_norm);
-                fill_norm_ones(&mut layer.attn_k_norm);
-                fill_norm_ones(&mut layer.input_norm);
-                fill_norm_ones(&mut layer.post_attn_norm);
-            }
-        }
 
         let rope = crate::rope::RopeFreqTable::new(
             cfg.rope_theta,
@@ -873,14 +900,12 @@ mod tests {
         // Baseline: no table mounted. Each arm rebuilds via zeros() + the
         // same seeded filler — the struct is GB-class for real models and
         // deliberately NOT Clone, and the seed keeps every byte comparable.
-        let mut base_w = QwenDeltaNetWeights::zeros(&cfg);
-        seeded(&mut base_w);
+        let base_w = seeded_dense_fixture(&cfg);
         let (base_logits, base_toks) = run(&base_w, None);
 
         // Demote posture: mount then demount — the exact-undo law (the table
         // is gone; the forward must be the never-mounted run, bit-for-bit).
-        let mut demount_w = QwenDeltaNetWeights::zeros(&cfg);
-        seeded(&mut demount_w);
+        let mut demount_w = seeded_dense_fixture(&cfg);
         let pair_off = pair(2, cfg.n_embd, cfg.mlp_hidden, 7);
         demount_w.closed_form_overlays = Some(mount(vec![(1, pair_off.clone())]));
         demount_w.closed_form_overlays = None; // demount
@@ -894,8 +919,7 @@ mod tests {
         // the adapter in production), so the test arms it here — mirroring
         // prefill_logits exactly (clone from the weights table; the decode
         // leg reads the weights field directly).
-        let mut armed_w = QwenDeltaNetWeights::zeros(&cfg);
-        seeded(&mut armed_w);
+        let mut armed_w = seeded_dense_fixture(&cfg);
         armed_w.closed_form_overlays = Some(mount(vec![(1, pair_off)]));
         let (a_logits, _a_toks) = run(&armed_w, armed_w.closed_form_overlays.as_ref());
         let moved = a_logits
@@ -903,5 +927,90 @@ mod tests {
             .zip(base_logits.iter())
             .any(|(a, b)| a.to_bits() != b.to_bits());
         assert!(moved, "armed overlay must move the logits (engagement)");
+    }
+
+    /// The adapter's session-state law: `construct` and the probe loop run
+    /// MANY independent teacher-forced sequences against ONE binding; every
+    /// capture must start from a fresh GDN recurrence (a stale state would
+    /// poison every capture after the first — the T3-harness defect class).
+    #[test]
+    fn repeated_capture_at_is_stateless() {
+        use katgpt_core::closed_form_weight_write::FactWriteModel;
+
+        let cfg = crate::deltanet::unit_test_config(
+            4,
+            vec![
+                crate::types::DeltaNetLayerType::DeltaNet,
+                crate::types::DeltaNetLayerType::Attention,
+                crate::types::DeltaNetLayerType::DeltaNet,
+                crate::types::DeltaNetLayerType::Attention,
+            ],
+        );
+        let seq_a: Vec<u32> = vec![3, 1, 4, 1, 5];
+        let seq_b: Vec<u32> = vec![9, 9, 2, 7];
+        let pos_a: Vec<usize> = vec![0, 2, 4];
+        let pos_b: Vec<usize> = vec![1, 3];
+
+        let mut w = seeded_dense_fixture(&cfg);
+        let cap_b_first = {
+            let mut m = QwenFactWriteModel::bind(&mut w, &cfg, vec![1, 2]);
+            m.capture_at(&seq_b, &pos_b)
+        };
+        let cap_a_after_b = {
+            let mut m = QwenFactWriteModel::bind(&mut w, &cfg, vec![1, 2]);
+            m.capture_at(&seq_a, &pos_a)
+        };
+        let cap_a_cold = {
+            let mut m = QwenFactWriteModel::bind(&mut w, &cfg, vec![1, 2]);
+            m.capture_at(&seq_a, &pos_a)
+        };
+        let key_bits = |c: &[katgpt_core::closed_form_weight_write::LayerCapture]| {
+            c[0].keys.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            key_bits(&cap_a_after_b),
+            key_bits(&cap_a_cold),
+            "capture after an unrelated sequence must equal a cold capture (fresh session state)"
+        );
+        // Sanity: a different sequence must NOT reproduce the same keys (the
+        // fixture is discriminative; guards a vacuous always-equal pass).
+        assert_ne!(
+            key_bits(&cap_b_first),
+            key_bits(&cap_a_cold),
+            "fixture must be discriminative"
+        );
+    }
+
+    /// `mount_from_envelope`'s order law: a multi-fact envelope's `pairs_all`
+    /// (fact-asc, layer-asc) must fold into the LAYER-grouped armed order —
+    /// the stable pass keeps fact-asc within a layer (the fold pin) and the
+    /// grouped rows satisfy mount's ascending-groups assert.
+    #[test]
+    fn pairs_fold_order_groups_shared_layers_stably() {
+        // Two facts sharing layers 5 and 9; fact 0's pairs rank 2, fact 1's
+        // rank 3 — pairs_all order is fact-asc/layer-asc, NOT layer-grouped.
+        let raw = vec![
+            (5usize, pair(2, 8, 16, 1)),
+            (9usize, pair(2, 8, 16, 2)),
+            (5usize, pair(3, 8, 16, 3)),
+            (9usize, pair(3, 8, 16, 4)),
+        ];
+        let folded = pairs_in_layer_fold_order(raw);
+        let ls: Vec<usize> = folded.iter().map(|(l, _)| *l).collect();
+        assert_eq!(
+            ls,
+            [5, 5, 9, 9],
+            "layer groups ascend, shared layers adjacent"
+        );
+        let ranks: Vec<usize> = folded.iter().map(|(_, p)| p.rank).collect();
+        assert_eq!(
+            ranks,
+            [2, 3, 2, 3],
+            "stable pass keeps fact-asc within a layer (the fold pin)"
+        );
+        // The folded rows satisfy mount's ascending-groups assert.
+        let t = mount(folded);
+        assert_eq!(t.edited_layers(), [5, 9]);
+        assert_eq!(t.max_rank, 3);
     }
 }
