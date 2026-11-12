@@ -704,6 +704,74 @@ pub fn fit_parts(
     })
 }
 
+// ── Sample cache (the λ re-pin lane's capture-pass elision) ──────────────
+
+/// The sample-cache row (serde form of [`ProbeSample`]): the λ re-pin
+/// lane and the fixture exporter (the `grafts_export` bin) keep the
+/// ~23-minute capture pass out of every experiment.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SampleRow {
+    pub instance: usize,
+    pub rows: Vec<f32>,
+    pub answer: u8,
+    pub operands: Vec<u8>,
+    pub base_wrong: bool,
+}
+
+impl SampleRow {
+    #[must_use]
+    pub fn from_sample(s: &ProbeSample) -> Self {
+        Self {
+            instance: s.instance,
+            rows: s.rows.clone(),
+            answer: s.answer,
+            operands: s.operands.clone(),
+            base_wrong: s.base_wrong,
+        }
+    }
+}
+
+impl From<SampleRow> for ProbeSample {
+    fn from(r: SampleRow) -> Self {
+        Self {
+            instance: r.instance,
+            rows: r.rows,
+            // The stored answer may predate the u8-overflow fix — callers
+            // re-derive it from the operands (a pure function of them;
+            // a stale stored value carries no load).
+            answer: r.answer,
+            operands: r.operands,
+            base_wrong: r.base_wrong,
+        }
+    }
+}
+
+/// Load a `(solved, dev)` sample cache written by the cell's
+/// `--save-samples`.
+/// # Errors
+/// IO or JSON failure.
+pub fn load_samples(path: &std::path::Path) -> Result<(Vec<ProbeSample>, Vec<ProbeSample>)> {
+    let (s, d): (Vec<SampleRow>, Vec<SampleRow>) = serde_json::from_reader(
+        std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?,
+    )
+    .context("load samples")?;
+    Ok((s.into_iter().map(Into::into).collect(), d.into_iter().map(Into::into).collect()))
+}
+
+/// Write a `(solved, dev)` sample cache (the cell's `--save-samples` dual).
+/// # Errors
+/// IO or JSON failure.
+pub fn save_samples(
+    path: &std::path::Path,
+    solved: &[ProbeSample],
+    dev: &[ProbeSample],
+) -> Result<()> {
+    let s_ser: Vec<SampleRow> = solved.iter().map(SampleRow::from_sample).collect();
+    let d_ser: Vec<SampleRow> = dev.iter().map(SampleRow::from_sample).collect();
+    std::fs::write(path, serde_json::to_vec(&(&s_ser, &d_ser)).context("serialize samples")?)
+        .with_context(|| format!("write {}", path.display()))
+}
+
 // ── Report (BLAKE3 over the canonical payload — the G1 law) ──────────────
 
 /// One arm's split verdict row.

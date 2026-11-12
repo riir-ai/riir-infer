@@ -591,17 +591,6 @@ fn eval_arm(
     })
 }
 
-/// Probe score (pre-quantization) per sample — bias + the segments'
-/// sequential folds over the sample's rows (the same arithmetic
-/// `value_at` folds, minus the quantize; the correlation diagnostic).
-fn probe_score(read: &katgpt_core::graft::GraftRead, row: &[f32]) -> f32 {
-    let mut s = read.bias;
-    for seg in &read.segments {
-        s += seg.score(row);
-    }
-    s
-}
-
 fn main() -> Result<()> {
     let args = parse_args()?;
     std::fs::create_dir_all(&args.out).with_context(|| format!("mkdir {}", args.out.display()))?;
@@ -702,10 +691,7 @@ fn run_cell(args: &Args, host: &Host, checkpoint_blake3: String) -> Result<()> {
     let t_fit = std::time::Instant::now();
     let surface = DigitSurface::new(&host.tok, task, format)?;
     let (solved_samples, dev_samples) = if let Some(path) = &args.load_samples {
-        let (s, d): (Vec<SampleRow>, Vec<SampleRow>) = serde_json::from_reader(
-            std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?,
-        )
-        .context("load samples")?;
+        let (s, d) = riir_infer_core::grafts_cell::load_samples(path)?;
         println!(
             "# samples loaded: {} solved + {} dev from {}",
             s.len(),
@@ -715,8 +701,8 @@ fn run_cell(args: &Args, host: &Host, checkpoint_blake3: String) -> Result<()> {
         // The answer field in a cache predates the u8-overflow fix —
         // RE-DERIVE from the operands (the answer is a pure function of
         // them); a stale stored value carries no load.
-        let mut s: Vec<ProbeSample> = s.into_iter().map(Into::into).collect();
-        let mut d: Vec<ProbeSample> = d.into_iter().map(Into::into).collect();
+        let mut s = s;
+        let mut d = d;
         for sample in s.iter_mut().chain(d.iter_mut()) {
             sample.answer = task.answer(&sample.operands);
         }
@@ -738,13 +724,7 @@ fn run_cell(args: &Args, host: &Host, checkpoint_blake3: String) -> Result<()> {
             t_fit.elapsed().as_secs_f32()
         );
         if let Some(path) = &args.save_samples {
-            let s_ser: Vec<SampleRow> = solved.iter().map(SampleRow::from_sample).collect();
-            let d_ser: Vec<SampleRow> = dev.iter().map(SampleRow::from_sample).collect();
-            std::fs::write(
-                path,
-                serde_json::to_vec(&(&s_ser, &d_ser)).context("serialize samples")?,
-            )
-            .with_context(|| format!("write {}", path.display()))?;
+            riir_infer_core::grafts_cell::save_samples(path, &solved, &dev)?;
             println!("# samples saved → {}", path.display());
         }
         (solved, dev)
@@ -927,10 +907,23 @@ fn run_cell(args: &Args, host: &Host, checkpoint_blake3: String) -> Result<()> {
     let triple_coverage = distinct_triples as f64 / parts.triples.len() as f64;
     let mut probe_corr = Vec::with_capacity(host.probe_layers.len());
     for (j, read) in parts.reads.iter().enumerate() {
-        let off = j * host.config.n_embd;
+        // Read j scores slot j's FULL block (k layers × n_embd), each
+        // segment against its own layer's slice — the pre-slot form
+        // sliced j*n_embd and fed every segment the same wrong slice
+        // (the stale-broken 0.03 row the pinned report discloses; the
+        // healed fit-diag block above shows the correct shape).
+        let k_seg = read.segments.len();
+        let off = j * k_seg * host.config.n_embd;
         let scores: Vec<f32> = solved_samples
             .iter()
-            .map(|s| probe_score(read, &s.rows[off..off + host.config.n_embd]))
+            .map(|s| {
+                let mut sc = read.bias;
+                for (i, seg) in read.segments.iter().enumerate() {
+                    let lo = off + i * host.config.n_embd;
+                    sc += seg.score(&s.rows[lo..lo + host.config.n_embd]);
+                }
+                sc
+            })
             .collect();
         let answers: Vec<f32> = solved_samples.iter().map(|s| f32::from(s.answer)).collect();
         probe_corr.push(pearson(&scores, &answers));
@@ -1092,39 +1085,4 @@ fn run_cell(args: &Args, host: &Host, checkpoint_blake3: String) -> Result<()> {
         &report.payload_blake3[..16]
     );
     Ok(())
-}
-
-/// The sample cache row (serde form of `ProbeSample` — the λ re-pin
-/// lane keeps the ~23-minute capture pass out of every experiment).
-#[derive(serde::Serialize, serde::Deserialize)]
-struct SampleRow {
-    instance: usize,
-    rows: Vec<f32>,
-    answer: u8,
-    operands: Vec<u8>,
-    base_wrong: bool,
-}
-
-impl SampleRow {
-    fn from_sample(s: &ProbeSample) -> Self {
-        Self {
-            instance: s.instance,
-            rows: s.rows.clone(),
-            answer: s.answer,
-            operands: s.operands.clone(),
-            base_wrong: s.base_wrong,
-        }
-    }
-}
-
-impl From<SampleRow> for ProbeSample {
-    fn from(r: SampleRow) -> Self {
-        Self {
-            instance: r.instance,
-            rows: r.rows,
-            answer: r.answer,
-            operands: r.operands,
-            base_wrong: r.base_wrong,
-        }
-    }
 }

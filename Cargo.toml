@@ -506,6 +506,15 @@ name = "grafts_cell"
 path = "src/bin/grafts_cell.rs"
 required-features = ["grafts_cell"]
 
+# riir-infer Issue 1206 (katgpt-rs issue 988 T4) — the GOAT bench's
+# frozen-read fixture exporter: sample cache → the exact sealed-cell fit
+# → the artifact envelope + frozen decision rows (CPU-only, header-only,
+# no weights/GPU/forward). Reader protection row (the green-zero law).
+[[bin]]
+name = "grafts_export"
+path = "src/bin/grafts_export.rs"
+required-features = ["grafts_cell"]
+
 # Issue 1208 T1 — the deletion-mask codec battery (the codec lives behind
 # deletion_mask; a default build skips the target loudly, the green-zero law).
 [[test]]
