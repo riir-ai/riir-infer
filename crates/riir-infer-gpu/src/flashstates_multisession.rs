@@ -24,9 +24,14 @@
 //! adoption IS the adopting session's hold; tree eviction releases the
 //! tree's. Applied here:
 //!
-//! - fresh capture chunk: `retain ×1` (tree) — the creating session
-//!   takes NO pool hold on its own fresh pages (its live buffers carry
-//!   the data; pool-side it is tree-only).
+//! - fresh capture chunk: exactly ONE tree hold. GDN pages start at
+//!   refcount 0 → the tree hold is the retain at commit. KV pages
+//!   start at refcount 1 (the pool's `alloc_page` holds for the
+//!   capture-slot table) → that ALLOC hold IS the tree hold — the KV
+//!   fresh chunks take no second retain (the T3 ledger repair; a
+//!   retaining pass would strand every fresh KV page one hold above
+//!   zero forever). The creating session takes NO pool hold on its own
+//!   fresh pages (its live buffers carry the data).
 //! - adopted chunk (a session serving a prefix another session indexed):
 //!   `retain ×1` (the adopting session).
 //! - session end: release ONLY the session's adopted holds — its fresh
@@ -74,10 +79,30 @@
 //! capability, never a default-feature dep). CPU-testable end to end —
 //! no device anywhere; the GPU harness composition (real forwards) is
 //! the plan-630 T2 remainder along with the A0 Metal port.
+//!
+//! # The retention policy seam (plan 630 T3, issue 1201)
+//!
+//! [`FlashStatesManager::with_gds_retention`] arms the A2 posture:
+//! [`FlashStatesManager::evict_to_budget`] replaces the substrate's
+//! leaf-LRU victim choice with cost-density (GreedyDual-Size) — priority
+//! = (re-prefill cost saved) / (capacity actually freed), ranked on
+//! CHUNKS (scale-invariant under any monotone cost fit; no wall clock in
+//! the manager; the per-model coefficients turn chunks into seconds at
+//! the CELL layer only). The denominator counts a leaf's pages whose
+//! pool refcount is exactly 1 (the tree's hold is the only one — freeing
+//! it frees the page); rc ≥ 2 pages are session-adopted and count 0
+//! (never double-counted as freed). Zero-freed leaves rank last. The
+//! victim MECHANICS stay the substrate's (`leaf_ids` + `evict_leaf`, the
+//! upstream widening this manager consumes — never a private tree
+//! protocol); only the CHOICE moved here. Floor-only semantics: the
+//! policy MAY truncate a live session past freed pages — the
+//! `788ae33` truncation floor is the correctness guarantee; the
+//! live-frontier demotion is a separate measured arm (plan 630 T3 (d)),
+//! never both at once.
 
 use std::collections::HashMap;
 
-use katgpt_kv::radix_prefix::{InsertOutcome, RadixPrefixTree, TreeError};
+use katgpt_kv::radix_prefix::{InsertOutcome, NodeId, RadixPrefixTree, TreeError};
 use katgpt_transformer::PagedKVCache;
 
 /// Page tokens per chunk — the tree's `page_tokens` and the KV pool's
@@ -280,6 +305,9 @@ pub struct FlashStatesManager {
     /// The KV pool's slot allocator for capture batches (monotonic —
     /// a slot is used by exactly one capture, never reused).
     next_capture_slot: usize,
+    /// A2 retention (plan 630 T3): the cost-density victim policy in
+    /// [`Self::evict_to_budget`] instead of the substrate's leaf-LRU.
+    gds_retention: bool,
 }
 
 /// The manager's chunk-major view of one session's tables: flat
@@ -318,7 +346,18 @@ impl FlashStatesManager {
             plan,
             sessions: HashMap::new(),
             next_capture_slot: 0,
+            gds_retention: false,
         }
+    }
+
+    /// Arm the A2 retention policy (plan 630 T3): cost-density
+    /// (GreedyDual-Size) victim choice in [`Self::evict_to_budget`] in
+    /// place of the substrate's leaf-LRU. Without it the manager is
+    /// byte-identical A1. The budget target is the tree's `page_budget`
+    /// in both postures (the caller pins it at construction).
+    pub fn with_gds_retention(mut self) -> Self {
+        self.gds_retention = true;
+        self
     }
 
     pub fn tree(&self) -> &RadixPrefixTree {
@@ -558,6 +597,18 @@ impl FlashStatesManager {
     /// The insert contract's retain: the TREE's hold on the
     /// newly-indexed chunks [total-new .. total). The creating session
     /// takes no hold of its own (the ledger).
+    ///
+    /// KV/GDN asymmetry (the T3 ledger repair): a GDN alloc starts at
+    /// refcount 0, so its tree hold IS the retain below. A KV page's
+    /// `ensure_pages` alloc ALREADY carries the pool's +1 (the capture
+    /// slot's table reference, `alloc_page`) — that alloc hold is
+    /// REUSED as the tree's hold (the slot's rows are write-only
+    /// bookkeeping; the refcounts are the sole lifetime authority), so
+    /// the KV fresh chunks take NO second retain: a retaining pass here
+    /// would strand every fresh KV page at rc 2 forever (eviction
+    /// releases one hold, the phantom vehicle hold never drops — found
+    /// by the T3 falsification fixture: fresh KV rc 2, adopted rc 3,
+    /// never freed).
     fn retain_tree_hold(
         &mut self,
         session_id: u64,
@@ -570,19 +621,15 @@ impl FlashStatesManager {
         }
         let nl = self.plan.n_layers();
         let fresh_start = total - new_chunks;
-        let mut kv_new = vec![Vec::with_capacity(new_chunks); self.plan.n_attn];
         let mut gdn_new: Vec<usize> = Vec::with_capacity(new_chunks * self.plan.n_gdn);
         for c in fresh_start..total {
             for (l, row) in tables.iter().enumerate().take(nl) {
                 let id = row[c];
-                if l < self.plan.n_attn {
-                    kv_new[l].push(id);
-                } else {
+                if l >= self.plan.n_attn {
                     gdn_new.push(id);
                 }
             }
         }
-        self.kv.retain_chunk_pages(&kv_new);
         self.gdn.retain(&gdn_new);
         let _ = session_id;
     }
@@ -627,7 +674,13 @@ impl FlashStatesManager {
             }
         }
         if adopt_to > held {
-            self.kv.free_pages.extend(kv_dead.iter().flatten());
+            // The discarded fresh KV pages carry ONLY their alloc hold
+            // (never retained — the alloc hold would have become the
+            // tree's had the insert succeeded); release it properly so
+            // the page reaches rc 0 AND the free list together (a bare
+            // free_pages push of an rc-1 page would double-count on
+            // reuse).
+            self.kv.release_chunk_pages(&kv_dead);
             self.gdn.discard(&gdn_dead);
             // Adopt the winner's pages: session hold + table splice.
             let mut kv_adopt = vec![Vec::new(); self.plan.n_attn];
@@ -673,6 +726,16 @@ impl FlashStatesManager {
         self.sessions[&session_id].held_chunks
     }
 
+    /// Balanced tree probe: matched chunks for `tokens`, the match lock
+    /// taken and dropped inside the call — no session, no adoption, no
+    /// ledger change. Diagnostics and retention-policy telemetry.
+    pub fn probe_match(&mut self, tokens: &[u32]) -> usize {
+        let hit = self.tree.match_prefix(tokens);
+        let matched = hit.matched_chunks;
+        self.tree.unlock(&hit);
+        matched
+    }
+
     /// Tree eviction (leaf-preferential LRU): route each victim's
     /// chunk-major pages to their pools and drop the TREE's hold. Pages
     /// a session still adopts survive on the session's hold.
@@ -687,57 +750,110 @@ impl FlashStatesManager {
     /// shallowest freed chunk: tables, adopted-ledger rows, cursor. An
     /// adopted page never reaches rc 0 through this path (rc ≥ 2
     /// before), so the sweep only ever eats tree-only spans.
+    /// Tree eviction to the tree's own `page_budget`. The victim policy
+    /// dispatches on [`Self::with_gds_retention`]: the substrate's
+    /// leaf-LRU (A1) or cost-density GreedyDual-Size (A2, plan 630 T3).
+    /// Both paths route each victim's chunk-major pages to their pools
+    /// and drop the TREE's hold; pages a session still adopts survive on
+    /// the session's hold. The truncation floor rides BOTH paths: fresh
+    /// captures are TREE-HOLD-ONLY (the ledger), so eviction can free a
+    /// LIVE session's own pages — their bytes are reuse-clobbered on the
+    /// next alloc, and a table row that kept the id would restore
+    /// garbage. After the scan, the freed set (the victim ids whose pool
+    /// refcount reached 0 — no alloc runs between, so rc 0 is exact) is
+    /// swept against every live session's tables and each affected
+    /// session TRUNCATES at the shallowest freed chunk: tables,
+    /// adopted-ledger rows, cursor.
     pub fn evict_to_budget(&mut self) {
         let nl = self.plan.n_layers();
         let n_attn = self.plan.n_attn;
-        let kv = &mut self.kv;
-        let gdn = &mut self.gdn;
-        let mut victims: Vec<usize> = Vec::new();
         let mut freed_kv: Vec<usize> = Vec::new();
         let mut freed_gdn: Vec<usize> = Vec::new();
-        self.tree.evict_to_budget(|flat| {
-            let chunks = flat.len() / nl;
-            let mut kv_rows = vec![Vec::with_capacity(chunks); n_attn];
-            let mut gdn_flat: Vec<usize> = Vec::with_capacity(chunks * (nl - n_attn));
-            for chunk in flat.chunks(nl) {
-                for (l, &id) in chunk.iter().enumerate() {
-                    if l < n_attn {
-                        kv_rows[l].push(id);
-                    } else {
-                        gdn_flat.push(id);
+        {
+            let FlashStatesManager { tree, kv, gdn, .. } = self;
+            if self.gds_retention {
+                loop {
+                    if tree.held_pages() <= tree.page_budget() {
+                        break;
+                    }
+                    let leaves = tree.leaf_ids();
+                    let mut best: Option<(usize, usize, u64, NodeId)> = None;
+                    for leaf in &leaves {
+                        // The denominator: pages whose pool refcount is
+                        // exactly 1 (the tree's hold is the ONLY one —
+                        // freeing it frees the page). rc ≥ 2 pages are
+                        // session-adopted: they survive the eviction, so
+                        // they count 0 (never double-counted as freed).
+                        let freed = leaf
+                            .pages
+                            .iter()
+                            .enumerate()
+                            .filter(|&(i, &id)| {
+                                let rc = if i % nl < n_attn {
+                                    kv.page_ref_counts[id]
+                                } else {
+                                    gdn.refcount(id)
+                                };
+                                rc == 1
+                            })
+                            .count();
+                        let better = match best {
+                            None => true,
+                            Some((bc, bf, bt, _)) => {
+                                gds_less(leaf.chunks, freed, leaf.last_touch, bc, bf, bt)
+                            }
+                        };
+                        if better {
+                            best = Some((leaf.chunks, freed, leaf.last_touch, leaf.id));
+                        }
+                    }
+                    let Some((_, _, _, victim)) = best else {
+                        break; // nothing evictable (all locked) — deadlock
+                    };
+                    let evicted = tree.evict_leaf(victim, |flat| {
+                        release_tree_pages(
+                            kv,
+                            gdn,
+                            flat,
+                            nl,
+                            n_attn,
+                            &mut freed_kv,
+                            &mut freed_gdn,
+                        );
+                    });
+                    if !evicted {
+                        // Defensive: the enumeration and the evict share
+                        // one iteration's immutable window, so a refusal
+                        // here cannot happen; never wedge on one anyway.
+                        break;
                     }
                 }
+            } else {
+                tree.evict_to_budget(|flat| {
+                    release_tree_pages(kv, gdn, flat, nl, n_attn, &mut freed_kv, &mut freed_gdn);
+                });
             }
-            kv.release_chunk_pages(&kv_rows);
-            gdn.release(&gdn_flat);
-            victims.extend_from_slice(flat);
-            freed_kv.extend(kv_rows.iter().flatten().copied());
-            freed_gdn.extend_from_slice(&gdn_flat);
-        });
-        // No alloc ran since the releases: rc == 0 marks exactly the
-        // pages whose last hold was the tree's. Layer-scoped, so a
-        // mixed victim (its KV freed, its GDN alive on session holds)
-        // cuts only on the KV rows' positions.
-        let freed_kv: Vec<usize> = freed_kv
-            .into_iter()
-            .filter(|&id| self.kv.page_ref_counts[id] == 0)
-            .collect();
-        let freed_gdn: Vec<usize> = freed_gdn
-            .into_iter()
-            .filter(|&id| self.gdn.refcount(id) == 0)
-            .collect();
+        }
+        self.sweep_freed(&mut freed_kv, &mut freed_gdn);
+    }
+
+    /// The truncation floor (issue 1201 T2-completion, `788ae33`): the
+    /// freed set (rc 0 — its last hold was the tree's) is exact because
+    /// no alloc ran since the releases. Layer-scoped: a mixed victim
+    /// (its KV freed, its GDN alive on session holds) cuts only on its
+    /// freed class's positions — the restore needs every layer live at
+    /// a chunk, so the cut is the shallowest freed CHUNK of either
+    /// class. An adopted page never reaches rc 0 through this path
+    /// (rc ≥ 2 before), so the sweep only ever eats tree-only spans.
+    fn sweep_freed(&mut self, freed_kv: &mut Vec<usize>, freed_gdn: &mut Vec<usize>) {
+        freed_kv.retain(|&id| self.kv.page_ref_counts[id] == 0);
+        freed_gdn.retain(|&id| self.gdn.refcount(id) == 0);
         if freed_kv.is_empty() && freed_gdn.is_empty() {
             return;
         }
+        let n_attn = self.plan.n_attn;
         for record in self.sessions.values_mut() {
-            // The shallowest CHUNK carrying a freed id — per LAYER class:
-            // the restore needs every layer live at a chunk, so the cut
-            // is the shallower of the two classes' shallowest freed
-            // positions (a KV-freed/GDN-alive chunk still breaks the
-            // layer contract).
             let mut cut = usize::MAX;
-            let mut cut_kv = usize::MAX;
-            let mut cut_gdn = usize::MAX;
             for (l, row) in record.tables.iter().enumerate() {
                 for (c, &id) in row.iter().enumerate() {
                     let is_freed = if l < n_attn {
@@ -747,15 +863,9 @@ impl FlashStatesManager {
                     };
                     if is_freed {
                         cut = cut.min(c);
-                        if l < n_attn {
-                            cut_kv = cut_kv.min(c);
-                        } else {
-                            cut_gdn = cut_gdn.min(c);
-                        }
                     }
                 }
             }
-            let _ = (cut_kv, cut_gdn);
             if cut == usize::MAX {
                 continue;
             }
@@ -767,6 +877,60 @@ impl FlashStatesManager {
             }
             record.adopted_gdn.truncate(cut * self.plan.n_gdn);
             record.held_chunks = cut;
+        }
+    }
+}
+
+/// Route one tree node's chunk-major pages to their pools and drop the
+/// TREE's hold (the substrate eviction contract, shared by both victim
+/// policies). Records every released id per pool class — the caller's
+/// post-scan filters rc == 0 (no alloc may run between the releases and
+/// the filter, so rc 0 marks exactly the pages whose last hold was the
+/// tree's).
+fn release_tree_pages(
+    kv: &mut PagedKVCache,
+    gdn: &mut GdnStatePool,
+    flat: &[usize],
+    nl: usize,
+    n_attn: usize,
+    freed_kv: &mut Vec<usize>,
+    freed_gdn: &mut Vec<usize>,
+) {
+    let chunks = flat.len() / nl;
+    let mut kv_rows = vec![Vec::with_capacity(chunks); n_attn];
+    let mut gdn_flat: Vec<usize> = Vec::with_capacity(chunks * (nl - n_attn));
+    for chunk in flat.chunks(nl) {
+        for (l, &id) in chunk.iter().enumerate() {
+            if l < n_attn {
+                kv_rows[l].push(id);
+            } else {
+                gdn_flat.push(id);
+            }
+        }
+    }
+    kv.release_chunk_pages(&kv_rows);
+    gdn.release(&gdn_flat);
+    freed_kv.extend(kv_rows.iter().flatten().copied());
+    freed_gdn.extend_from_slice(&gdn_flat);
+}
+
+/// GreedyDual-Size less-than (plan 630 T3 (c)): evict the leaf with the
+/// SMALLEST priority = chunks / freed — the least re-prefill cost per
+/// page of capacity actually recovered. Exact integer cross-multiplication
+/// (u128 — chunk counts and page counts are far below overflow), never a
+/// float ratio. A leaf that frees nothing ranks LAST (evicting it
+/// recovers no capacity); recency (older `last_touch`) breaks exact ties
+/// — the FlashStates last-use watermark, subordinate to cost-density.
+fn gds_less(ac: usize, af: usize, at: u64, bc: usize, bf: usize, bt: u64) -> bool {
+    match (af, bf) {
+        (0, 0) => at < bt,
+        (_, 0) => true,
+        (0, _) => false,
+        (af, bf) => {
+            // ac/af < bc/bf  ⟺  ac·bf < bc·af
+            let lhs = ac as u128 * bf as u128;
+            let rhs = bc as u128 * af as u128;
+            lhs < rhs || (lhs == rhs && at < bt)
         }
     }
 }

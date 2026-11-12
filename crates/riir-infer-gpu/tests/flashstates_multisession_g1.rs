@@ -312,3 +312,192 @@ fn evicted_tail_under_live_session_truncates_the_cursor_never_dangles() {
     capture(&mut m, 1, 32, &turn2);
     assert_eq!(m.session_held_chunks(1), turn2.len() / PAGE_TOKENS);
 }
+
+/// The plan-630 T3 falsification fixture (the issue's own): two states
+/// sharing KV+GDN pages, forced GDS eviction to a tight budget — the
+/// shared pages are NOT double-counted as freed (they survive on the
+/// adopting session's hold), the surviving state's span restores with the
+/// SAME ids and the SAME bytes, the zero-freed shared trunk is never a
+/// victim while the budget is already met, and the truncation floor eats
+/// only the evicted tails.
+#[test]
+fn gds_shared_pages_not_double_counted_survivor_restores_bytes() {
+    let mut m = FlashStatesManager::new(
+        tree(2), // budget: 2 chunks (headroom for the shared trunk only)
+        kv_pool(),
+        GdnStatePool::new(),
+        plan(),
+    );
+    let preamble = tokens(1, 2); // 2 shared chunks
+    let a_prompt = [preamble.clone(), tokens(2, 1)].concat();
+    m.session_start(1);
+    capture(&mut m, 1, 11, &a_prompt);
+
+    let b_prompt = [preamble.clone(), tokens(3, 1)].concat();
+    m.session_start(2);
+    let plan_b0 = m.serve(2, &b_prompt);
+    assert_eq!(plan_b0.restore_chunks, 2, "B adopts the shared preamble");
+    capture(&mut m, 2, 22, &b_prompt);
+    // A stays LIVE through the eviction (floor-only semantics — its own
+    // tail may be evicted and truncated; its pages are tree-hold-only
+    // either way, the creating session takes no hold).
+
+    // The shared trunk's page ids (pre-eviction reference).
+    let shared_kv = plan_b0.kv_pages[0][..2].to_vec();
+    let shared_gdn = plan_b0.gdn_pages[0][..2].to_vec();
+    // The trunk's bytes (A's capture writes): GDN recurrent = tag 11 +
+    // chunk·7; KV rows = the token values.
+    let gdn_bytes: Vec<Vec<f32>> = shared_gdn
+        .iter()
+        .map(|&id| m.gdn_pool().page(id).recurrent.clone())
+        .collect();
+    let kv_bytes: Vec<Vec<f32>> = shared_kv
+        .iter()
+        .map(|&id| m.kv_pool().pages[id][..16].to_vec())
+        .collect();
+    // Pre-eviction rc: tree + B = 2 (the denominator counts 0 for them).
+    for (&kid, &gid) in shared_kv.iter().zip(&shared_gdn) {
+        assert_eq!(kv_refcount(&m, kid), 2);
+        assert_eq!(m.gdn_pool().refcount(gid), 2);
+    }
+
+    // 4 chunks held > 2 budget → eviction. Both tails (1 chunk, all
+    // pages rc 1) rank before the trunk (interior at first, then a
+    // zero-freed leaf); the trunk's shared pages must never be counted
+    // as freed — they survive on B's hold.
+    m.evict_to_budget();
+
+    // Budget met WITHOUT touching the trunk.
+    assert!(m.tree().held_pages() <= 2 * (N_ATTN + N_GDN));
+    for (&kid, &gid) in shared_kv.iter().zip(&shared_gdn) {
+        assert_eq!(
+            kv_refcount(&m, kid),
+            2,
+            "shared KV page lost a hold — double-counted as freed"
+        );
+        assert_eq!(
+            m.gdn_pool().refcount(gid),
+            2,
+            "shared GDN page lost a hold — double-counted as freed"
+        );
+    }
+    // The trunk is still indexed (the tree kept the shared prefix).
+    assert_eq!(
+        m.probe_match(&preamble),
+        2,
+        "the shared trunk stays matchable"
+    );
+
+    // Both sessions truncated to the surviving span (their own tails
+    // were tree-only → freed → the floor ate exactly the tails).
+    assert_eq!(m.session_held_chunks(1), 2);
+    assert_eq!(m.session_held_chunks(2), 2);
+
+    // The survivor's span restores byte-identically: SAME ids, SAME
+    // bytes (A's capture writes, never clobbered by a reuse).
+    let plan_b1 = m.serve(2, &b_prompt);
+    assert_eq!(plan_b1.restore_chunks, 2);
+    assert_eq!(
+        &plan_b1.kv_pages[0][..2],
+        &shared_kv[..],
+        "KV ids unchanged"
+    );
+    assert_eq!(
+        &plan_b1.gdn_pages[0][..2],
+        &shared_gdn[..],
+        "GDN ids unchanged"
+    );
+    for (c, &id) in shared_gdn.iter().enumerate() {
+        assert_eq!(
+            m.gdn_pool().page(id).recurrent,
+            gdn_bytes[c],
+            "GDN bytes round-trip"
+        );
+    }
+    for (c, &id) in shared_kv.iter().enumerate() {
+        assert_eq!(
+            &m.kv_pool().pages[id][..16],
+            &kv_bytes[c][..],
+            "KV bytes round-trip"
+        );
+    }
+    // A's truncated re-serve also rides the shared span.
+    let plan_a1 = m.serve(1, &a_prompt);
+    assert_eq!(plan_a1.restore_chunks, 2);
+    assert_eq!(&plan_a1.kv_pages[0][..2], &shared_kv[..]);
+    assert_eq!(&plan_a1.gdn_pages[0][..2], &shared_gdn[..]);
+    // No freed id anywhere in any live session's tables.
+    for id in plan_b1.kv_pages[0]
+        .iter()
+        .chain(plan_b1.gdn_pages[0].iter())
+    {
+        assert!(kv_refcount(&m, *id) >= 1 || m.gdn_pool().refcount(*id) >= 1);
+    }
+}
+
+/// The policy distinguishes itself from recency: the recency-oldest leaf
+/// holds ADOPTED pages (frees nothing — priority ∞), the newer leaf holds
+/// tree-only pages. GDS must evict the NEWER higher-yield leaf; the
+/// substrate LRU (flag off) must evict the older one. Same trace, one
+/// eviction, opposite victims.
+#[test]
+fn gds_policy_evicts_higher_cost_density_not_recency_oldest() {
+    let build = |gds: bool| {
+        let mut m = FlashStatesManager::new(
+            tree(3), // 3 chunks of headroom: 4 held → exactly ONE eviction
+            kv_pool(),
+            GdnStatePool::new(),
+            plan(),
+        );
+        if gds {
+            m = m.with_gds_retention();
+        }
+        let old = tokens(41, 1); // S1's 1-chunk capture
+        m.session_start(1);
+        capture(&mut m, 1, 41, &old);
+        // S3 adopts the OLD session's page (rc 2 — evicting it frees
+        // NOTHING) BEFORE S2's capture: the adoption serve touches N1,
+        // so it must precede N2's insert or N1 would be the NEWER tick
+        // and LRU would agree with GDS (no contrast).
+        m.session_start(3);
+        let p3 = m.serve(3, &old);
+        assert_eq!(p3.restore_chunks, 1);
+        let new = tokens(42, 3); // S2's 3-chunk capture — the NEWER tick
+        m.session_start(2);
+        capture(&mut m, 2, 42, &new);
+        m.session_end(1);
+        (m, old, new)
+    };
+    // The GDS arm: the old leaf frees 0 (all pages rc 2), the new leaf
+    // frees 3 chunks × layers. The policy must evict the NEW leaf and
+    // keep the old one matchable.
+    let (mut m, old, new) = build(true);
+    let old_gdn = {
+        let p = m.serve(3, &old);
+        p.gdn_pages[0][0]
+    };
+    m.evict_to_budget();
+    assert!(m.tree().held_pages() <= 3 * (N_ATTN + N_GDN));
+    assert_eq!(
+        m.gdn_pool().refcount(old_gdn),
+        2,
+        "the zero-freed (fully adopted) leaf must survive"
+    );
+    assert_eq!(m.probe_match(&old), 1, "the old prefix stays matchable");
+    assert_eq!(m.probe_match(&new), 0, "the new leaf is gone");
+
+    // The contrast arm (flag off — the substrate LRU): the SAME shape
+    // evicts the OLDER leaf first (min last_touch) — the tree forgets
+    // the old prefix while the new capture survives.
+    let (mut m2, old2, new2) = build(false);
+    m2.evict_to_budget();
+    assert_eq!(
+        m2.probe_match(&old2),
+        0,
+        "LRU evicts the recency-oldest leaf — the old prefix is gone"
+    );
+    assert_eq!(m2.probe_match(&new2), 3, "LRU keeps the newer capture");
+    // S3's hold survived the tree's forget (the page lives on).
+    let p3b = m2.serve(3, &old2);
+    assert_eq!(p3b.restore_chunks, 1, "restore rides the session tables");
+}

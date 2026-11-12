@@ -16,8 +16,12 @@
 //!   automatic end-of-request capture, restore = KV rows + GDN state
 //!   copied INTO the live buffers (the manager is device-free; this
 //!   harness is the composition).
-//! - `a2` — T3's arm: refused here, loud (running it before the retention
-//!   lane lands would be an unregistered cell).
+//! - `a2` — T3's arm: a1 + cost-density retention — the manager armed
+//!   with [`FlashStatesManager::with_gds_retention`], the same pinned
+//!   shared-state budget (`--budget-frac`, default 0.25 of the trace's
+//!   total demand; 0 = the T2 infinite posture, no eviction anywhere).
+//!   Both budgeted arms are bounded on the same tree-index axis; the
+//!   budgeted G1 sample covers the POST-EVICTION resume.
 //!
 //! # The drive partition (the G1 precondition)
 //!
@@ -232,6 +236,11 @@ struct Args {
     resume: bool,
     max_requests: Option<usize>,
     g1_sample: Option<usize>,
+    /// The pinned shared-state budget (plan 630 bar 5): budget_frac × the
+    /// trace's total demand (N × cap tokens → chunks × n_layers pages).
+    /// 0.0 = the infinite tree budget (the T2 mechanics posture — no
+    /// eviction ever fires; byte-identical). Applies to a1/a2 only.
+    budget_frac: f64,
 }
 
 fn default_gguf() -> String {
@@ -256,6 +265,7 @@ fn parse_args() -> Args {
         resume: false,
         max_requests: None,
         g1_sample: None,
+        budget_frac: 0.25,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -280,6 +290,14 @@ fn parse_args() -> Args {
             "--g1-sample" => {
                 a.g1_sample = Some(next_val(&mut it, "--g1-sample").parse().expect("k"))
             }
+            "--budget-frac" => {
+                let v: f64 = next_val(&mut it, "--budget-frac").parse().expect("frac");
+                assert!(
+                    (0.0..=1.0).contains(&v),
+                    "--budget-frac must be in [0, 1] (0 = no eviction)"
+                );
+                a.budget_frac = v;
+            }
             "--g1" => {
                 a.g1_sample = Some(usize::MAX);
                 a.max_requests = Some(12);
@@ -302,11 +320,13 @@ fn parse_args() -> Args {
 
 fn print_help() {
     println!(
-        "flashstates_cell — plan 630 / issue 1201 T2 harness\n\
+        "flashstates_cell — plan 630 / issue 1201 T2/T3 harness\n\
          --n N --cap T --seed S      trace shape (default 8 / 8192 / 0)\n\
          --gguf PATH                 model (env QWEN38_CELL_GGUF, else the m3 league path)\n\
          --ctx T --chunk C           forward window + drive batch width (0 = derived)\n\
-         --arm a0,a0p,a1             arms (a2 = T3, refused)\n\
+         --arm a0,a0p,a1,a2          arms (a2 = T3 cost-density retention, needs budget)\n\
+         --budget-frac F             shared-state budget = F × trace demand (default 0.25;\
+                                     0 = infinite tree budget, no eviction — T2 posture)\n\
          --out-dir DIR               durable state (default .benchmarks/flashstates_cell/<id>)\n\
          --resume                    continue partial arms\n\
          --max-requests K            truncate the request sequence\n\
@@ -1017,6 +1037,9 @@ fn run_a1(
     dir: &Path,
     resume: bool,
     g1_set: &HashSet<usize>,
+    arm: &str,
+    gds: bool,
+    budget_pages: Option<usize>,
 ) -> Result<Stats, String> {
     let plan = cell.layer_plan();
     let mut kc = KatConfig::micro();
@@ -1025,13 +1048,13 @@ fn run_a1(
     kc.n_kv_head = cell.fwd.config.n_kv_head;
     kc.head_dim = cell.fwd.config.head_dim;
     let kv = PagedKVCache::new(&kc, 65536);
-    let tree = RadixPrefixTree::new(
-        plan.n_layers(),
-        PAGE_TOKENS,
-        (usize::MAX / 4).saturating_mul(plan.n_layers()),
-    );
+    let tree_budget = budget_pages.unwrap_or((usize::MAX / 4).saturating_mul(plan.n_layers()));
+    let tree = RadixPrefixTree::new(plan.n_layers(), PAGE_TOKENS, tree_budget);
     let mut mgr = FlashStatesManager::new(tree, kv, GdnStatePool::new(), plan);
-    let mut log = ArmLog::open(dir, "a1", resume);
+    if gds {
+        mgr = mgr.with_gds_retention();
+    }
+    let mut log = ArmLog::open(dir, arm, resume);
     let mut rows = read_rows(&log.path, log.next_req);
     let chunk = cell.chunk;
     let turns_total: Vec<usize> = trace.sessions.iter().map(|s| s.turns.len()).collect();
@@ -1099,6 +1122,12 @@ fn run_a1(
         let mut chain = r.prompt.to_vec();
         chain.extend_from_slice(cont);
         cell.a1_capture_finalize(&mut mgr, sid, &chain, &mut sink)?;
+        // Eviction to the pinned shared-state budget (plan 630 bar 5):
+        // fires after the capture commits, BEFORE the G1 sample — the deep
+        // check then covers the POST-EVICTION resume (the budgeted serving
+        // shape, truncation floor included). Infinite budget (frac 0) →
+        // never fires → byte-identical to the T2 mechanics posture.
+        mgr.evict_to_budget();
         if g1_set.contains(&req_idx) {
             let rg = mgr.serve(sid, r.prompt);
             let prg = cell.a1_restore(&mgr, &rg, r.prompt.len())?;
@@ -1121,14 +1150,14 @@ fn run_a1(
             first_token: arg,
         };
         println!(
-            "[a1] req {req_idx} s{} t{} restored={pr} uncached={} ttft={ttft_ms:.0}ms",
+            "[{arm}] req {req_idx} s{} t{} restored={pr} uncached={} ttft={ttft_ms:.0}ms",
             r.session, r.turn, row.uncached
         );
         log.record(&row);
         rows.push(row);
     }
     let s = stats_of(&rows, g1_checked);
-    log.complete(dir, "a1");
+    log.complete(dir, arm);
     Ok(s)
 }
 
@@ -1137,9 +1166,6 @@ fn print_bars(dir: &Path, n_sessions: usize, sums: &HashMap<String, Stats>) {
         println!("[bars] a0+a1 summaries required — skipped");
         return;
     };
-    let ratio_unc = a1.median_uncached / a0.median_uncached.max(1e-9);
-    let ratio_ttft = a1.ttft_p90 / a0.ttft_p90.max(1e-9);
-    let ratio_dec = a1.decode_med / a0.decode_med.max(1e-9);
     let applicable = n_sessions >= 16;
     let v = |pass: bool| {
         if !applicable {
@@ -1150,6 +1176,10 @@ fn print_bars(dir: &Path, n_sessions: usize, sums: &HashMap<String, Stats>) {
             "MISS"
         }
     };
+    let ratio = |arm: &Stats| arm.median_uncached / a0.median_uncached.max(1e-9);
+    let ratio_unc = ratio(a1);
+    let ratio_ttft = a1.ttft_p90 / a0.ttft_p90.max(1e-9);
+    let ratio_dec = a1.decode_med / a0.decode_med.max(1e-9);
     let b1 = ratio_unc <= 0.20;
     let b2 = ratio_ttft <= 0.50;
     let b3 = ratio_dec >= 0.98;
@@ -1183,23 +1213,65 @@ fn print_bars(dir: &Path, n_sessions: usize, sums: &HashMap<String, Stats>) {
     }
     if a1.g1_checked > 0 {
         println!(
-            "[bar 6] G1 resumed-vs-full bit-identity: PASS on {} sampled requests (drift aborts the run)",
+            "[bar 6] G1 resumed-vs-full bit-identity (a1): PASS on {} sampled requests (drift aborts the run)",
             a1.g1_checked
         );
     } else {
-        println!("[bar 6] G1: no sampled checks ran (enable with --g1-sample)");
+        println!("[bar 6] G1 (a1): no sampled checks ran (enable with --g1-sample)");
     }
-    let bars = serde_json::json!({
+    let mut bars = serde_json::json!({
         "n_sessions": n_sessions,
-        "ratio_uncached": ratio_unc,
-        "ratio_ttft_p90": ratio_ttft,
-        "ratio_decode": ratio_dec,
-        "bar1_pass": applicable && b1,
-        "bar2_pass": applicable && b2,
-        "bar3_pass": applicable && b3,
+        "a1_ratio_uncached": ratio_unc,
+        "a1_ratio_ttft_p90": ratio_ttft,
+        "a1_ratio_decode": ratio_dec,
+        "a1_bar1_pass": applicable && b1,
+        "a1_bar2_pass": applicable && b2,
+        "a1_bar3_pass": applicable && b3,
         "bar_applicable": applicable,
-        "g1_checked": a1.g1_checked,
+        "a1_g1_checked": a1.g1_checked,
     });
+    if let Some(a2) = sums.get("a2") {
+        let r_unc = ratio(a2);
+        let r_ttft = a2.ttft_p90 / a0.ttft_p90.max(1e-9);
+        let r_dec = a2.decode_med / a0.decode_med.max(1e-9);
+        println!(
+            "[bars] a2/a0 ratios — uncached={r_unc:.3} ttft_p90={r_ttft:.3} decode={r_dec:.3}"
+        );
+        println!(
+            "[bar 1] a2 uncached ≤ 20% of a0: {} (ratio {r_unc:.3})",
+            v(r_unc <= 0.20)
+        );
+        println!(
+            "[bar 2] a2 p90 TTFT ≤ 50% of a0: {} (ratio {r_ttft:.3})",
+            v(r_ttft <= 0.50)
+        );
+        println!(
+            "[bar 3] a2 decode ≥ 98% of a0: {} (ratio {r_dec:.3})",
+            v(r_dec >= 0.98)
+        );
+        // Bar 5 — A2's own axis (retention at the SAME pinned budget):
+        let b5 = a2.median_uncached <= a1.median_uncached;
+        println!(
+            "[bar 5] a2 median_uncached ≤ a1 at the same budget: {} (a1 {:.0} vs a2 {:.0})",
+            v(b5),
+            a1.median_uncached,
+            a2.median_uncached
+        );
+        if a2.g1_checked > 0 {
+            println!(
+                "[bar 6] G1 resumed-vs-full bit-identity (a2): PASS on {} sampled requests",
+                a2.g1_checked
+            );
+        }
+        bars["a2_ratio_uncached"] = serde_json::json!(r_unc);
+        bars["a2_ratio_ttft_p90"] = serde_json::json!(r_ttft);
+        bars["a2_ratio_decode"] = serde_json::json!(r_dec);
+        bars["a2_bar1_pass"] = serde_json::json!(applicable && r_unc <= 0.20);
+        bars["a2_bar2_pass"] = serde_json::json!(applicable && r_ttft <= 0.50);
+        bars["a2_bar3_pass"] = serde_json::json!(applicable && r_dec >= 0.98);
+        bars["a2_bar5_retention_pass"] = serde_json::json!(applicable && b5);
+        bars["a2_g1_checked"] = serde_json::json!(a2.g1_checked);
+    }
     fs::write(
         dir.join("bars.json"),
         serde_json::to_string_pretty(&bars).unwrap() + "\n",
@@ -1211,13 +1283,7 @@ fn main() {
     let args = parse_args();
     for a in &args.arms {
         match a.as_str() {
-            "a0" | "a0p" | "a1" => {}
-            "a2" => {
-                eprintln!(
-                    "a2 is T3's arm — the cost-density retention lane is not implemented (issue 1201 T3); refusing"
-                );
-                std::process::exit(2);
-            }
+            "a0" | "a0p" | "a1" | "a2" => {}
             other => {
                 eprintln!("unknown arm {other} (--help)");
                 std::process::exit(2);
@@ -1265,6 +1331,7 @@ fn main() {
             "gguf": args.gguf,
             "ctx": args.ctx,
             "chunk": args.chunk,
+            "budget_frac": args.budget_frac,
         });
         fs::write(
             &manifest_path,
@@ -1302,6 +1369,27 @@ fn main() {
         g1_list.truncate(sample_cap);
     }
     let g1_set: HashSet<usize> = g1_list.into_iter().collect();
+    // The pinned shared-state budget (plan 630 bar 5): frac × the trace's
+    // total demand — every session at its transcript cap → chunks ×
+    // n_layers pages. Floor of one chunk so a nonzero frac always evicts.
+    let n_layers = cell.n_attn + cell.n_gdn;
+    let demand_pages = trace.n_sessions * (args.cap / PAGE_TOKENS) * n_layers;
+    let budget_pages = if args.budget_frac > 0.0 {
+        let pages = ((demand_pages as f64 * args.budget_frac) as usize).max(n_layers);
+        println!(
+            "[cell] shared-state budget: frac {} × demand {} pages → {} pages ({} chunks/tree-index axis; a1+a2 bounded alike)",
+            args.budget_frac,
+            demand_pages,
+            pages,
+            pages / n_layers
+        );
+        Some(pages)
+    } else {
+        println!(
+            "[cell] shared-state budget: none (frac 0 — the T2 infinite posture, no eviction)"
+        );
+        None
+    };
     let mut sums: HashMap<String, Stats> = HashMap::with_capacity(args.arms.len());
     for arm in &args.arms {
         let complete = dir.join(format!("{arm}.COMPLETE")).exists();
@@ -1323,7 +1411,28 @@ fn main() {
         let s = match arm.as_str() {
             "a0" => run_a0(&mut cell, &trace, &requests, &dir, args.resume),
             "a0p" => run_a0p(&mut cell, &trace, &requests, &dir, args.resume, &g1_set),
-            "a1" => run_a1(&mut cell, &trace, &requests, &dir, args.resume, &g1_set),
+            "a1" => run_a1(
+                &mut cell,
+                &trace,
+                &requests,
+                &dir,
+                args.resume,
+                &g1_set,
+                "a1",
+                false,
+                budget_pages,
+            ),
+            "a2" => run_a1(
+                &mut cell,
+                &trace,
+                &requests,
+                &dir,
+                args.resume,
+                &g1_set,
+                "a2",
+                true,
+                budget_pages,
+            ),
             _ => unreachable!("validated above"),
         };
         let s = match s {
