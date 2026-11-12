@@ -1,6 +1,7 @@
 # Issue 1209: Weight-structure audit lane (Lazarus-class detection census, report-only)
 
 **Status:** OPEN — work item from Research 025 (Lazarus distill); fixture-first, report-only, no attack code, ever.
+**Claimed:** amo-1209-weightaudit@amo, 1794517819, expires 2026-11-14T21:10:19+00:00
 
 **Source:** `../.research/025_Lazarus_Dormant_Neuron_Weight_Backdoor_Detection.md` (Zeng et al., *Lazarus*, Microsoft Research + AI Red Team, Nov 2026 — five reference-free weight-only detection features, 91.4% TPR @ 9.7% FPR on the paper's own edit family; Theorem 4 = the footprint is a lower bound for independent multi-token writes).
 
