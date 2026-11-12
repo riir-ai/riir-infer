@@ -1050,6 +1050,14 @@ fn run_a0p(
     Ok(s)
 }
 
+/// The radix-arm posture (a1/a2 share the runner; the flag picks the
+/// victim policy, the budget arms eviction).
+struct RadixArmPosture {
+    arm: &'static str,
+    gds: bool,
+    budget_pages: Option<usize>,
+}
+
 fn run_a1(
     cell: &mut Cell,
     trace: &Trace,
@@ -1057,10 +1065,13 @@ fn run_a1(
     dir: &Path,
     resume: bool,
     g1_set: &HashSet<usize>,
-    arm: &str,
-    gds: bool,
-    budget_pages: Option<usize>,
+    posture: RadixArmPosture,
 ) -> Result<Stats, String> {
+    let RadixArmPosture {
+        arm,
+        gds,
+        budget_pages,
+    } = posture;
     let plan = cell.layer_plan();
     let mut kc = KatConfig::micro();
     kc.n_layer = plan.n_attn;
@@ -1439,9 +1450,11 @@ fn main() {
                 &dir,
                 args.resume,
                 &g1_set,
-                "a1",
-                false,
-                budget_pages,
+                RadixArmPosture {
+                    arm: "a1",
+                    gds: false,
+                    budget_pages,
+                },
             ),
             "a2" => run_a1(
                 &mut cell,
@@ -1450,9 +1463,11 @@ fn main() {
                 &dir,
                 args.resume,
                 &g1_set,
-                "a2",
-                true,
-                budget_pages,
+                RadixArmPosture {
+                    arm: "a2",
+                    gds: true,
+                    budget_pages,
+                },
             ),
             _ => unreachable!("validated above"),
         };
