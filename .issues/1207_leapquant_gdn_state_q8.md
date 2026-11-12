@@ -1,6 +1,7 @@
 # Issue 1207: GDN state-Q8 lane — windowed INT8 recurrent state (LeapQuant adoption), proof path pre-registered
 
 **Status:** Open — distilled from [`../.research/024_LeapQuant_GDN_Recurrent_State_Quantization.md`](../.research/024_LeapQuant_GDN_Recurrent_State_Quantization.md) (LeapQuant, arXiv:2609.38166, repo `leapquant/LeapQuant` @ `61434a9941f88b5ce981278184703c62d43d14f3`, Apache-2.0). All items opt-in behind `gdn_state_q8` (feature-gated, env PROMOTE-ONLY per the env-switch law; never in `production` before the GOAT cell passes; fail = demote, incumbent byte-identical).
+**Claimed:** zed-84acf899@amo, 1794464906, expires 2026-11-14T06:28:26Z (T0 premise measurement only — the existing bonsai2_forward_profile instrument + ForwardProfiler.dn_recurrence share; T1+ stays with whoever holds the box next; qwen3.8 second number deferred — model not present locally, Bonsai-2-27B PQ2_0 is)
 
 ## Why
 
