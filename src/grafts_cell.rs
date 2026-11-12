@@ -419,7 +419,9 @@ pub fn digit_slot_positions(
 pub struct ProbeSample {
     /// The instance index into the task space.
     pub instance: usize,
-    /// Layer-major captured rows (`probe_layers.len() × n_embd`).
+    /// Captured rows, slot-major then layer-major (`CAPTURE_SLOTS ×
+    /// probe_layers.len() × n_embd` — the [`HiddenCapture::rows`] layout,
+    /// which [`RowReader`] resolves by `(slot, layer)` id).
     pub rows: Vec<f32>,
     /// The task answer (0..9).
     pub answer: u8,
@@ -755,7 +757,10 @@ pub fn load_samples(path: &std::path::Path) -> Result<(Vec<ProbeSample>, Vec<Pro
         std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?,
     )
     .context("load samples")?;
-    Ok((s.into_iter().map(Into::into).collect(), d.into_iter().map(Into::into).collect()))
+    Ok((
+        s.into_iter().map(Into::into).collect(),
+        d.into_iter().map(Into::into).collect(),
+    ))
 }
 
 /// Write a `(solved, dev)` sample cache (the cell's `--save-samples` dual).
@@ -768,8 +773,11 @@ pub fn save_samples(
 ) -> Result<()> {
     let s_ser: Vec<SampleRow> = solved.iter().map(SampleRow::from_sample).collect();
     let d_ser: Vec<SampleRow> = dev.iter().map(SampleRow::from_sample).collect();
-    std::fs::write(path, serde_json::to_vec(&(&s_ser, &d_ser)).context("serialize samples")?)
-        .with_context(|| format!("write {}", path.display()))
+    std::fs::write(
+        path,
+        serde_json::to_vec(&(&s_ser, &d_ser)).context("serialize samples")?,
+    )
+    .with_context(|| format!("write {}", path.display()))
 }
 
 // ── Report (BLAKE3 over the canonical payload — the G1 law) ──────────────
