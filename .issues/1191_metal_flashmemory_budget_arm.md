@@ -7,7 +7,7 @@
 **Lease closed:** amo-zed-1191metal@amo, 1794220517, expired 2026-11-11T10:35:17+00:00 — holder gone; the raise + 128K lane continued under zed-95d14db9@m3 (documented in the LARGE-UPDATE above), then zed-293d980a@m3 (the v1 trio, the 1213 collision + fix, bench 1209, the v2 launch).
 
 **Claimed:** zed-d565d322@m3, 1794522000, expires 2026-11-14T12:00:00Z
-(scope: the v2 ρ(M) re-run supervision + the checkpoint/completing wakes — the ρ0.15 sel sanity at ~14:20 +0700 and the full T4 verdict + record at the 2026-11-14 08:00 +0700 wake; primary wakes on zed-293d980a@m3, staggered backups on zed-d565d322@m3, dedup-guarded)
+(scope: the v2 ρ(M) re-run supervision + the checkpoint/completing wakes — the ρ0.15 sel sanity at ~14:20 +0700 and the full T4 verdict + record at the 2026-11-14 08:00 +0700 wake; primary wakes on zed-293d980a@m3 (that thread is no longer in the live list — treat the backups as primary), staggered backups on zed-d565d322@m3, tertiary backups on zed-ed7bd295@m3 at 14:32 +0700 Nov 13 (sel) and 09:30 +0700 Nov 14 (T4 dedup-guarded, then the 1203 E1–E5 run — the only lane item the 08:00/08:05 wakes don't cover), all dedup-guarded; wake ground truth: `~/riir-bench/i1117_128k_metal_v2/CHECKPOINT_PLAN.md` — measured pace 12.7% ahead of v1 at pos ~18k, ρ0.15 ETA ~13:25 +0700 Nov 13, ρ0.30 ETA ~02:40 +0700 Nov 14, conservative bound 05:20)
 
 ## Why
 
