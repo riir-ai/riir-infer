@@ -623,7 +623,7 @@ impl SigmoidCubeCL {
         unsafe {
             sigmoid_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, n),
@@ -661,7 +661,7 @@ impl SiluCubeCL {
         unsafe {
             silu_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, n),
@@ -707,7 +707,7 @@ impl SituCubeCL {
         unsafe {
             situ_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(gate_handle, n),
                 BufferArg::from_raw_parts(up_handle, n),
@@ -972,7 +972,7 @@ impl CastF32ToF16CubeCL {
         unsafe {
             cast_f32_to_f16::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, n),
@@ -1094,7 +1094,7 @@ impl Split4CubeCL {
         unsafe {
             split4_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(input_handle, total),
                 BufferArg::from_raw_parts(out1_handle, len1),
@@ -1139,7 +1139,7 @@ impl Split2CubeCL {
         unsafe {
             split2_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(input_handle, total),
                 BufferArg::from_raw_parts(out1_handle, len1),
@@ -1381,6 +1381,33 @@ fn copy_at_f32(src: &[f32], dst: &mut [f32], params: &[f32]) {
 
 fn elementwise_wg_count(n: usize) -> u32 {
     n.div_ceil(256).max(1) as u32
+}
+
+/// The per-dimension dispatch cap (wgpu: 65535 workgroups per grid
+/// dimension — Metal and Vulkan agree).
+const MAX_WG_PER_DIM: u64 = 65_535;
+
+/// The capped cube count for the flat ABSOLUTE_POS launchers: up to the
+/// cap the plain 1D launch (byte-identical behavior); past it the
+/// workgroups fold into (x = 65535, y = ceil(n/65535)). The WGSL
+/// backend's `ABSOLUTE_POS` is the grid-linearized id
+/// (`id = g.y·NWG.x·WG.x + g.x`, cubecl-wgpu `body.rs`), so every
+/// ABSOLUTE_POS-indexed kernel in this file is 2D-transparent and the
+/// excess tail workgroups (id ≥ n) hit the kernel's own bounds guard.
+/// The `copy_f32_grid2d` precedent (riir-infer Issue 032) landed this
+/// shape with an explicit CUBE_POS rebuild; this helper is the shared
+/// mechanism for the rest of the flat elementwise family — the measured
+/// blocker was riir-train Plan 373 P0.5d's bs-2048 walk, where an m·128
+/// residual Add is 82,944 workgroups (the riir-ai Issue 994 fatal handler
+/// caught the wgpu validation error, never silent corruption).
+fn capped_cube_count(n_wg: u32) -> CubeCount {
+    let n_wg = (n_wg as u64).max(1);
+    if n_wg <= MAX_WG_PER_DIM {
+        CubeCount::Static(n_wg as u32, 1, 1)
+    } else {
+        let y = n_wg.div_ceil(MAX_WG_PER_DIM) as u32;
+        CubeCount::Static(MAX_WG_PER_DIM as u32, y, 1)
+    }
 }
 
 /// CubeCL launcher for [`add_mask_broadcast_f32`] — the laya
@@ -1711,7 +1738,7 @@ impl AddCubeCL {
         unsafe {
             add_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(x_handle, x_len),
                 BufferArg::from_raw_parts(y_handle, y_len),
@@ -1755,7 +1782,7 @@ impl CopyAtCubeCL {
         unsafe {
             copy_at_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(src_handle, src_len),
                 BufferArg::from_raw_parts(dst_handle, dst_len),
@@ -1795,7 +1822,7 @@ impl AddBiasRowCubeCL {
         unsafe {
             add_bias_row_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(x_handle, x_len),
                 BufferArg::from_raw_parts(bias_handle, d),
@@ -1830,7 +1857,7 @@ impl ScaleCubeCL {
         unsafe {
             scale_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(x_handle, n),
                 BufferArg::from_raw_parts(params_handle, 1),
@@ -1857,7 +1884,7 @@ impl ReluCubeCL {
         unsafe {
             relu_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(x_handle, n),
             );
@@ -1883,7 +1910,7 @@ impl GeluErfCubeCL {
         unsafe {
             gelu_erf_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(x_handle, n),
             );
@@ -1922,7 +1949,7 @@ impl GluGeluGateCubeCL {
         unsafe {
             glu_gelu_gate_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(fused_handle, rows * 2 * i_sz),
                 BufferArg::from_raw_parts(out_handle, n),
@@ -1964,7 +1991,7 @@ impl GluSiluGateCubeCL {
         unsafe {
             glu_silu_gate_f32::launch_unchecked::<R>(
                 client,
-                CubeCount::Static(n_wg, 1, 1),
+                capped_cube_count(n_wg),
                 CubeDim::new_1d(256),
                 BufferArg::from_raw_parts(fused_handle, rows * 2 * i_sz),
                 BufferArg::from_raw_parts(out_handle, n),
