@@ -81,6 +81,21 @@ pure CPU, seeded, no device):
    total demand — pinned with the first measured cell, before A2 runs), A2's median uncached
    ≤ A1's at the SAME budget; A1-vs-A0+ at that budget is reported beside. A2 failing bar 6's
    fidelity fixture refuses the arm regardless of the rate numbers.
+   **BUDGET PIN AMENDED AT THE FIRST MEASURED CELL (2026-11-12, amo idle lane — this plan's
+   own pin-before-run mechanism, disclosed):** the measured page economics (harness boot line,
+   qwen3.8-27B Q4_K_M: layers 64 = 16 attn + 48 GDN, kvd 1024, gdn_elems 786432 + conv
+   40960) give **≈160 MB per chunk** of live shared state (GDN 158.9 MB ≫ KV 2 MB — the
+   recurrent state dwarfs KV by 80×, which is precisely FlashStates' cost-aware-retention
+   premise). At 25% of demand the 32K-cap ladder is a ~655 GB pool — infeasible on every box
+   we own (amo/bmo 96 GB, 4090 24 GB); even (8, 8192) @ 25% is 164 GB. **The pin for the
+   measured cells: budget_frac = 1/16**, first measured cell (16, cap 2048, seed 0) →
+   budget = 128 chunks ≈ 20 GB = exactly ONE session's full indexed chain — eviction real,
+   retention meaningful (every session keeps ~6% of its chain), memory the smoke-proven 20 GB
+   posture. The fraction is the treatment across the ladder's rows; the feasible row set
+   under it: (16, 2048) ≈ 20 GB ✓ · (32, 2048) and (16, 4096) ≈ 41 GB (tight,
+   box-state-disclosed) · (32, 4096)+ ✗ wall. Bars 1/2 read at N ≥ 16 ✓ ((16, 2048) is
+   bar-bearing). The 25% figure above stays in the text as the original freeze; this
+   amendment governs.
 6. **G1 (correctness, binds every arm):** resumed decode bit-identical to full re-prefill —
    deterministic replay walk, BLAKE3 walk pins at the resume boundary, cache hits under the
    CUDA-graph arm re-proven (the 742 T4 gate shape). Issue-940 determinism law: any synced

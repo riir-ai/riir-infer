@@ -667,6 +667,26 @@ impl Cell {
         })
     }
 
+    /// The derived page economics (printed at boot so every run record
+    /// carries its own memory posture): bytes per chunk of live shared
+    /// state — the budget bounds exactly this.
+    fn print_page_economics(&self) {
+        let kv_bytes = self.n_attn * PAGE_TOKENS * self.kvd * 2 * 4;
+        let gdn_bytes = self.n_gdn * (self.gdn_elems + self.conv_elems) * 4;
+        println!(
+            "[cell] page economics: layers={} (attn {} / gdn {}) kvd={} gdn_elems={} conv_elems={} — per chunk: kv {} B, gdn {} B, total {} B",
+            self.n_attn + self.n_gdn,
+            self.n_attn,
+            self.n_gdn,
+            self.kvd,
+            self.gdn_elems,
+            self.conv_elems,
+            kv_bytes,
+            gdn_bytes,
+            kv_bytes + gdn_bytes,
+        );
+    }
+
     fn layer_plan(&self) -> LayerPlan {
         LayerPlan {
             n_attn: self.n_attn,
@@ -1347,6 +1367,7 @@ fn main() {
             std::process::exit(1);
         }
     };
+    cell.print_page_economics();
     // Warmup: compile the Metal pipelines once so arm 0 pays no compile
     // cost (an arm-order bias otherwise).
     {
