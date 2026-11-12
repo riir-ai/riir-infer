@@ -44,10 +44,19 @@
 //! ```
 //!
 //! Env: `BENCH1167_SHAPES` (`MxN,…`, default the three Bonsai-2 prefill
-//! bottlenecks; G3 adds the GDN projections), `BENCH1167_PS` (default
-//! `512,2048,4096` for G2, `512` for G3), `BENCH1167_ROUNDS` (4),
+//! bottlenecks; G3/G4 add the GDN projections), `BENCH1167_PS` (default
+//! `512,2048,4096` for G2, `512` for G3, `512` for G4), `BENCH1167_ROUNDS` (4),
 //! `BENCH1167_LAUNCHES` (2), `BENCH1167_REPS` (G3 repetition blocks for the
-//! delta IQR).
+//! delta IQR), `BENCH1167_FRAME_REF_MS` (G4 projection reference, 500.86).
+//!
+//! G4 (Issue 1167 rung B's packed-byte dequant ground) adds the PackedBody
+//! twin: the serving kernel with the A-side read+decode swapped for the
+//! packed-2-bit body (ONE u32 load per 16-element work item, decode algebra
+//! `(code&1) - ((code>>1)&1)` — mathematically identical to
+//! `(pos_bit - neg_bit)`). The twin is CORRECT, so baseline − packed is the
+//! ADDRESSABLE packed-format price in situ (same stores, barriers, grid),
+//! and the per-launch bit-identity assert is the correctness anchor a
+//! future packed serving kernel inherits.
 
 #![cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
 
@@ -113,6 +122,10 @@ struct TernaryFixture {
     scale_f32: Vec<f32>,
     blocks64: usize,
     groups_per_row: usize,
+    /// Packed-2-bit twin of the bit-planes (G4): 16 codes per u32, code lane
+    /// = pos_bit | neg_bit << 1 — the pure-function source format a packed
+    /// loader would hand the kernel. Synthesized, never a second fixture RNG.
+    packed_u32: Vec<u32>,
 }
 
 impl TernaryFixture {
@@ -156,6 +169,27 @@ impl TernaryFixture {
             let e = -6i32 + (rng.next_u64() % 5) as i32;
             scale_f32.push((1.0 + m / 1024.0) * 2f32.powi(e));
         }
+        // The packed synthesis is a PURE FUNCTION of the bit-planes: the G4
+        // twin's decode algebra `(code&1) - ((code>>1)&1)` reproduces
+        // `(pos_bit - neg_bit)` exactly for every code 0..4, so its staged
+        // tile is bit-identical and the price arm doubles as the correctness
+        // anchor for a future packed serving kernel.
+        let packed_words_per_row = words_per_row * 2; // 32 columns per 2 bit-plane words → 16 codes per word
+        let mut packed_u32 = vec![0u32; rows * packed_words_per_row];
+        for r in 0..rows {
+            for wp in 0..packed_words_per_row {
+                let mut word = 0u32;
+                for lane in 0..16u32 {
+                    let col = wp * 16 + lane as usize;
+                    let pw = pos_u32[r * words_per_row + col / 32];
+                    let nw = neg_u32[r * words_per_row + col / 32];
+                    let bit = 1u32 << (col % 32);
+                    let code = (pw & bit != 0) as u32 | ((nw & bit != 0) as u32) << 1;
+                    word |= code << (lane * 2);
+                }
+                packed_u32[r * packed_words_per_row + wp] = word;
+            }
+        }
         Self {
             rows,
             cols,
@@ -164,6 +198,7 @@ impl TernaryFixture {
             scale_f32,
             blocks64,
             groups_per_row,
+            packed_u32,
         }
     }
 
@@ -497,35 +532,93 @@ enum TwinKind {
     /// (c) the staged-tile stores removed (matmul reads stale threadgroup
     /// memory) — prices the stage-WRITE exposure.
     NoStage,
+    /// (d) G4 — the A-side read+decode replaced by the packed-2-bit body:
+    /// ONE u32 load per 16-element work item (16× 2-bit codes), the decode
+    /// algebra `(code&1) - ((code>>1)&1)` — mathematically identical to
+    /// `(pos_bit - neg_bit)`, so the twin is CORRECT and its delta vs the
+    /// baseline is the ADDRESSABLE packed-format price (loads+ALU), same
+    /// stores, same barriers, same grid. Buffer 0 carries the packed words
+    /// (half the bit-plane bytes); buffer 1 stays bound (its fast path never
+    /// reads it; the ragged fallback would misread it and is DEAD at the
+    /// whole-word timing shapes — `cols % 64 == 0` keeps every work item on
+    /// the V2 fast path, asserted by the fixture builder).
+    PackedBody,
 }
 
 /// The exact string each twin patches, with the occurrence count the patch
 /// must consume — a drift in the serving source fails LOUD at twin
 /// construction, never as a silently-mis-patched timing row.
-const TWIN_PATCHES: &[(&str, &str, usize)] = &[
-    ("threadgroup_barrier(mem_flags::mem_threadgroup);", "", 2),
+///
+/// ⛔ Every find is anchored with its leading `\n` + exact indentation so it
+/// matches ONLY the incumbent loop's occurrence — the Issue-1167 rung-C
+/// double-buffer lambda (`#if SWEEP_DOUBLE_BUFFER`, preprocessor-dead at the
+/// default 0) duplicates the same statements one level deeper, and the
+/// un-anchored finds drifted red the day `b490a9f` landed. The lambda's
+/// copies are compiled out at the serving posture; never patch them.
+const PATCH_INCUMBENT_FASTPATH_LOADS: &[(&str, &str, usize)] = &[
     (
-        "const uint pw       = pos_bits_u32[word_idx] >> shift;",
-        "const uint pw       = 0xAAAAAAAAu;",
+        "\n                const uint pw       = pos_bits_u32[word_idx] >> shift;",
+        "\n                const uint pw       = 0xAAAAAAAAu;",
         1,
     ),
     (
-        "const uint nw       = neg_bits_u32[word_idx] >> shift;",
-        "const uint nw       = 0u;",
+        "\n                const uint nw       = neg_bits_u32[word_idx] >> shift;",
+        "\n                const uint nw       = 0u;",
         1,
     ),
     (
-        "const float scale   = group_scale_f32[(uint)row_global * groups_per_row + (uint)(k_pos / 128)];",
-        "const float scale   = 1.0f;",
+        "\n                const float scale   = group_scale_f32[(uint)row_global * groups_per_row + (uint)(k_pos / 128)];",
+        "\n                const float scale   = 1.0f;",
         1,
     ),
-    ("dst[q] = v;", "", 1),
+];
+const PATCH_PACKED_BODY: &[(&str, &str, usize)] = &[
+    (
+        "const uint words_per_row = blocks64 * 2u;  // u32 words per weight row",
+        "const uint words_per_row = blocks64 * 2u;  // u32 words per weight row\n    const uint packed_words_per_row = words_per_row * 2u;  // packed codes: 16 per u32",
+        1,
+    ),
+    (
+        "\n                const uint word_idx = (uint)row_global * words_per_row + (uint)(k_pos / 32);\n                const uint shift    = (uint)(k_pos % 32);\n                const uint pw       = pos_bits_u32[word_idx] >> shift;\n                const uint nw       = neg_bits_u32[word_idx] >> shift;\n                const float scale   = group_scale_f32[(uint)row_global * groups_per_row + (uint)(k_pos / 128)];",
+        "\n                const uint packed_idx = (uint)row_global * packed_words_per_row + (uint)(k_pos / 16);\n                const uint packed_w   = pos_bits_u32[packed_idx];\n                const float scale     = group_scale_f32[(uint)row_global * groups_per_row + (uint)(k_pos / 128)];",
+        1,
+    ),
+    (
+        "\n                        const float sign = (float)((pw >> b) & 1u) - (float)((nw >> b) & 1u);",
+        "\n                        const uint code     = (packed_w >> (b * 2u)) & 3u;\n                        const float sign = (float)(code & 1u) - (float)((code >> 1u) & 1u);",
+        1,
+    ),
+];
+const PATCH_NO_BARRIERS: &[(&str, &str, usize)] = &[
+    (
+        "\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n\n        // === PHASE 2: Cooperative tensor matmul ===",
+        "\n\n        // === PHASE 2: Cooperative tensor matmul ===",
+        1,
+    ),
+    (
+        "mm.run(mB, mA, cT);\n\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n    }\n#endif // SWEEP_DOUBLE_BUFFER",
+        "mm.run(mB, mA, cT);\n    }\n#endif // SWEEP_DOUBLE_BUFFER",
+        1,
+    ),
+];
+const PATCH_NO_STAGE: &[(&str, &str, usize)] = &[
+    ("\n                    dst[q] = v;", "", 1),
     (
         "sa[(size_t)(k_base + i) + (size_t)row_local * K_TILE] = val;",
         "",
         1,
     ),
 ];
+
+fn patches_for(kind: TwinKind) -> &'static [(&'static str, &'static str, usize)] {
+    match kind {
+        TwinKind::Baseline => &[],
+        TwinKind::NoBarriers => PATCH_NO_BARRIERS,
+        TwinKind::ConstDequant => PATCH_INCUMBENT_FASTPATH_LOADS,
+        TwinKind::NoStage => PATCH_NO_STAGE,
+        TwinKind::PackedBody => PATCH_PACKED_BODY,
+    }
+}
 
 /// A compiled in-situ twin: the serving `gemm_ternary_tensor` pipeline at a
 /// patched source. Buffer bindings, scalars, threadgroup memory, grid and
@@ -541,12 +634,7 @@ impl ServingTwin {
     fn new(config: MetalTileConfig, kind: TwinKind) -> Result<Self, String> {
         let serving = include_str!("../src/gemm_ternary_metal_tensor.metal");
         let mut source = crate_defines(config);
-        match kind {
-            TwinKind::Baseline => source.push_str(serving),
-            TwinKind::NoBarriers => source.push_str(&patch(serving, 0..1)),
-            TwinKind::ConstDequant => source.push_str(&patch(serving, 1..4)),
-            TwinKind::NoStage => source.push_str(&patch(serving, 4..6)),
-        }
+        source.push_str(&apply_patches(serving, patches_for(kind)));
         let device = Device::system_default().ok_or("No Metal device found")?;
         let library = device
             .new_library_with_source(source.as_str(), &CompileOptions::new())
@@ -567,6 +655,13 @@ impl ServingTwin {
     }
 
     fn upload_weights(&self, fx: &TernaryFixture) -> (Buffer, Buffer, Buffer) {
+        self.upload_weights_for(fx, TwinKind::Baseline)
+    }
+
+    /// The PackedBody twin's buffer 0 is the packed code array (half the
+    /// bit-plane bytes); its fast path never reads buffer 1, which stays
+    /// bound for the dead ragged fallback and the use_resource set.
+    fn upload_weights_for(&self, fx: &TernaryFixture, kind: TwinKind) -> (Buffer, Buffer, Buffer) {
         let mk = |data: &[u32]| {
             self.device.new_buffer_with_data(
                 data.as_ptr() as *const core::ffi::c_void,
@@ -579,7 +674,17 @@ impl ServingTwin {
             (fx.scale_f32.len() * 4) as u64,
             MTLResourceOptions::StorageModeManaged,
         );
-        (mk(&fx.pos_u32), mk(&fx.neg_u32), scale)
+        let pos = if kind == TwinKind::PackedBody {
+            mk(&fx.packed_u32)
+        } else {
+            mk(&fx.pos_u32)
+        };
+        (pos, mk(&fx.neg_u32), scale)
+    }
+
+    fn read_f32(&self, buf: &Buffer, len: usize) -> Vec<f32> {
+        let ptr = buf.contents() as *const f32;
+        unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
     }
 
     fn upload_f32(&self, data: &[f32]) -> Buffer {
@@ -655,9 +760,9 @@ fn crate_defines(config: MetalTileConfig) -> String {
 
 /// Apply the named patches to the serving source. Patches are (find,
 /// replace, expected-count) — an unexpected count fails loud.
-fn patch(source: &str, patch_range: std::ops::Range<usize>) -> String {
+fn apply_patches(source: &str, patches: &[(&str, &str, usize)]) -> String {
     let mut out = source.to_string();
-    for (find, replace, want) in TWIN_PATCHES[patch_range.clone()].iter() {
+    for (find, replace, want) in patches.iter() {
         let got = out.matches(find).count();
         assert_eq!(
             got, *want,
@@ -1325,6 +1430,230 @@ fn g3_insitu_ablation_twins_at_serving_posture() {
                 );
             }
         }
+    }
+
+    print_provenance("end");
+}
+
+// ---------------------------------------------------------------------------
+// G4 — the packed-byte dequant price at the serving posture (Issue 1167
+// rung B's named surviving ground). The PackedBody twin is CORRECT — its
+// decode algebra reproduces `(pos_bit - neg_bit)` exactly — so
+// baseline − packed is the ADDRESSABLE load+ALU delta in situ, not an
+// ablation bound, and the bit-identity check is the correctness anchor a
+// future packed serving kernel inherits for free.
+// ---------------------------------------------------------------------------
+
+/// Per-chunk GEMM launches the frame projection weights (the Bench-937
+/// census posture: `I1146C_CHUNK=512` chunks, `I1146C_FRAMES=8` per frame —
+/// every launch inside a chunk dispatches at P=512, so launches/frame =
+/// 8 × the per-chunk set below; the attn_o projection 5120×4096 is NOT in
+/// the shape set and is disclosed uncovered, same class as gdn_out).
+const FRAME_LAUNCHES_PER_CHUNK: &[(&str, usize)] = &[
+    ("ffn_gate/up", 128), // 2 × 64 layers
+    ("ffn_down", 64),
+    ("attn_q", 16), // the fused qkv projection, 16 attn layers
+    ("gdn_qkv", 48),
+    ("gdn_z", 48),
+    ("gdn_ab", 96), // a and b, two 16×5120 projections × 48 layers
+    ("gdn_out", 48),
+];
+
+#[test]
+#[ignore = "requires macOS Metal + a GPU; run explicitly with --release"]
+fn g4_packed_body_price_at_serving_posture() {
+    print_provenance("start");
+
+    let shapes: Vec<(String, usize, usize)> = std::env::var("BENCH1167_SHAPES")
+        .ok()
+        .map(|v| {
+            v.split(',')
+                .map(|s| {
+                    let (m, n) = s.split_once('x').expect("shape as MxN");
+                    (format!("{m}x{n}"), m.parse().unwrap(), n.parse().unwrap())
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            DEFAULT_SHAPES
+                .iter()
+                .chain(GDN_SHAPES.iter())
+                .map(|&(n, m, k)| (n.to_string(), m, k))
+                .collect()
+        });
+    // Default P=512 — the serving chunk posture the projection weights.
+    let ps: Vec<usize> = std::env::var("BENCH1167_PS")
+        .ok()
+        .map(|v| v.split(',').map(|s| s.parse().unwrap()).collect())
+        .unwrap_or_else(|| vec![512]);
+    let rounds: usize = std::env::var("BENCH1167_ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4);
+    let launches: usize = std::env::var("BENCH1167_LAUNCHES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2);
+    let frame_ref_ms: f64 = std::env::var("BENCH1167_FRAME_REF_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500.86);
+
+    let cfg = MetalTileConfig::KTILE64;
+    let twins = [(TwinKind::Baseline, "baseline"), (TwinKind::PackedBody, "packed")];
+    let compiled: Vec<(TwinKind, &str, ServingTwin)> = twins
+        .iter()
+        .filter_map(|&(kind, name)| match ServingTwin::new(cfg, kind) {
+            Ok(t) => Some((kind, name, t)),
+            Err(e) => {
+                println!("  TWIN {name} COMPILE_FAIL — {e}");
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        compiled.len(),
+        2,
+        "both arms must compile — the packed price needs its baseline"
+    );
+    let relaxed = std::env::var("TWIN_RELAXED").as_deref() != Ok("0");
+    println!(
+        "\nG4 packed-body price: 2 arms · relaxed_precision={relaxed} (serving selector) \
+         · rounds={rounds} launches={launches} · buffers uploaded once per (shape, P)"
+    );
+
+    // Per-P projection accumulators (ms/frame): Σ delta × launches/chunk × 8.
+    let mut projection = vec![0.0f64; ps.len()];
+
+    for shape_ref in shapes.iter() {
+        let (shape_name, m, n) = (shape_ref.0.as_str(), shape_ref.1, shape_ref.2);
+        let fx = TernaryFixture::build(m, n, 0x1167 ^ m as u64 ^ (n as u64) << 8);
+        let weights: Vec<(Buffer, Buffer, Buffer)> = compiled
+            .iter()
+            .map(|(kind, _, t)| t.upload_weights_for(&fx, *kind))
+            .collect();
+
+        for (pi, &p) in ps.iter().enumerate() {
+            let input = random_input(p * n, 0xBEEF);
+            let inputs: Vec<Buffer> = compiled
+                .iter()
+                .map(|(_, _, t)| t.upload_f32(&input))
+                .collect();
+            let outputs: Vec<Buffer> = compiled
+                .iter()
+                .map(|(_, _, t)| {
+                    t.device
+                        .new_buffer((p * m * 4) as u64, MTLResourceOptions::StorageModeManaged)
+                })
+                .collect();
+
+            // Warm every arm once.
+            for (ai, (_, _, t)) in compiled.iter().enumerate() {
+                let io = GemmIo {
+                    pos: &weights[ai].0,
+                    neg: &weights[ai].1,
+                    scale: &weights[ai].2,
+                    input: &inputs[ai],
+                    output: &outputs[ai],
+                };
+                t.launch(&io, &fx, p);
+            }
+
+            // The packed twin is CORRECT by algebra — assert it against the
+            // serving baseline bit-for-bit. A mismatch is a packed-decode
+            // defect, never a timing row.
+            {
+                let base = compiled[0].2.read_f32(&outputs[0], p * m);
+                let packed = compiled[1].2.read_f32(&outputs[1], p * m);
+                let flip = base
+                    .iter()
+                    .zip(packed.iter())
+                    .position(|(a, b)| a.to_bits() != b.to_bits());
+                assert!(
+                    flip.is_none(),
+                    "{shape_name} P={p}: packed twin diverged from the serving baseline \
+                     at element {:?} (packed decode must be bit-identical)",
+                    flip
+                );
+            }
+
+            let n_arms = compiled.len();
+            let mut times = vec![vec![0.0f64; n_arms]; rounds];
+            for (r, row) in times.iter_mut().enumerate() {
+                for k in 0..n_arms {
+                    let ai = (r + k) % n_arms;
+                    let (_, _, t) = &compiled[ai];
+                    let io = GemmIo {
+                        pos: &weights[ai].0,
+                        neg: &weights[ai].1,
+                        scale: &weights[ai].2,
+                        input: &inputs[ai],
+                        output: &outputs[ai],
+                    };
+                    let t0 = std::time::Instant::now();
+                    for _ in 0..launches {
+                        t.launch(&io, &fx, p);
+                    }
+                    let dt = t0.elapsed().as_secs_f64() / launches as f64;
+                    assert!(dt > 0.0, "{shape_name} P={p} arm {ai}: zero-length timing");
+                    row[ai] = dt;
+                }
+            }
+
+            let median = |mut v: Vec<f64>| {
+                v.sort_by(|a, b| a.total_cmp(b));
+                v[v.len() / 2]
+            };
+            let meds: Vec<f64> = (0..n_arms)
+                .map(|ai| median(times.iter().map(|row| row[ai]).collect()))
+                .collect();
+            let (b_lo, b_hi) = {
+                let mut v = times.iter().map(|row| row[0]).collect::<Vec<_>>();
+                v.sort_by(|a, b| a.total_cmp(b));
+                (v[0], v[v.len() - 1])
+            };
+            let (t_lo, t_hi) = {
+                let mut v = times.iter().map(|row| row[1]).collect::<Vec<_>>();
+                v.sort_by(|a, b| a.total_cmp(b));
+                (v[0], v[v.len() - 1])
+            };
+            let delta = meds[0] - meds[1];
+            println!(
+                "\n── {shape_name} (m={m} k={n}) P={p} — baseline {:.3} ms/launch · packed {:.3} ms/launch \
+                 · Δ {:>7.3} ms ({:>5.2}% of wall)  Δ-range [{:.3}, {:.3}] ms",
+                meds[0] * 1e3,
+                meds[1] * 1e3,
+                delta * 1e3,
+                delta / meds[0] * 100.0,
+                (b_lo - t_hi) * 1e3,
+                (b_hi - t_lo) * 1e3
+            );
+
+            // Frame projection weight: the shape's per-chunk launch count.
+            let weight = FRAME_LAUNCHES_PER_CHUNK
+                .iter()
+                .find(|(name, _)| *name == shape_name)
+                .map(|(_, w)| *w)
+                .unwrap_or(0);
+            if weight == 0 {
+                println!("  (not in the frame projection weight table — raw row only)");
+            } else {
+                projection[pi] += delta * 1e3 * (weight as f64) * 8.0;
+            }
+        }
+    }
+
+    for (pi, &p) in ps.iter().enumerate() {
+        let share = projection[pi] / frame_ref_ms * 100.0;
+        println!(
+            "\nPACKED PRICE projection P={p}: {:.2} ms/frame vs the {:.2} ms Bench-937 frame \
+             = {:.2}% e2e (bar 1.5% = {:.2} ms) — {}",
+            projection[pi],
+            frame_ref_ms,
+            share,
+            frame_ref_ms * 0.015,
+            if share >= 1.5 { "OVER — a G1 serving twin + decider A/B is justified" } else { "UNDER — the packed rung closes NEGATIVE on the measured price" }
+        );
     }
 
     print_provenance("end");
