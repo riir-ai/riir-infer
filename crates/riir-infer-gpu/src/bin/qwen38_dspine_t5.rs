@@ -513,7 +513,8 @@ fn main() {
         "sampling": if mode == "greedy" { "greedy (keyed argmax, first-index ties)" } else { "T=0.95 top_k=20 top_p=1.0 (keyed gumbel-max; penalty-free)" },
         "capture_layers": capture_layers,
         "block_size": block,
-        "note": "DSpine b16 serial-tail chain (exact_sender, Bench-959 oracle) over OUR Q4_K_M target; CPU f32 draft; Q6_K-dequant lm_head in the tail + TG/TSV tables; Metal-posture captures feed the context fusion (the Bench-954 target-numerics disclosure class)",
+        "note": "DSpine b16 serial-tail chain (exact_sender, Bench-959 oracle) over OUR Q4_K_M target; CPU f32 draft; Q6_K-dequant lm_head in the tail + TG/TSV tables; target-capture posture per the run's --backend (wgpu/cubecl or cuda/cudarc — the Bench-954 target-numerics disclosure class, backend disclosed by the row's backend field)",
+        "backend": backend,
         "ts": chrono_now(),
     });
     let line = serde_json::to_string(&row).expect("json");
@@ -640,16 +641,23 @@ impl T5Target for CudaTarget {
         base_pos: usize,
         capture_layers: &[usize],
     ) -> Result<(Vec<Vec<f32>>, Vec<f32>), String> {
-        // The cudarc forward has no chunked capture ingest — the per-token
-        // loop is the same surface the trainer's recompute_taps uses. The
-        // forward_allocs arm (chunked + taps) exists but is verify-plane
-        // scoped; keep ONE honest path here.
+        // The cudarc capture contract: capture_out buffers are PRE-SIZED to
+        // n_embd and OVERWRITTEN per call (never appended). Scratch per
+        // layer, then extend the per-position feature rows.
+        let n = self.0.cfg.n_embd;
+        let mut scratch: Vec<Vec<f32>> = capture_layers.iter().map(|_| vec![0.0f32; n]).collect();
         let mut feats: Vec<Vec<f32>> = capture_layers.iter().map(|_| Vec::new()).collect();
         let mut last_logits = Vec::new();
         for (i, &t) in tokens.iter().enumerate() {
-            let (next, logits) =
-                self.0
-                    .forward_token_capture_logits(t, base_pos + i, capture_layers, &mut feats)?;
+            let (next, logits) = self.0.forward_token_capture_logits(
+                t,
+                base_pos + i,
+                capture_layers,
+                &mut scratch,
+            )?;
+            for (l, cap) in scratch.iter().enumerate() {
+                feats[l].extend_from_slice(cap);
+            }
             last_logits = logits;
             let _ = next;
         }
