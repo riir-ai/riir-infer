@@ -64,6 +64,11 @@ use crate::gemm_ternary_metal_zero_copy::{covered, insert_merged};
 /// Q4_K nibble dequant in the staging phase).
 const Q4K_MSL_SOURCE: &str = include_str!("gemm_q4k_metal_tensor.metal");
 
+/// The simdgroup-mma Q4_K MSL source — plan-614 session-2: the
+/// dequant→threadgroup-tile→simdgroup-mma skeleton (ONE barrier per
+/// K-tile, A+B double-buffered; no mpp cooperative staging).
+const MMA_Q4K_MSL_SOURCE: &str = include_str!("gemm_q4k_mma.metal");
+
 /// The dense-f16 MSL source — the matmul2d kernel with the A operand as a
 /// strided device view over the f16 weights (no staging, no dequant).
 const MSL_SOURCE: &str = include_str!("gemm_dense_f16_metal_tensor.metal");
@@ -149,6 +154,9 @@ pub struct MetalDenseF16ZeroCopyGemm {
     /// The compiled Q4_K staged-dequant matmul2d pipeline (plan-614 task 1;
     /// own library — the Q4K MSL is a separate source).
     q4k_pipeline: ComputePipelineState,
+    /// The compiled simdgroup-mma Q4_K pipeline (plan-614 session-2; own
+    /// library — the MMA MSL is a separate source).
+    mma_q4k_pipeline: ComputePipelineState,
     /// Whether this context's matmul2d compiled with relaxed precision
     /// (the follow-up-4 selector). Fixed at construction; a getter, not a
     /// re-read, so the compiled source and the disclosure can never drift.
@@ -191,6 +199,12 @@ unsafe impl Sync for MetalDenseF16ZeroCopyGemm {}
 const DENSE_NRA: u64 = 64;
 const DENSE_NRB: u64 = 128;
 const DENSE_NSG: u64 = 4;
+
+/// The mma kernel's tile geometry (mirrors gemm_q4k_mma.metal's constants
+/// by construction — the compile-time check is the G1 gate's shape suite).
+const MMA_TILE_M: u64 = 64;
+const MMA_TILE_P: u64 = 64;
+const MMA_NSG: u64 = 4;
 
 // ---------------------------------------------------------------------------
 // Issue 1150 follow-up 4 — the dense-lane relaxed-precision selector
@@ -362,12 +376,26 @@ impl MetalDenseF16ZeroCopyGemm {
             .map_err(|e| format!("q4k pipeline creation failed: {e}"))?;
         drop(q4k_library);
 
+        // The simdgroup-mma Q4_K pipeline: separate source, same compile
+        // path (plan-614 session-2; probe-only until the C_K gate rules).
+        let mma_library = device_ref
+            .new_library_with_source(MMA_Q4K_MSL_SOURCE, &options)
+            .map_err(|e| format!("mma q4k MSL compilation failed: {e}"))?;
+        let mma_function = mma_library
+            .get_function("gemm_q4k_mma", None)
+            .map_err(|e| format!("Function 'gemm_q4k_mma' not found: {e}"))?;
+        let mma_q4k_pipeline = device_ref
+            .new_compute_pipeline_state_with_function(&mma_function)
+            .map_err(|e| format!("mma q4k pipeline creation failed: {e}"))?;
+        drop(mma_library);
+
         Ok(Self {
             device: device_ptr,
             queue: queue_ptr,
             pipeline,
             gemv_pipeline,
             q4k_pipeline,
+            mma_q4k_pipeline,
             relaxed_precision: relaxed,
             output_cache: Mutex::new(HashMap::new()),
             wgpu_initialized: Mutex::new(HashMap::new()),
@@ -674,6 +702,136 @@ impl MetalDenseF16ZeroCopyGemm {
         encoder.set_bytes(6, 4, &p_tokens as *const u32 as *const _);
 
         // Threadgroup memory for the dequanted weight tile (index 0).
+        encoder.set_threadgroup_memory_length(0, shmem_bytes);
+
+        encoder.use_resource(w_ref, MTLResourceUsage::Read);
+        encoder.use_resource(dd_ref, MTLResourceUsage::Read);
+        encoder.use_resource(input_ref, MTLResourceUsage::Read);
+        encoder.use_resource(&dedicated_output, MTLResourceUsage::Write);
+
+        encoder.dispatch_thread_groups(grid, threadgroup);
+        encoder.end_encoding();
+
+        // GPU→GPU copy-back within the same command buffer (ordered after the
+        // compute pass) — zero host round-trip.
+        let blit_encoder = cmd_buffer.new_blit_command_encoder();
+        blit_encoder.copy_from_buffer(
+            &dedicated_output,
+            0,
+            cubecl_output_ref,
+            output_off,
+            output_bytes,
+        );
+        blit_encoder.end_encoding();
+
+        cmd_buffer.commit();
+        *self.last_cmd_buffer.lock().expect("last_cmd_buffer lock") = Some(cmd_buffer.to_owned());
+
+        self.dispatch_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    /// Dispatch the simdgroup-mma Q4_K GEMM (plan-614 session-2): the same
+    /// contract as [`Self::dispatch_q4k`] —
+    /// `output[P × M] = dequant_q4k(W[M × K]) @ input[P × K](f32)^T` — with
+    /// the mma skeleton (dequant → threadgroup f32 tiles → simdgroup
+    /// fragment loads → register-resident mma; ONE barrier per K-tile with
+    /// A+B double-buffered, no mpp cooperative staging). Same choreography
+    /// (dedicated output + blit, first-use cure, hazard declarations).
+    ///
+    /// Shape laws: `n` a multiple of 256 (the Q4_K block — K_TILE never
+    /// ragged); `m` ≥ 1 and `p` ≥ 1 (guarded tiles — the mma store path
+    /// handles tile-ragged m and p, unlike the matmul2d cooperative store's
+    /// tile-multiple-m law).
+    pub fn dispatch_mma_q4k(
+        &self,
+        client: &ComputeClient<ActiveRuntime>,
+        w_q4k: &Handle,
+        d_dmin: &Handle,
+        m: usize,
+        n: usize,
+        input: &Handle,
+        output: &Handle,
+        p: usize,
+    ) -> Result<(), String> {
+        let _ = client.flush();
+        self.ensure_wgpu_initialized(client, output, p * m)?;
+
+        let (w_ptr, w_off) =
+            crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm::extract_raw_buffer(
+                client, w_q4k,
+            )?;
+        let (dd_ptr, dd_off) =
+            crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm::extract_raw_buffer(
+                client, d_dmin,
+            )?;
+        let (input_ptr, input_off) =
+            crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm::extract_raw_buffer(
+                client, input,
+            )?;
+        let (output_ptr, output_off) =
+            crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm::extract_raw_buffer(
+                client, output,
+            )?;
+
+        let w_ref: &BufferRef = unsafe { BufferRef::from_ptr(w_ptr) };
+        let dd_ref: &BufferRef = unsafe { BufferRef::from_ptr(dd_ptr) };
+        let input_ref: &BufferRef = unsafe { BufferRef::from_ptr(input_ptr) };
+        let cubecl_output_ref: &BufferRef = unsafe { BufferRef::from_ptr(output_ptr) };
+
+        let output_bytes = (p * m * std::mem::size_of::<f32>()) as u64;
+        let dedicated_output = {
+            let mut cache = self.output_cache.lock().unwrap();
+            cache
+                .entry(output_bytes)
+                .or_insert_with(|| {
+                    let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
+                    device_ref.new_buffer(output_bytes, MTLResourceOptions::StorageModeShared)
+                })
+                .clone()
+        };
+
+        let num_threads = 32u64 * MMA_NSG;
+        let grid = MTLSize {
+            width: (p as u64).div_ceil(MMA_TILE_P),
+            height: (m as u64).div_ceil(MMA_TILE_M),
+            depth: 1,
+        };
+        let threadgroup = MTLSize {
+            width: num_threads,
+            height: 1,
+            depth: 1,
+        };
+
+        let k: u32 = n as u32;
+        let m_u: u32 = m as u32;
+        let p_tokens: u32 = p as u32;
+        // A 2×(64×32) f32 + B 2×(64×32) f32 = 32 KB exactly (the mma
+        // kernel's double-buffered tiles; mirrors gemm_q4k_mma.metal).
+        let shmem_bytes: u64 = 32768;
+
+        let queue_ref: &CommandQueueRef = unsafe { CommandQueueRef::from_ptr(self.queue) };
+        let cmd_buffer = queue_ref.new_command_buffer();
+        let encoder = cmd_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.mma_q4k_pipeline);
+
+        // Buffer bindings (match gemm_q4k_mma.metal):
+        //   0: weight_q4k (read, CubeCL pool, packed Q4_K payloads)
+        //   1: d_dmin (read, CubeCL pool, f32 block scales)
+        //   2: input_batch (read, CubeCL pool, f32)
+        //   3: output_batch (write, DEDICATED Metal buffer)
+        encoder.set_buffer(0, Some(w_ref), w_off);
+        encoder.set_buffer(1, Some(dd_ref), dd_off);
+        encoder.set_buffer(2, Some(input_ref), input_off);
+        encoder.set_buffer(3, Some(&dedicated_output), 0);
+
+        // Scalar bindings (4..6 match the MSL `constant uint&` declarations).
+        encoder.set_bytes(4, 4, &k as *const u32 as *const _);
+        encoder.set_bytes(5, 4, &m_u as *const u32 as *const _);
+        encoder.set_bytes(6, 4, &p_tokens as *const u32 as *const _);
+
         encoder.set_threadgroup_memory_length(0, shmem_bytes);
 
         encoder.use_resource(w_ref, MTLResourceUsage::Read);
