@@ -1025,6 +1025,14 @@ name = "requant_q4_prefill"
 path = "examples/requant_q4_prefill.rs"
 required-features = ["twt_collapse"]
 
+# Issue 1189 T3 — the closed-form fact-write cell harness: construct →
+# sealed envelope → demote/reload identity probes on the real Cell A model.
+# Whole-file-gated example (the P43 law): compiled only at the lane posture.
+[[example]]
+name = "closed_form_write_cell"
+path = "examples/closed_form_write_cell.rs"
+required-features = ["closed_form_write"]
+
 # Issue 022 T5.0 ⚠-finding follow-up — re-derive the kill-rule verdict from
 # the artifact's own stored S under the current rule (T5.5's citation gate).
 [[example]]
