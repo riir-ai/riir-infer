@@ -89,6 +89,19 @@ quantization and model architectures on top. From it (path deps
   the gate REFUSES TO ARM without the verified pair — nothing derives a
   centroid at runtime. Cell E of plan 625 (the gate's end-to-end value test)
   is the remaining promotion gate.
+- **Closed-form fact-write lane** — the MEMIT-style closed-form weight-write
+  cell on the dense qwen35-hybrid (opt-in `closed_form_write`, which forwards
+  katgpt-core's `quant_error_lora` constructor; issue 1189): the MLP
+  down-proj key tap (`CaptureSink` riding the batched MLP prefill fold), the
+  overlay-at-dequant apply (`WriteOverlays` folded at all four dense MLP
+  sites — the packed base bytes never move, empty-overlay demote is
+  byte-identical), and the end-to-end cell harness
+  (`cargo run --release --features closed_form_write --example
+  closed_form_write_cell` — construct → sealed envelope → demote/reload
+  identity probes on the real model; the two identity laws assert, the G1
+  quality tables report). Feasibility lane for the wsp recipe at real scale —
+  the katgpt-rs fixture-scale attempt closed NEGATIVE (Issue 990); serving
+  promotion is not claimed and any default move is owner-gated.
 - **CPU references** — the reference paths the GPU kernels are validated
   against.
 

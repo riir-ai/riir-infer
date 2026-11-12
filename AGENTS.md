@@ -83,6 +83,8 @@ cargo test --test bonsai2_rotation_load --features bonsai2_hadamard
 cargo test --test issue046_gdn_spectral_class_spec --features deltanet_inference
 # Issue 028 disaggregated handoff battery (the 6.7 GB PQ2_0 arm is #[ignore]d — BONSAI_PQ2_0_GGUF env, release run):
 cargo test --test issue028_disaggregated_handoff --features deltanet_ternary_inference
+# Issue 1189 closed-form fact-write cell harness (construct → sealed envelope → demote/reload identity probes on the real model):
+cargo run --release --features closed_form_write --example closed_form_write_cell -- --gguf /Users/katopz/git/riir-train/data/Qwen3.5-0.8B-Base-Q8_0.gguf --out .closed_form_write_cell/
 # BONSAI_GGUF env (defaults to a riir-train data path) names the real checkpoint for the certification test's full-file arm.
 # The EXL3 trellis lane (opt-in; issue 001, closed — record in .docs/001; CPU reference + fast arm here, GPU kernels in riir-infer-gpu; oracle = the CPU reference):
 cargo test --lib --features exl3
