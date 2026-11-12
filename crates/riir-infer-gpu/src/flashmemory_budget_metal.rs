@@ -73,6 +73,13 @@ use cubecl::server::Handle;
 /// ≤ 615 picks (ρ=0.3); the cap admits n_blocks ≤ 3414 at ρ=0.3 and ≤
 /// 6829 at ρ=0.15 — beyond [`FM_MAX_BLOCKS_SMEM`] the smem ceiling binds
 /// first, and an out-of-envelope combo still refuses loud.
+///
+/// The selection row stride IS this constant: the select kernel writes
+/// each kv head's row at `kv * FM_MAX_SEL`, the gather kernel and the
+/// host reader (`fm_selected_fraction`) read at the same width. The
+/// issue-1213 class is exactly these drifting apart — the envelope check
+/// (`fm_budget_envelope_check`) bounds `count ≤ FM_MAX_SEL`, which is
+/// only a row-capacity guarantee while the row width equals it.
 pub const FM_MAX_SEL: usize = 1024;
 
 /// The selection kernel's shared-memory slice ceiling in blocks (score
@@ -388,17 +395,25 @@ fn fm_top_rho_select_f32(
             let word = best_i / 32u32;
             let bit = best_i % 32u32;
             taken[word as usize] |= 1u32 << bit;
-            // Stash picks at the sel_out row's head (k slots).
-            sel_out[(kv * 128u32 + round) as usize] = best_i;
+            // Stash picks at the sel_out row's head (k slots). The row
+            // stride is FM_MAX_SEL (1024) — issue 1213: the pre-raise
+            // literal 128 survived the FM_MAX_SEL 128→1024 raise, so any
+            // k > 127 wrote past the row into the NEXT kv head's row
+            // (cross-head selection collisions; the 128K trio's ρ arms
+            // measured the collided selector and are VOID).
+            sel_out[(kv * 1024u32 + round) as usize] = best_i;
         }
         sync_cube();
         round += 1u32;
     }
 
     if tid == 0u32 {
-        // Insertion sort the k picks ascending (k ≤ 128 — trivial), then
-        // the current block.
-        let base = kv * 128u32;
+        // Insertion sort the k picks ascending (k ≤ FM_MAX_SEL = 1024;
+        // O(k²) on one thread, refresh-cadence-bounded — at k≈614 the
+        // sort is ~190k compare-swaps per refresh per layer, seconds in
+        // total across a 128K walk. A bitonic form is the optimization
+        // rung, deliberately not taken now), then the current block.
+        let base = kv * 1024u32;
         let mut i = 1u32;
         while i < k {
             let v = sel_out[(base + i) as usize];
@@ -421,7 +436,7 @@ fn fm_top_rho_select_f32(
         sel_counts[kv as usize] = count;
         // Pad the tail with u32::MAX (kernel (c) reads exactly `count`).
         let mut p = count;
-        while p < 128u32 {
+        while p < 1024u32 {
             sel_out[(base + p) as usize] = u32::MAX;
             p += 1u32;
         }
@@ -437,7 +452,9 @@ impl FmTopRhoSelectMetal {
     ///
     /// # Safety
     /// - `scores`: `[n_kv * n_blocks]` f32 (kernel (a)'s output).
-    /// - `sel_out`: `[n_kv * 128]` u32 (indices ascending, `u32::MAX` pad).
+    /// - `sel_out`: `[n_kv * FM_MAX_SEL]` u32 — the row stride IS
+    ///   `FM_MAX_SEL` (indices ascending, `u32::MAX` pad); the gather
+    ///   kernel and the host reader address rows at the same width.
     /// - `sel_counts`: `[n_kv]` u32.
     pub unsafe fn launch<R: Runtime>(
         client: &ComputeClient<R>,
@@ -521,7 +538,10 @@ fn fm_block_gather_f32(
     let valid_dim = tid < head_dim;
 
     let n_sel = sel_counts[kv_group as usize];
-    let sel_base = kv_group * 128u32;
+    // Row stride = FM_MAX_SEL — MUST match fm_top_rho_select_f32's write
+    // stride (issue 1213: the two drifted apart once and every kv ≥ 1
+    // head attended a neighbour's collided row).
+    let sel_base = kv_group * 1024u32;
 
     let mut running_max = f32::new(-1e30f32);
     let mut running_sum = f32::new(0.0f32);

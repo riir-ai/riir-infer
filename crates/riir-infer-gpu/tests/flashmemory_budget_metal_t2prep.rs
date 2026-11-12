@@ -31,7 +31,7 @@ use cubecl::server::Handle;
 use riir_infer_gpu::cubecl_runtime::ActiveComputeClient;
 use riir_infer_gpu::cubecl_runtime::ActiveRuntime;
 use riir_infer_gpu::flashmemory_budget_metal::{
-    FM_MAX_SEL, FmBlockGatherMetal, FmBlockScoreMetal, FmTopRhoSelectMetal,
+    FmBlockGatherMetal, FmBlockScoreMetal, FmTopRhoSelectMetal, FM_MAX_SEL,
 };
 
 /// Minimal deterministic PRNG (the crate's fixture discipline).
@@ -495,5 +495,111 @@ fn fm_budget_metal_kernels_parity_vs_cpu() {
     assert!(
         max_delta > 1e-5,
         "LIVENESS: the ρ=0.25 gather must differ from the all-blocks gather somewhere, max |Δ| {max_delta}"
+    );
+}
+
+/// Issue 1213 — the row-stride regression lock. The FM_MAX_SEL raise
+/// (128 → 1024) moved the allocation, the envelope, and the kernel's k
+/// clamp, but NOT the selection row's write/read stride literals: at any
+/// count > 128 the select kernel wrote past its row into the NEXT kv
+/// head's row, and every head's selection was a cross-head mixture. The
+/// three-leg gate above never sees it — its fixture runs 12 blocks
+/// (count 4, stride-independent). This leg runs n_blocks = 1000 at
+/// ρ = 0.15 (count 150 > 128 — the pre-fix collision region) and asserts
+/// per-row SET equality vs the CPU budget rule: the exact discriminator
+/// that fails pre-fix at every kv ≥ 1 and passes post-fix.
+#[test]
+fn fm_budget_metal_row_stride_regression() {
+    let ctx = match riir_infer_gpu::cubecl_runtime::CubeCLContext::new() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("SKIP: no CubeCL device on this box ({e})");
+            return;
+        }
+    };
+    if !ctx.is_metal_adapter() {
+        eprintln!("SKIP: the active CubeCL backend is not Metal — the budget arm is Metal-scoped");
+        return;
+    }
+    let client = &ctx.client();
+
+    // 2 kv groups / head_dim 256, 1000 blocks of 64 (64000 tokens).
+    // ρ 0.15 → count = max(round(150), 1) = 150 > 128: the row must hold
+    // the picks without spilling into the neighbour's row.
+    let n_kv = 2usize;
+    let hd = 256usize;
+    let n_blocks = 1000usize;
+    let block_size = 64usize;
+    let rho = 0.15f32;
+    assert!(
+        n_blocks <= riir_infer_gpu::flashmemory_budget_metal::FM_MAX_BLOCKS_SMEM,
+        "fixture must stay inside the smem envelope"
+    );
+    let (query, centroids, _key_cache, _value_cache, _gate, _seq_len) =
+        fixture(4, n_kv, hd, n_blocks, block_size, 0x1213_5000);
+
+    let q_h = client.create_from_slice(f32::as_bytes(&query));
+    let c_h = client.create_from_slice(f32::as_bytes(&centroids));
+    let s_out = client.empty(n_kv * n_blocks * core::mem::size_of::<f32>());
+    unsafe {
+        FmBlockScoreMetal::launch::<ActiveRuntime>(
+            client,
+            q_h.clone(),
+            c_h.clone(),
+            s_out.clone(),
+            n_kv,
+            hd,
+            n_blocks,
+            1.0 / (hd as f32).sqrt(),
+        );
+    }
+    let _ = client.flush();
+    let _got_scores = read_f32(client, &s_out, n_kv * n_blocks);
+
+    let sel_out = client.empty(n_kv * FM_MAX_SEL * core::mem::size_of::<u32>());
+    let sel_counts = client.empty(n_kv * core::mem::size_of::<u32>());
+    unsafe {
+        FmTopRhoSelectMetal::launch::<ActiveRuntime>(
+            client,
+            s_out.clone(),
+            sel_out.clone(),
+            sel_counts.clone(),
+            n_kv,
+            n_blocks,
+            rho,
+        );
+    }
+    let _ = client.flush();
+    let got_counts = read_u32(client, &sel_counts, n_kv);
+    let got_sel = read_u32(client, &sel_out, n_kv * FM_MAX_SEL);
+
+    let want_scores = cpu_scores(
+        &query,
+        &centroids,
+        n_kv,
+        hd,
+        n_blocks,
+        1.0 / (hd as f32).sqrt(),
+    );
+    let mut mismatches = String::new();
+    for kv in 0..n_kv {
+        let want = cpu_budget_select(&want_scores[kv * n_blocks..(kv + 1) * n_blocks], rho);
+        let got_n = got_counts[kv] as usize;
+        let got: Vec<usize> = got_sel[kv * FM_MAX_SEL..kv * FM_MAX_SEL + got_n]
+            .iter()
+            .map(|&x| x as usize)
+            .collect();
+        if got != want {
+            mismatches.push_str(&format!(
+                "kv{kv}: count {got_n}, |got ∩ want| {} / want {} — first diff at {:?}\n",
+                got.iter().filter(|b| want.contains(b)).count(),
+                want.len(),
+                got.iter().zip(want.iter()).find(|(a, b)| a != b)
+            ));
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "ROW STRIDE: selection rows collide past count 128 (issue 1213) —\n{mismatches}"
     );
 }
