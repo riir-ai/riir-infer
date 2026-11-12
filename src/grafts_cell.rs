@@ -780,6 +780,334 @@ pub fn save_samples(
     .with_context(|| format!("write {}", path.display()))
 }
 
+// ── Off-task corpus (katgpt-rs issue 998 T2 pre-registration) ───────────
+//
+// The task-detector switch's fit surface: synthetic non-arithmetic
+// prompts captured at the SAME fit geometry as the task rows. The spec
+// is pinned in katgpt-rs `.issues/998` BEFORE any capture (verdict
+// AGREE 2026-11-12, reviewer session 858f43ee); counts are explicit
+// constants, not sampled — byte-reproducible.
+
+/// Class 1: declarative sentences — no digits, no arithmetic vocabulary.
+pub const OFFTASK_CLASS_EASY: u8 = 1;
+/// Class 2 (hard-A): digits in non-arithmetic roles (dates, IDs,
+/// versions, counts).
+pub const OFFTASK_CLASS_HARD_A: u8 = 2;
+/// Class 3 (hard-B): arithmetic vocabulary in non-arithmetic sentences,
+/// zero digits.
+pub const OFFTASK_CLASS_HARD_B: u8 = 3;
+
+/// Pinned corpus counts (998 T2 pre-registration: hard ≈ 1/3; held-out
+/// sized for the rule-of-three gate — 0 false arms at n = 600 certifies
+/// a Clopper–Pearson 95% UB ≤ 0.5%).
+pub const OFFTASK_FIT_N: usize = 400;
+pub const OFFTASK_FIT_EASY: usize = 267;
+pub const OFFTASK_FIT_HARD_A: usize = 67;
+pub const OFFTASK_FIT_HARD_B: usize = 66; // 267 + 67 + 66 = 400
+pub const OFFTASK_HELDOUT_N: usize = 600;
+pub const OFFTASK_HELDOUT_EASY: usize = 400;
+pub const OFFTASK_HELDOUT_HARD_A: usize = 100;
+pub const OFFTASK_HELDOUT_HARD_B: usize = 100; // 400 + 100 + 100 = 600
+/// The generator seed (independent of every task-space seed).
+pub const OFFTASK_SEED: u64 = 0x998_0FF1;
+
+// ── Posture-2 fresh test corpus (998 T2 posture-2 pre-registration, //
+// committed before the fresh capture exists): same generator, NEW seed —
+// the calibration placement (the posture-1 held-out 600, re-labeled)
+// was frozen first, so this corpus is the only clean gate surface.
+
+/// The fresh test corpus's generator seed (independent of
+/// [`OFFTASK_SEED`] and every task-space seed).
+pub const OFFTASK_SEED_TEST: u64 = 0x998_0FF2;
+/// Pinned fresh-test counts: 600 held-out test rows, hard ≈ 1/3 —
+/// 0 false arms at n = 600 certifies a CP 95% UB ≤ 0.5%.
+pub const OFFTASK_TEST_N: usize = 600;
+pub const OFFTASK_TEST_EASY: usize = 400;
+pub const OFFTASK_TEST_HARD_A: usize = 100;
+pub const OFFTASK_TEST_HARD_B: usize = 100; // 400 + 100 + 100 = 600
+
+/// Off-task prompts are grown sentence-by-sentence until their token
+/// length reaches the fit geometry's depth plus this margin (the cap
+/// bounds a pathological stream) so the three capture indices land
+/// mid-prompt with headroom.
+pub const OFFTASK_LEN_MARGIN: usize = 12;
+pub const OFFTASK_LEN_CAP: usize = 40;
+
+/// One off-task capture row (the detector fit surface; no answer, no
+/// operands, no base-wrong label — the class IS the label).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OfftaskRow {
+    /// The corpus index (0..`OFFTASK_FIT_N + OFFTASK_HELDOUT_N`).
+    pub index: usize,
+    /// [`OFFTASK_CLASS_EASY`] / [`OFFTASK_CLASS_HARD_A`] /
+    /// [`OFFTASK_CLASS_HARD_B`].
+    pub class: u8,
+    /// Captured rows, slot-major then layer-major (the
+    /// [`HiddenCapture::rows`] layout — the task rows' layout exactly;
+    /// the detector must read the same 9-segment state).
+    pub rows: Vec<f32>,
+}
+
+/// The class plan for off-task index `i`: fit (0..400) = 267 easy + 67
+/// hard-A + 66 hard-B; held-out (400..1000) = 400 easy + 100 + 100.
+#[must_use]
+pub fn offtask_class(i: usize) -> u8 {
+    if i < OFFTASK_FIT_N {
+        if i < OFFTASK_FIT_EASY {
+            OFFTASK_CLASS_EASY
+        } else if i < OFFTASK_FIT_EASY + OFFTASK_FIT_HARD_A {
+            OFFTASK_CLASS_HARD_A
+        } else {
+            OFFTASK_CLASS_HARD_B
+        }
+    } else {
+        let j = i - OFFTASK_FIT_N;
+        if j < OFFTASK_HELDOUT_EASY {
+            OFFTASK_CLASS_EASY
+        } else if j < OFFTASK_HELDOUT_EASY + OFFTASK_HELDOUT_HARD_A {
+            OFFTASK_CLASS_HARD_A
+        } else {
+            OFFTASK_CLASS_HARD_B
+        }
+    }
+}
+
+/// The class plan for the posture-2 FRESH test corpus index `i`:
+/// 0..600 = 400 easy + 100 hard-A + 100 hard-B (998 T2 posture-2
+/// pre-registration).
+#[must_use]
+pub fn offtask_test_class(i: usize) -> u8 {
+    if i < OFFTASK_TEST_EASY {
+        OFFTASK_CLASS_EASY
+    } else if i < OFFTASK_TEST_EASY + OFFTASK_TEST_HARD_A {
+        OFFTASK_CLASS_HARD_A
+    } else {
+        OFFTASK_CLASS_HARD_B
+    }
+}
+
+/// The pinned word lists (no digits anywhere; no arithmetic vocabulary
+/// outside the hard-B templates). Content nouns are everyday objects —
+/// deliberately orthogonal to the task's arithmetic surface.
+const OFFTASK_ADJ: &[&str] = &[
+    "quiet",
+    "narrow",
+    "golden",
+    "hollow",
+    "steep",
+    "mellow",
+    "crisp",
+    "faint",
+    "sturdy",
+    "humble",
+    "vivid",
+    "solemn",
+    "plain",
+    "gentle",
+    "shallow",
+    "weathered",
+    "restless",
+    "patient",
+    "amber",
+    "northern",
+];
+const OFFTASK_NOUN: &[&str] = &[
+    "river", "market", "garden", "bridge", "forest", "harbor", "station", "museum", "library",
+    "village", "valley", "meadow", "castle", "temple", "harvest", "winter", "summer", "morning",
+    "evening", "journey", "letter", "parcel", "lantern", "candle", "hammer", "needle", "basket",
+    "barrel", "anchor", "ledger",
+];
+const OFFTASK_VERB: &[&str] = &[
+    "moved",
+    "opened",
+    "closed",
+    "carried",
+    "followed",
+    "planted",
+    "built",
+    "painted",
+    "sang",
+    "walked",
+    "rested",
+    "watched",
+    "arrived",
+    "departed",
+    "gathered",
+    "wandered",
+    "returned",
+    "remained",
+    "sheltered",
+    "traded",
+];
+
+/// The j-th sentence of off-task index `i` under the ORIGINAL corpus
+/// seed (the posture-1 corpus + the calibration rows' provenance).
+#[must_use]
+pub fn offtask_sentence(i: usize, j: usize) -> String {
+    offtask_sentence_seed(OFFTASK_SEED, i, j)
+}
+
+/// The j-th sentence of off-task index `i` under an explicit corpus
+/// seed — a deterministic stream (pure function of the seed + (i, j,
+/// class)); the capture appends sentences until the token-length
+/// target, so the prompt is a pure function of (seed, i, tokenizer).
+/// One generator, three class arms: the easy arm varies template +
+/// words; hard-A injects digits in non-arithmetic roles; hard-B uses
+/// arithmetic vocabulary with zero digits.
+#[must_use]
+pub fn offtask_sentence_seed(seed: u64, i: usize, j: usize) -> String {
+    let class = if seed == OFFTASK_SEED {
+        offtask_class(i)
+    } else if seed == OFFTASK_SEED_TEST {
+        offtask_test_class(i)
+    } else {
+        offtask_class(i)
+    };
+    // Per-(i, j) stream: mix the corpus seed, the index, the sentence
+    // ordinal, and the class — independent streams per sentence.
+    let mut rng = SplitMix64(
+        seed ^ (u64::from(class) << 56)
+            ^ ((i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
+            ^ ((j as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9)),
+    );
+    let pick = |rng: &mut SplitMix64, list: &[&str]| -> usize {
+        (rng.next_u64() % list.len() as u64) as usize
+    };
+    let (n1, n2, n3) = {
+        let a = pick(&mut rng, OFFTASK_NOUN);
+        let mut b = pick(&mut rng, OFFTASK_NOUN);
+        if b == a {
+            b = (b + 1) % OFFTASK_NOUN.len();
+        }
+        let mut c = pick(&mut rng, OFFTASK_NOUN);
+        if c == a || c == b {
+            c = (c + 2) % OFFTASK_NOUN.len();
+        }
+        (a, b, c)
+    };
+    match class {
+        OFFTASK_CLASS_HARD_A => {
+            // Digits in NON-arithmetic roles: dates, versions, IDs,
+            // counts — no operator, no arithmetic structure.
+            let year = 1900 + (rng.next_u64() % 126) as usize;
+            let major = 1 + (rng.next_u64() % 9) as usize;
+            let minor = (rng.next_u64() % 10) as usize;
+            let site = 1 + (rng.next_u64() % 99) as usize;
+            let id = 10_000 + (rng.next_u64() % 90_000) as usize;
+            let season = 1 + (rng.next_u64() % 24) as usize;
+            let rank = 1 + (rng.next_u64() % 500) as usize;
+            match j % 3 {
+                0 => format!(
+                    "In {year} the company shipped version {major}.{minor} of the protocol to site {site}."
+                ),
+                1 => format!(
+                    "User {id} registered on platform {site} during season {season}, ranked {rank} of {id}."
+                ),
+                _ => format!(
+                    "The archive box {minor} of {site} held records from {year}, catalog entry {id}."
+                ),
+            }
+        }
+        OFFTASK_CLASS_HARD_B => {
+            // Arithmetic vocabulary, ZERO digits.
+            match j % 3 {
+                0 => format!(
+                    "The sum of the {} and the {} plus the {} made a total beyond every estimate.",
+                    OFFTASK_NOUN[n1], OFFTASK_NOUN[n2], OFFTASK_NOUN[n3]
+                ),
+                1 => format!(
+                    "Added to the count of the {}, their gains outweighed the losses and the remainder was shared.",
+                    OFFTASK_NOUN[n1]
+                ),
+                _ => format!(
+                    "Each {} {} doubled and every {} tripled until the total exceeded the first sum.",
+                    OFFTASK_ADJ[pick(&mut rng, OFFTASK_ADJ)],
+                    OFFTASK_NOUN[n1],
+                    OFFTASK_NOUN[n2]
+                ),
+            }
+        }
+        _ => {
+            // Easy: declarative, no digits, no arithmetic words.
+            let v1 = pick(&mut rng, OFFTASK_VERB);
+            let v2 = pick(&mut rng, OFFTASK_VERB);
+            let a1 = pick(&mut rng, OFFTASK_ADJ);
+            match j % 3 {
+                0 => format!(
+                    "The {} {} {} toward the {}.",
+                    OFFTASK_ADJ[a1], OFFTASK_NOUN[n1], OFFTASK_VERB[v1], OFFTASK_NOUN[n2]
+                ),
+                1 => format!(
+                    "{} and {} {} near the {} {}.",
+                    OFFTASK_NOUN[n1],
+                    OFFTASK_NOUN[n2],
+                    OFFTASK_VERB[v1],
+                    OFFTASK_ADJ[a1],
+                    OFFTASK_NOUN[n3]
+                ),
+                _ => format!(
+                    "In the {}, a {} {} {} until the {} {}.",
+                    OFFTASK_NOUN[n1],
+                    OFFTASK_ADJ[a1],
+                    OFFTASK_NOUN[n2],
+                    OFFTASK_VERB[v1],
+                    OFFTASK_NOUN[n3],
+                    OFFTASK_VERB[v2]
+                ),
+            }
+        }
+    }
+}
+
+/// The three absolute capture indices (the fit geometry): the task's
+/// digit-slot positions are instance-independent in their ABSOLUTE
+/// indices — `pos = primes_len + {1, 4, 7}` for ThreeOpAdd10/FewShot —
+/// so one reference computation pins them for every prompt, task and
+/// off-task alike. The reference instance is the same constant the
+/// digit map pins (`[73, 34, 51]` for ThreeOpAdd10, `[7, 3]` for the
+/// two-op tasks).
+/// # Errors
+/// [`digit_slot_positions`] failures pass through (a layout shift
+/// refuses loud).
+pub fn fit_geometry_slots(
+    tok: &crate::tokenizer::BpeTokenizer,
+    task: TaskKind,
+    format: PromptFormat,
+) -> Result<Vec<usize>> {
+    let inst: &[u8] = match task {
+        TaskKind::ThreeOpAdd10 => &[73, 34, 51],
+        _ => &[7, 3],
+    };
+    digit_slot_positions(tok, task, format, inst)
+}
+
+/// Write the off-task capture cache (`(fit, heldout)` pair — the task
+/// cache's shape mirrored).
+/// # Errors
+/// IO or JSON failure.
+pub fn save_offtask(
+    path: &std::path::Path,
+    fit: &[OfftaskRow],
+    heldout: &[OfftaskRow],
+) -> Result<()> {
+    std::fs::write(
+        path,
+        serde_json::to_vec(&(fit, heldout)).context("serialize offtask")?,
+    )
+    .with_context(|| format!("write {}", path.display()))
+}
+
+/// Load an off-task capture cache written by [`save_offtask`].
+/// # Errors
+/// IO or JSON failure.
+pub fn load_offtask(path: &std::path::Path) -> Result<(Vec<OfftaskRow>, Vec<OfftaskRow>)> {
+    let (f, h): (Vec<OfftaskRow>, Vec<OfftaskRow>) = serde_json::from_reader(
+        std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?,
+    )
+    .context("load offtask")?;
+    Ok((f, h))
+}
+
 // ── Report (BLAKE3 over the canonical payload — the G1 law) ──────────────
 
 /// One arm's split verdict row.

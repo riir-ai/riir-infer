@@ -97,6 +97,21 @@ struct Args {
     /// Stop after the fit + diagnostics (the decide-check against cached
     /// samples; no dev/sealed passes).
     fit_only: bool,
+    /// Off-task capture mode (998 T2): generate the pinned 3-class
+    /// corpus, capture at the fit geometry, save the (fit, heldout)
+    /// cache to this path, exit. Task + format are PINNED
+    /// (ThreeOpAdd10/FewShot — the geometry's owner).
+    offtask_capture: Option<PathBuf>,
+    /// Posture-2 fresh TEST corpus capture (998 T2 posture-2
+    /// pre-registration): `OFFTASK_SEED_TEST`, the pinned 600-row test
+    /// plan, saved as a single-segment cache. Same pinned task/format.
+    offtask_test_capture: Option<PathBuf>,
+    /// Sealed capture-only arm check (998 T2 pre-registration, gated leg
+    /// 1): load a grafts artifact, capture the 400 sealed prompts at the
+    /// fit geometry, compute `switches_armed_at` per prompt — never
+    /// decode, never score — and write the counts + bits digest to
+    /// `<out>/sealed_arm_check.json`.
+    sealed_arm_check: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -110,6 +125,9 @@ fn parse_args() -> Result<Args> {
         save_samples: None,
         load_samples: None,
         fit_only: false,
+        offtask_capture: None,
+        offtask_test_capture: None,
+        sealed_arm_check: None,
     };
     let mut it = std::env::args().skip(1);
     let mut task_str = String::new();
@@ -140,6 +158,21 @@ fn parse_args() -> Result<Args> {
                 ))
             }
             "--fit-only" => a.fit_only = true,
+            "--offtask-capture" => {
+                a.offtask_capture = Some(PathBuf::from(
+                    it.next().context("--offtask-capture needs a value")?,
+                ))
+            }
+            "--offtask-test-capture" => {
+                a.offtask_test_capture = Some(PathBuf::from(
+                    it.next().context("--offtask-test-capture needs a value")?,
+                ))
+            }
+            "--sealed-arm-check" => {
+                a.sealed_arm_check = Some(PathBuf::from(
+                    it.next().context("--sealed-arm-check needs a value")?,
+                ))
+            }
             other => bail!("unknown flag {other}"),
         }
     }
@@ -164,7 +197,34 @@ fn parse_args() -> Result<Args> {
             bail!("--baseline-only measures every candidate; pass no --task/--format");
         }
     } else if a.task.is_none() || a.format.is_none() {
-        bail!("full-cell runs pin the task + format from run A: --task <k> --format <f>");
+        if a.offtask_capture.is_none()
+            && a.sealed_arm_check.is_none()
+            && a.offtask_test_capture.is_none()
+        {
+            bail!("full-cell runs pin the task + format from run A: --task <k> --format <f>");
+        }
+        // The off-task + arm-check modes PIN the task + format (the fit
+        // geometry's owner); task/format flags beside them are a caller
+        // bug — refuse, never silently diverge.
+        if a.task.is_some() || a.format.is_some() {
+            bail!(
+                "--offtask-capture/--offtask-test-capture/--sealed-arm-check pin ThreeOpAdd10/FewShot themselves; pass no --task/--format"
+            );
+        }
+    }
+    if [
+        a.offtask_capture.is_some(),
+        a.offtask_test_capture.is_some(),
+        a.sealed_arm_check.is_some(),
+    ]
+    .iter()
+    .filter(|&&b| b)
+    .count()
+        > 1
+    {
+        bail!(
+            "--offtask-capture/--offtask-test-capture/--sealed-arm-check are separate modes; one per run"
+        );
     }
     Ok(a)
 }
@@ -536,6 +596,19 @@ fn eval_arm(
                 .collect::<Vec<_>>(),
         );
         let (mut logits, rows) = runner.run_prompt(&tokens, None);
+        // The held-arm law (998 T2 pre-registration): the switch is
+        // evaluated ONCE per prompt, at the fit-geometry prefill
+        // captures, and the decision holds for the whole greedy chain —
+        // task identity belongs to the prompt, never to a decode step.
+        // For every pre-998 posture this is byte-identical to per-call
+        // `apply` (the old switch armed every fit-surface row → held
+        // true → `apply_with_arm(true, …) ≡ apply(…)`; switchless grafts
+        // hold true trivially). The step-0 equivalence is fixture-pinned
+        // in katgpt-core.
+        let held_arm = graft.map(|g| {
+            let reader = RowReader::new(&runner.host.probe_layers, n_embd, &rows);
+            g.switches_armed_at(&reader)
+        });
         let mut ok = false;
         let mut digit_seen = false;
         let mut armed_rows: Option<Vec<f32>> = Some(rows);
@@ -552,7 +625,8 @@ fn eval_arm(
                     let mut w = BiasWriter {
                         logits: &mut step_logits,
                     };
-                    g.apply(&reader, &mut w, &mut input_vals, &mut out_vals)
+                    let bit = held_arm.unwrap_or(false);
+                    g.apply_with_arm(bit, &reader, &mut w, &mut input_vals, &mut out_vals)
                 };
                 applied_decided = applied.decided;
                 applies += 1;
@@ -617,9 +691,306 @@ fn main() -> Result<()> {
     // token, ~84k calls per pass).
     let mut result: Result<()> = Ok(());
     rayon::scope(|_s| {
-        result = run_cell(&args, &host, checkpoint_blake3);
+        result = if args.offtask_capture.is_some() {
+            run_offtask_capture(
+                &args,
+                &host,
+                riir_infer_core::grafts_cell::OFFTASK_SEED,
+                riir_infer_core::grafts_cell::OFFTASK_FIT_N
+                    + riir_infer_core::grafts_cell::OFFTASK_HELDOUT_N,
+                "offtask-capture",
+            )
+        } else if args.offtask_test_capture.is_some() {
+            run_offtask_capture(
+                &args,
+                &host,
+                riir_infer_core::grafts_cell::OFFTASK_SEED_TEST,
+                riir_infer_core::grafts_cell::OFFTASK_TEST_N,
+                "offtask-test-capture",
+            )
+        } else if args.sealed_arm_check.is_some() {
+            run_sealed_arm_check(&args, &host, checkpoint_blake3)
+        } else {
+            run_cell(&args, &host, checkpoint_blake3)
+        };
     });
     result
+}
+
+/// The task + format the off-task and arm-check modes PIN (the fit
+/// geometry's owner — 998 T2 pre-registration).
+const PINNED_TASK: TaskKind = TaskKind::ThreeOpAdd10;
+const PINNED_FORMAT: PromptFormat = PromptFormat::FewShot;
+
+/// Box-state line for the run log (998 T2 pre-registration: the amo
+/// capture runs beside the confirmatory determinism run — wall-clock
+/// fields must never be misread as a quiet-box figure later).
+fn log_box_state(tag: &str) {
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(0);
+    // macOS: sysctl vm.loadavg; Linux: /proc/loadavg. A read failure is
+    // disclosed as n/a, never fabricated.
+    let load = std::process::Command::new("sysctl")
+        .args(["-n", "vm.loadavg"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .or_else(|| {
+            std::fs::read_to_string("/proc/loadavg")
+                .ok()
+                .map(|s| s.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
+        })
+        .unwrap_or_else(|| "n/a".into());
+    println!(
+        "# box[{tag}]: cpus={cpus} loadavg={load} (share-box — wall-clock fields carry this line)"
+    );
+}
+
+/// The off-task capture mode: generate the pinned 3-class corpus,
+/// capture at the fit geometry, save the cache. `seed` + `total`
+/// select the corpus (original: seed `OFFTASK_SEED`, 1000 rows,
+/// (fit, heldout) pair; posture-2 fresh test: `OFFTASK_SEED_TEST`,
+/// 600 rows, single-segment cache).
+fn run_offtask_capture(args: &Args, host: &Host, seed: u64, total: usize, tag: &str) -> Result<()> {
+    let out_path = args
+        .offtask_capture
+        .clone()
+        .or_else(|| args.offtask_test_capture.clone())
+        .unwrap();
+    let test_mode = args.offtask_test_capture.is_some();
+    println!(
+        "# off-task capture [{tag}]: seed {seed:#x}, {total} rows, task {PINNED_TASK:?}/{PINNED_FORMAT:?} — pinned by 998 T2{}",
+        if test_mode {
+            " (POSTURE-2 FRESH TEST corpus — captured after the calibration-rule commit)"
+        } else {
+            ""
+        }
+    );
+    log_box_state(tag);
+    let mut runner = Runner::new(host)?;
+    let task = PINNED_TASK;
+    let format = PINNED_FORMAT;
+    let tok = &host.tok;
+    let n_embd = host.config.n_embd;
+
+    // The three ABSOLUTE capture indices (the fit geometry) + the
+    // prompt-length targets derived from them.
+    let slots = riir_infer_core::grafts_cell::fit_geometry_slots(tok, task, format)?;
+    assert_eq!(slots.len(), 3, "fit geometry: three slots");
+    let primes_len = slots[0] - 1;
+    let target_min = primes_len + riir_infer_core::grafts_cell::OFFTASK_LEN_MARGIN;
+    let target_cap = primes_len + riir_infer_core::grafts_cell::OFFTASK_LEN_CAP;
+    println!(
+        "# fit geometry: capture indices {slots:?} (primes_len {primes_len}) — prompt token target [{target_min}, {target_cap}]"
+    );
+    let slot_arms: Vec<(usize, usize)> = slots.iter().enumerate().map(|(s, &p)| (p, s)).collect();
+
+    let mut all_rows = Vec::with_capacity(total);
+    let t0 = std::time::Instant::now();
+    for i in 0..total {
+        let class = if test_mode {
+            riir_infer_core::grafts_cell::offtask_test_class(i)
+        } else {
+            riir_infer_core::grafts_cell::offtask_class(i)
+        };
+        // Grow the prompt sentence-by-sentence (the deterministic stream)
+        // until its token length clears the geometry depth + margin.
+        let mut text = String::new();
+        let mut j = 0usize;
+        let len = loop {
+            text.push_str(&riir_infer_core::grafts_cell::offtask_sentence_seed(
+                seed, i, j,
+            ));
+            text.push(' ');
+            let cur = tok.encode(text.trim_end()).len();
+            if cur >= target_min {
+                break cur;
+            }
+            j += 1;
+            if j > 64 {
+                bail!(
+                    "offtask {i}: sentence stream exceeded 64 sentences (generator pathological)"
+                );
+            }
+        };
+        if len > target_cap {
+            bail!("offtask {i}: prompt {len} tokens exceeds the cap {target_cap} — geometry drift");
+        }
+        let tokens = tok.encode(text.trim_end());
+        if slots.iter().any(|&p| p >= tokens.len()) {
+            bail!(
+                "offtask {i}: capture index beyond the prompt ({} tokens)",
+                tokens.len()
+            );
+        }
+        if tokens.len() + 2 > MAX_POSITIONS {
+            bail!("offtask {i}: prompt exceeds the cache bound");
+        }
+        runner.arm_slots(&slot_arms);
+        let (_logits, rows) = runner.run_prompt(&tokens, None);
+        if rows.len()
+            != riir_infer_core::grafts_cell::CAPTURE_SLOTS * host.probe_layers.len() * n_embd
+        {
+            bail!("offtask {i}: capture did not fire ({} rows)", rows.len());
+        }
+        all_rows.push(riir_infer_core::grafts_cell::OfftaskRow {
+            index: i,
+            class,
+            rows,
+        });
+        if (i + 1) % 100 == 0 {
+            println!(
+                "# offtask {}/{} ({:.1}s) — last len {len} tokens, class {class}",
+                i + 1,
+                total,
+                t0.elapsed().as_secs_f32()
+            );
+        }
+    }
+    if test_mode {
+        let json = serde_json::to_vec(&all_rows).context("serialize offtask test")?;
+        std::fs::write(&out_path, &json)
+            .with_context(|| format!("write {}", out_path.display()))?;
+        println!(
+            "# off-task TEST cache {} rows → {} ({:.1}s) blake3 {}",
+            all_rows.len(),
+            out_path.display(),
+            t0.elapsed().as_secs_f32(),
+            &blake3::hash(&json).to_hex()[..16]
+        );
+    } else {
+        let fit_n = riir_infer_core::grafts_cell::OFFTASK_FIT_N;
+        riir_infer_core::grafts_cell::save_offtask(
+            &out_path,
+            &all_rows[..fit_n],
+            &all_rows[fit_n..],
+        )?;
+        println!(
+            "# off-task cache {} fit + {} heldout → {} ({:.1}s)",
+            fit_n,
+            all_rows.len() - fit_n,
+            out_path.display(),
+            t0.elapsed().as_secs_f32()
+        );
+    }
+    Ok(())
+}
+
+/// The sealed capture-only arm check (998 T2 gated leg 1's sealed half):
+/// load a grafts artifact, capture the 400 sealed prompts at the fit
+/// geometry, count `switches_armed_at` — never decode, never score,
+/// never read an outcome (inside the one-sealed-read-per-posture law).
+fn run_sealed_arm_check(args: &Args, host: &Host, checkpoint_blake3: String) -> Result<()> {
+    let artifact_path = args.sealed_arm_check.as_ref().unwrap();
+    log_box_state("sealed-arm-check");
+    let task = PINNED_TASK;
+    let format = PINNED_FORMAT;
+    let mut runner = Runner::new(host)?;
+    let n_embd = host.config.n_embd;
+
+    // The artifact: strict GRFZ parse (the export's envelope), decode,
+    // verify the digest against the canonical bytes — a corrupted
+    // sidecar refuses loud here, same as at mount.
+    let bytes = std::fs::read(artifact_path)
+        .with_context(|| format!("read {}", artifact_path.display()))?;
+    if bytes.len() < 52 || &bytes[0..4] != b"GRFZ" {
+        bail!(
+            "sealed-arm-check: not a GRFZ artifact ({})",
+            artifact_path.display()
+        );
+    }
+    // The GRFZ envelope framing is the exporter's own (magic 4 + version
+    // 4 + digest 32 + epoch 8 + canonical_len 4 + canonical); rebuild the
+    // katgpt-core artifact from its fields, then decode through the
+    // validating path (format version + digest + canonicality).
+    let fmt_version = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+    let mut digest32 = [0u8; 32];
+    digest32.copy_from_slice(&bytes[8..40]);
+    let epoch = u64::from_le_bytes([
+        bytes[40], bytes[41], bytes[42], bytes[43], bytes[44], bytes[45], bytes[46], bytes[47],
+    ]);
+    let canonical_len = u32::from_le_bytes([bytes[48], bytes[49], bytes[50], bytes[51]]) as usize;
+    if bytes.len() != 52 + canonical_len {
+        bail!("sealed-arm-check: GRFZ envelope length mismatch");
+    }
+    let artifact = katgpt_core::GraftArtifact {
+        format_version: fmt_version,
+        epoch,
+        graft_digest: digest32,
+        canonical: bytes[52..].to_vec(),
+    };
+    let graft = artifact
+        .decode()
+        .map_err(anyhow::Error::msg)
+        .with_context(|| "decode graft artifact")?;
+    println!(
+        "# sealed-arm-check: artifact {} graft digest {} (switches {}) — capture-only, no decode",
+        artifact_path.display(),
+        artifact.graft_digest_hex(),
+        graft.switches.len(),
+    );
+
+    // The sealed split (the same pinned seed — the 400 prompts the
+    // Bench 971 accuracy pins describe).
+    let instances = task.instances();
+    let (solved_n, dev_n) = split_counts(instances.len());
+    let split = make_split(instances.len(), solved_n, dev_n, SPLIT_SEED)?;
+    let slots = riir_infer_core::grafts_cell::fit_geometry_slots(&host.tok, task, format)?;
+    let slot_arms: Vec<(usize, usize)> = slots.iter().enumerate().map(|(s, &p)| (p, s)).collect();
+
+    let mut armed = 0usize;
+    let mut bits = Vec::with_capacity(split.sealed.len());
+    let t0 = std::time::Instant::now();
+    for (k, &idx) in split.sealed.iter().enumerate() {
+        let inst = &instances[idx];
+        let tokens = runner.host.tok.encode(&task.prompt(inst, format));
+        runner.arm_slots(&slot_arms);
+        let (_logits, rows) = runner.run_prompt(&tokens, None);
+        if rows.is_empty() {
+            bail!("sealed-arm-check: capture did not fire at sealed row {k}");
+        }
+        let reader = RowReader::new(&host.probe_layers, n_embd, &rows);
+        let bit = graft.switches_armed_at(&reader);
+        bits.push(u8::from(bit));
+        if bit {
+            armed += 1;
+        }
+        if (k + 1) % 100 == 0 {
+            println!(
+                "# sealed-arm-check {}/{} ({:.1}s)",
+                k + 1,
+                split.sealed.len(),
+                t0.elapsed().as_secs_f32()
+            );
+        }
+    }
+    let bits_digest = blake3::hash(&bits).to_hex().to_string();
+    println!(
+        "# sealed-arm-check: {armed}/{} armed — bits blake3 {} ({:.1}s); ANY disarm = lane-A GOAT FAIL (998 T2)",
+        bits.len(),
+        &bits_digest[..16],
+        t0.elapsed().as_secs_f32()
+    );
+    let payload = serde_json::json!({
+        "issue": "katgpt-rs issue 998 T2 gated leg 1 (sealed capture-only arm check)",
+        "checkpoint_blake3": checkpoint_blake3,
+        "artifact": artifact_path.to_string_lossy(),
+        "artifact_graft_digest": artifact.graft_digest_hex(),
+        "task": task,
+        "format": format,
+        "n": bits.len(),
+        "armed": armed,
+        "disarmed": bits.len() - armed,
+        "bits_blake3": bits_digest,
+        "law": "any disarm = lane-A GOAT FAIL; threshold never moves on held-out evidence",
+    });
+    let path = args.out.join("sealed_arm_check.json");
+    std::fs::write(&path, serde_json::to_vec_pretty(&payload)?)
+        .with_context(|| format!("write {}", path.display()))?;
+    println!("# report → {}", path.display());
+    Ok(())
 }
 
 /// The cell body (run A or run B), executed on a rayon worker.
