@@ -499,6 +499,14 @@ required-features = ["deletion_mask"]
 name = "i1208_mask_apply"
 required-features = ["deletion_mask", "deltanet_inference"]
 
+# Issue 1208 T2 — the G2 measurement cells (load-wall share + the ≤1%
+# overlay decode bar on the 0.8B hybrid fixture). Reader protection row
+# (the green-zero law): a default build skips the bin loudly.
+[[bin]]
+name = "i1208_g2_cell"
+path = "src/bin/i1208_g2_cell.rs"
+required-features = ["deletion_mask", "deltanet_inference"]
+
 # Issue 049 — GDN delta-roll journal gates: the G1 round-trip drift pin
 # (unwind vs fresh sequential replay, per decay regime), the conditioning
 # gate's fail-closed refusal, the f64 escape hatch, and the storage
