@@ -114,6 +114,13 @@ pub mod family_census;
 #[cfg(feature = "golden_nll")]
 pub mod golden_nll;
 
+/// Frozen-weight adapter artifacts (Issue 1208, opt-in `deletion_mask`):
+/// the deletion-mask codec leaf. The deployment half of adapters that
+/// write zero new weight values; never a serving path until T2 wires
+/// apply-at-load behind the same feature.
+#[cfg(feature = "deletion_mask")]
+pub mod adapter;
+
 /// Plan 622 TokenGate lane switches (T1.5): the `tokengate` compile-time
 /// feature + the `RIIR_TOKENGATE` runtime demote. See the module doc.
 pub mod tokengate;

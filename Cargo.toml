@@ -60,6 +60,13 @@ thiserror = "2"
 log = "0.4"
 blake3 = "1"
 
+# Deletion-mask artifacts (Issue 1208 T1, opt-in `deletion_mask`): payload
+# compression + the optional Ed25519 signature on the mask codec. Optional —
+# the default build never compiles either (the measurement-lane-capability
+# law).
+zstd = { version = "0.13", optional = true }
+ed25519-dalek = { version = "2", optional = true }
+
 # SentencePiece tokenizer — Gemma 2/LLaMA text tokenization (Plan 087).
 # Native-only: pulls sentencepiece-sys (C++ via cmake) which cannot compile
 # for wasm32; the tokenizer module below carries the matching gate.
@@ -215,6 +222,14 @@ multi_host = ["deltanet_inference"]
 # katgpt-core/fixed_log_softmax. Instrument-grade — never a serving path.
 # OPT-IN measurement lane.
 golden_nll = ["katgpt-core/diagnostics"]
+
+# deletion_mask (Issue 1208 T1, 2026-11-12): the deletion-mask artifact
+# codec — bit-packed keep/delete stream over frozen weights, base-BLAKE3
+# binding, RLE-then-zstd payload, optional Ed25519, the typed refusal
+# battery. Self-contained leaf under src/adapter/; the serving-side
+# application (T2) and the PQ2_0 LUT (T3) join this feature. The
+# promotion-bar feature name is pre-pinned by riir-train Research 493.
+deletion_mask = ["dep:zstd", "dep:ed25519-dalek"]
 # act_diagonal_calibration (riir-infer Issue 014 T1, 2026-09-26): the
 # activation-diagonal collector over the Bonsai-2 ternary lane — the
 # `vk_calibration` shape at the Issue-886 tap points (linear-layer INPUTS,
@@ -470,6 +485,12 @@ name = "i1188_family_taxonomy"
 [[test]]
 name = "i1188_q8_projection_gates"
 required-features = ["deltanet_ternary_inference"]
+
+# Issue 1208 T1 — the deletion-mask codec battery (the codec lives behind
+# deletion_mask; a default build skips the target loudly, the green-zero law).
+[[test]]
+name = "i1208_mask_codec"
+required-features = ["deletion_mask"]
 
 # Issue 049 — GDN delta-roll journal gates: the G1 round-trip drift pin
 # (unwind vs fresh sequential replay, per decay regime), the conditioning
