@@ -117,11 +117,15 @@ fn main() -> anyhow::Result<()> {
     let rounds: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(6);
 
     // ── Cell 1: apply-at-load wall ─────────────────────────────────────
+    // a THROWAWAY first load warms the OS cache so both timed loads see
+    // the same page state (the 2026-11-12 cell printed a cold-vs-warm
+    // ratio as its base wall — the honest number needs both arms warm)
+    let _ = load_qwen_deltanet_weights_gguf(std::path::Path::new(&model))?;
     let t0 = Instant::now();
     let (config, base_weights) = load_qwen_deltanet_weights_gguf(std::path::Path::new(&model))?;
     let base_load_wall = t0.elapsed();
     println!(
-        "# base load wall: {:.3} s (weights {} layers, mlp_hidden {} n_embd {})",
+        "# base load wall (warm): {:.3} s (weights {} layers, mlp_hidden {} n_embd {})",
         base_load_wall.as_secs_f64(),
         config.n_layer,
         config.mlp_hidden,

@@ -14,7 +14,7 @@
 //! Run: cargo run --release --features deletion_mask,deltanet_inference \
 //!   --bin i1208_wanda_score -- <model.gguf> <corpus.txt> <out.iwanda> [layers] [max_tokens]
 use riir_infer_core::adapter::wanda::{ScoredArtifact, WandaGateCapture, saliency_for};
-use riir_infer_core::corpus_text::load_corpus_text;
+use riir_infer_core::corpus_text::{load_corpus_pages, load_corpus_text};
 use riir_infer_core::deltanet::forward::{
     HybridCache, HybridForwardScratch, forward_qwen_deltanet,
 };
@@ -26,13 +26,14 @@ use std::path::Path;
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (model, corpus_path, out_path) = match args.as_slice() {
-        [m, c, o] => (m.clone(), c.clone(), o.clone()),
+        [m, c, o, ..] => (m.clone(), c.clone(), o.clone()),
         _ => anyhow::bail!(
             "usage: i1208_wanda_score <model.gguf> <corpus.txt> <out.iwanda> [layers=0,1,..] [max_tokens]"
         ),
     };
     let layers: Vec<usize> = args
         .get(3)
+        .filter(|s| !s.is_empty() && s.as_str() != "all")
         .map(|s| {
             s.split(',')
                 .map(|p| p.parse::<usize>())
@@ -63,7 +64,18 @@ fn main() -> anyhow::Result<()> {
     // the corpus: natural text -> token ids (deterministic BPE); the
     // digest binds the TOKEN STREAM (the exact forward input), not the
     // raw bytes
-    let text = load_corpus_text(Path::new(&corpus_path))?;
+    let cpath = Path::new(&corpus_path);
+    let text = if cpath.is_dir() {
+        // the chat_probe pages shape: (title, body) pairs -> bodies joined
+        let pages = load_corpus_pages(cpath)?;
+        pages
+            .into_iter()
+            .map(|(_, body)| body)
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        load_corpus_text(cpath)?
+    };
     let token_stream: Vec<usize> = tok.encode(&text).into_iter().take(max_tokens).collect();
     let corpus_digest: [u8; 32] =
         *blake3::hash(bytemuck::cast_slice::<usize, u8>(&token_stream)).as_bytes();
