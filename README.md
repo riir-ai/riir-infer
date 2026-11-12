@@ -102,6 +102,18 @@ quantization and model architectures on top. From it (path deps
   quality tables report). Feasibility lane for the wsp recipe at real scale —
   the katgpt-rs fixture-scale attempt closed NEGATIVE (Issue 990); serving
   promotion is not claimed and any default move is owner-gated.
+- **Grafts cell lane** — the real-activation accuracy cell for the grafts
+  primitive (opt-in `grafts_cell`, which forwards `katgpt-core/grafts` +
+  `deltanet_inference`; issue 1206 — the katgpt-rs issue 988 T2b cell
+  executes here per its host rule): the cfg-gated `HiddenCapture` on the
+  dense hybrid body (the `sink_audit` Option pattern), and the `grafts_cell`
+  bin — task/split generation, probe fit → decision-table mine → switch
+  fit, the four-arm eval with a greedy-chain readout, BLAKE3-pinned report.
+  Sealed G1 PASS (Bench 971): graft 0.3925 vs baseline 0.1250 (+26.75pp
+  over the +20pp bar) on ThreeOpAdd10 × FewShot with the qwen35-hybrid 0.8B
+  dense host; scramble parity disclosed. Diagnostic/eval lane — no serving
+  posture, promotion not claimed; the GOAT bars fold back to katgpt-rs 988
+  (the issue's T4).
 - **CPU references** — the reference paths the GPU kernels are validated
   against.
 
