@@ -124,6 +124,15 @@ lut_grid = []
 # `desc_len_audit` report bin + the G1 rANS reference-coder gate. Opt-in,
 # report-only: audit touches no decode path, ships no codec.
 desc_len = []
+# Issue 1209 (Research 025, the Lazarus distill): the weight-structure
+# audit lane — the five-feature reference-free census over the last
+# MLP's SwiGLU block (per-neuron norm z/rank features + the gate↔up and
+# token alignments at the write-norm window). Pure-local opt-in,
+# REPORT-ONLY: a flag means "inspect", never "reject"; zero new deps
+# (blake3 already in-tree); the fixture planter lives OUTSIDE this
+# surface (test-support only). The `weight-audit` bin is the census
+# front (required-features row in the same commit — the P30 law).
+weight_audit = []
 # Issue 036 T1/T2: the LittleBit-derived init-only sub-1-bit PTQ lane —
 # `quant::svd_lbit` (seeded Halko truncated SVD + Dual-SVID init + residual
 # restack, deterministic) + the `svd_lbit_eval` PPL-ladder bin. Opt-in per
@@ -730,6 +739,15 @@ required-features = ["scale_invariant_attn", "bonsai2_hadamard"]
 name = "sink_audit"
 path = "src/bin/sink_audit.rs"
 required-features = ["sink_audit"]
+
+# Issue 1209 — the weight-audit census front (Research 025 Lazarus
+# distill): the five-feature reference-free census over the last MLP of
+# a loaded GGUF, one deterministic report. Reader protection row (the
+# green-zero law): a default build skips the bin loudly.
+[[bin]]
+name = "weight-audit"
+path = "src/bin/weight-audit.rs"
+required-features = ["weight_audit"]
 
 # riir-infer Issue 014 T1 — the activation-diagonal collector bin. The
 # module lives behind #[cfg(feature = "act_diagonal_calibration")]; this

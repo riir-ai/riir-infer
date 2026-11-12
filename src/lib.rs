@@ -118,6 +118,18 @@ pub mod corpus_text;
 /// Always compiled; classification only, never a serving path.
 pub mod family_census;
 
+/// Weight-structure audit lane (Issue 1209, Research 025 — the Lazarus
+/// distill): the five-feature reference-free census over the last MLP's
+/// SwiGLU block. REPORT-ONLY, opt-in `weight_audit` — a flag means
+/// "inspect", never "reject"; never a serving path; zero new deps. The
+/// synthetic fixture planter lives OUTSIDE this surface:
+/// `weight_audit_fixture` is `#[cfg(all(test, feature = "weight_audit"))]`
+/// — test-support only, typed to the fixture's own block.
+#[cfg(feature = "weight_audit")]
+pub mod weight_audit;
+#[cfg(all(test, feature = "weight_audit"))]
+mod weight_audit_fixture;
+
 /// f64 golden-NLL readout (Issue 959 T6, opt-in `golden_nll`): the
 /// tail-faithful per-token oracle for lossy-quant gates over
 /// katgpt-core's `fixed_log_softmax_target_f64`. Instrument-grade —

@@ -17,19 +17,19 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 
 use crate::gemma_layer::{
     GemmaLayerWeights, GemmaLayerWeightsF16, GemmaTransformerWeights, GemmaTransformerWeightsF16,
 };
-use crate::quant::ptq1_0::{BlockPtq1_0, dequantize_row_ptq1_0};
-use crate::quant::q2_0::{BlockQ2_0, dequantize_row_q2_0};
-use crate::quant::q2k::{BlockQ2K, dequantize_row_q2_k};
-use crate::quant::q3k::{BlockQ3K, dequantize_row_q3_k};
-use crate::quant::q4k::{BlockQ4K, dequantize_row_q4_k};
-use crate::quant::q5k::{BlockQ5K, dequantize_row_q5_k};
-use crate::quant::q6k::{BlockQ6K, dequantize_row_q6_k};
-use crate::quant::q8kv::{BlockQ8_0, dequantize_row_q8_0};
+use crate::quant::ptq1_0::{dequantize_row_ptq1_0, BlockPtq1_0};
+use crate::quant::q2_0::{dequantize_row_q2_0, BlockQ2_0};
+use crate::quant::q2k::{dequantize_row_q2_k, BlockQ2K};
+use crate::quant::q3k::{dequantize_row_q3_k, BlockQ3K};
+use crate::quant::q4k::{dequantize_row_q4_k, BlockQ4K};
+use crate::quant::q5k::{dequantize_row_q5_k, BlockQ5K};
+use crate::quant::q6k::{dequantize_row_q6_k, BlockQ6K};
+use crate::quant::q8kv::{dequantize_row_q8_0, BlockQ8_0};
 use crate::safetensors_loader::bf16_to_f32;
 #[cfg(feature = "deltanet_inference")]
 use crate::types::DeltaNetLayerType;
@@ -715,6 +715,20 @@ impl GgufFile {
                 let row_blocks: &[crate::quant::q6k::BlockQ6K] = bytemuck::cast_slice(row_bytes);
                 let mut out = out;
                 crate::quant::q6k::dequantize_row_q6_k(row_blocks, &mut out);
+                Ok(out)
+            }
+            GgmlType::Q8_0 => {
+                // Q8_0: 32 weights per 34-byte block (f16 scale + 32 i8).
+                // Same layout the KV cache writes (`quant::q8kv::BlockQ8_0`) —
+                // the qwen dense GGUF lane's row dequant (Issue 1209).
+                const QK: usize = crate::quant::q8kv::Q8_BLOCK_SIZE;
+                let blocks_per_row = row_len / QK;
+                let block_bytes = std::mem::size_of::<crate::quant::q8kv::BlockQ8_0>();
+                let start_byte = row_idx * blocks_per_row * block_bytes;
+                let row_bytes = &slice[start_byte..start_byte + blocks_per_row * block_bytes];
+                let row_blocks: &[crate::quant::q8kv::BlockQ8_0] = bytemuck::cast_slice(row_bytes);
+                let mut out = out;
+                crate::quant::q8kv::dequantize_row_q8_0(row_blocks, &mut out);
                 Ok(out)
             }
             GgmlType::Q2_0 => {
@@ -3459,7 +3473,7 @@ mod tests {
     /// new arm reads the right bytes and dispatches correctly.
     #[test]
     fn test_dequant_q4_k_via_gguf_round_trip() {
-        use crate::quant::q4k::{BlockQ4K, QK_K, dequantize_row_q4_k, quantize_row_q4_k};
+        use crate::quant::q4k::{dequantize_row_q4_k, quantize_row_q4_k, BlockQ4K, QK_K};
         use bytemuck::Zeroable;
 
         // Source: a single Q4_K super-block (256 elements) with a mix of values
@@ -3489,7 +3503,7 @@ mod tests {
         buf.extend_from_slice(&2u32.to_le_bytes()); // version 2
         buf.extend_from_slice(&1u64.to_le_bytes()); // 1 tensor
         buf.extend_from_slice(&0u64.to_le_bytes()); // 0 metadata entries
-        // Tensor info: name + n_dims + shape + type_id + offset
+                                                    // Tensor info: name + n_dims + shape + type_id + offset
         let name = "test_q4k_tensor.weight";
         buf.extend_from_slice(&(name.len() as u64).to_le_bytes());
         buf.extend_from_slice(name.as_bytes());
@@ -3497,7 +3511,7 @@ mod tests {
         buf.extend_from_slice(&(QK_K as u64).to_le_bytes()); // 256 elements
         buf.extend_from_slice(&12u32.to_le_bytes()); // Q4_K type id
         buf.extend_from_slice(&0u64.to_le_bytes()); // offset 0
-        // Align to GGUF_DEFAULT_ALIGNMENT (32) for tensor data start.
+                                                    // Align to GGUF_DEFAULT_ALIGNMENT (32) for tensor data start.
         let alignment: usize = 32;
         let cursor = buf.len();
         let padding = (alignment - (cursor % alignment)) % alignment;
@@ -3580,7 +3594,7 @@ mod tests {
     /// the output matches the in-memory `dequantize_row_q2_0` reference.
     #[test]
     fn test_dequant_q2_0_via_gguf_round_trip() {
-        use crate::quant::q2_0::{BlockQ2_0, Q2_0_BLOCK_SIZE, dequantize_row_q2_0};
+        use crate::quant::q2_0::{dequantize_row_q2_0, BlockQ2_0, Q2_0_BLOCK_SIZE};
         use bytemuck::Zeroable;
 
         // Build one Q2_0 block with a known pattern: the first 4 weights hit
