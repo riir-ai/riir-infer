@@ -67,6 +67,8 @@ fn main() {
     let mut sanity_steps = 32usize;
     let mut out_path = String::new();
     let mut block_size = 16usize;
+    let mut backend = "wgpu".to_string();
+    let mut expected_dspine_pin = EXPECTED_DSPINE_BLAKE3_PREFIX.to_string();
 
     let mut i = 1usize;
     while i < args.len() {
@@ -119,6 +121,18 @@ fn main() {
                 i += 1;
                 block_size = args[i].parse().expect("block-size");
             }
+            "--backend" => {
+                i += 1;
+                backend = args[i].clone();
+            }
+            "--expect-dspine-pin" => {
+                // The trained-artifact lane (plan 492 T4): override the
+                // vendor blake3 prefix pin with the caller's pin (a trained
+                // checkpoint is new evidence, never a vendor forgery — the
+                // law stays, the pin moves with the evidence).
+                i += 1;
+                expected_dspine_pin = args[i].clone();
+            }
             other => {
                 eprintln!("unknown arg {other}");
                 std::process::exit(2);
@@ -158,9 +172,9 @@ fn main() {
         "[t5] dspine blake3 {ds_digest} ({:.1}s)",
         t0.elapsed().as_secs_f32()
     );
-    if !ds_digest.starts_with(EXPECTED_DSPINE_BLAKE3_PREFIX) {
+    if !ds_digest.starts_with(expected_dspine_pin.as_str()) {
         eprintln!(
-            "[t5] ⛔ dspine blake3 {ds_digest} does not start with the T1 pin {EXPECTED_DSPINE_BLAKE3_PREFIX} — refusing (weights-from-disk pin law)"
+            "[t5] ⛔ dspine blake3 {ds_digest} does not start with the expected pin {expected_dspine_pin} — refusing (weights-from-disk pin law; a trained artifact passes --expect-dspine-pin <prefix>)"
         );
         std::process::exit(2);
     }
@@ -173,11 +187,30 @@ fn main() {
         std::process::exit(2);
     }
 
-    // ── load the target ──
-    let t0 = std::time::Instant::now();
-    let mut fwd = Qwen38WgpuForward::new(Path::new(&gguf_path), ctx, chunk)
-        .unwrap_or_else(|e| panic!("[t5] target load failed: {e}"));
-    println!("[t5] target loaded in {:.1}s", t0.elapsed().as_secs_f32());
+    // ── load the target (the backend seam: wgpu everywhere; cuda on the
+    //    cudarc-capable boxes — the 24 GB bar cannot hold the cubecl
+    //    forward's workspace for this checkpoint, while the cudarc forward
+    //    is the serving runtime the plan's gate names) ──
+    let mut fwd: Box<dyn T5Target> = match backend.as_str() {
+        "wgpu" => Box::new(
+            WgpuTarget::new(Path::new(&gguf_path), ctx, chunk).unwrap_or_else(|e| panic!("{e}")),
+        ),
+        #[cfg(all(feature = "ternary_gemv_cuda_raw", not(target_os = "macos")))]
+        "cuda" => {
+            Box::new(CudaTarget::new(Path::new(&gguf_path), ctx).unwrap_or_else(|e| panic!("{e}")))
+        }
+        #[cfg(any(not(feature = "ternary_gemv_cuda_raw"), target_os = "macos"))]
+        "cuda" => {
+            eprintln!("--backend cuda needs the ternary_gemv_cuda_raw feature (non-macOS)");
+            std::process::exit(2);
+        }
+        other => {
+            eprintln!("--backend must be wgpu|cuda (got {other})");
+            std::process::exit(2);
+        }
+    };
+    let vocab_size = fwd.vocab_size();
+    println!("[t5] target loaded ({backend})");
     let gg = GgufFile::open(Path::new(&gguf_path)).unwrap_or_else(|e| panic!("[t5] reopen: {e}"));
     let tok = BpeTokenizer::from_gguf(&gg).unwrap_or_else(|e| panic!("[t5] tokenizer: {e}"));
 
@@ -192,7 +225,7 @@ fn main() {
     let d = cfg.n_embd;
     let captured = capture_layers.len();
     let vocab = cfg.vocab_size;
-    assert_eq!(vocab, fwd.config.vocab_size, "vocab mismatch");
+    assert_eq!(vocab, vocab_size, "vocab mismatch");
     println!(
         "[t5] dspine loaded in {:.1}s (layers {} block {} capture {:?})",
         t0.elapsed().as_secs_f32(),
@@ -309,7 +342,8 @@ fn main() {
     //    rewind and run the specdec cycles, comparing prefixes.
     let mut serial_stream: Vec<u32> = Vec::new();
     if mode == "greedy" && sanity_steps > 0 {
-        let cp = fwd.checkpoint_state();
+        fwd.snapshot()
+            .unwrap_or_else(|e| panic!("[t5] serial snapshot: {e}"));
         let mut tok_i = pending;
         for pos in (prompt.len()..).take(sanity_steps) {
             let (next, _, _) = fwd
@@ -318,7 +352,8 @@ fn main() {
             serial_stream.push(next);
             tok_i = next;
         }
-        fwd.restore_state(&cp);
+        fwd.restore()
+            .unwrap_or_else(|e| panic!("[t5] serial restore: {e}"));
     }
 
     // ── the specdec cycle loop ──
@@ -353,7 +388,8 @@ fn main() {
         // Verify: [pending, chain...] in one keyed pass, capturing the
         // DSpine context features.
         let rows = chain.len() + 1;
-        let cp = fwd.checkpoint_state();
+        fwd.snapshot()
+            .unwrap_or_else(|e| panic!("[t5] verify snapshot: {e}"));
         let mut logits_flat = vec![0.0f32; rows * vocab];
         let mut caps_j: Vec<Vec<Vec<f32>>> = Vec::with_capacity(rows);
         for (r, tok_i) in std::iter::once(pending)
@@ -402,7 +438,8 @@ fn main() {
         // State discipline: full accept leaves the forwarded set exactly
         // the true prefix; a partial accept restores and re-forwards.
         if j < rows {
-            fwd.restore_state(&cp);
+            fwd.restore()
+                .unwrap_or_else(|e| panic!("[t5] verify rollback: {e}"));
             for (r, tok_i) in std::iter::once(pending)
                 .chain(chain.iter().take(j - 1).copied())
                 .enumerate()
@@ -492,6 +529,153 @@ fn main() {
     }
     let _ = &serial_stream;
     let _ = &specdec_stream;
+}
+
+/// The T5 target seam — the four calls the harness loop makes, so the
+/// cell runs on the wgpu forward (every box) or the cudarc serving
+/// forward (CUDA boxes; the 24 GB bar cannot hold the cubecl forward's
+/// workspace for the 27B Q4_K_M checkpoint). The gate compares ckpts ON
+/// ONE backend, so cross-backend bit-identity is not required here —
+/// internal consistency (G1-T5 serial == specdec) is asserted per run.
+trait T5Target {
+    fn vocab_size(&self) -> usize;
+    /// Prefill + per-position captures: (feats[layer][pos·d..], last logits).
+    fn ingest_capture(
+        &mut self,
+        tokens: &[u32],
+        base_pos: usize,
+        capture_layers: &[usize],
+    ) -> Result<(Vec<Vec<f32>>, Vec<f32>), String>;
+    /// One token forward: (argmax, logits, captures in `capture_layers` order).
+    fn forward_token_capture(
+        &mut self,
+        token: u32,
+        pos: usize,
+        capture_layers: &[usize],
+    ) -> Result<(u32, Vec<f32>, Vec<Vec<f32>>), String>;
+    /// The specdec state discipline: snapshot before a verify run, restore
+    /// on a partial accept (KV rows past the rewind are overwritten before
+    /// read by any re-feed — the T1.8 lesson — so only the recurrent state
+    /// needs the snapshot).
+    fn snapshot(&mut self) -> Result<(), String>;
+    fn restore(&mut self) -> Result<(), String>;
+}
+
+struct WgpuTarget(
+    Qwen38WgpuForward,
+    Option<riir_infer_gpu::qwen38_dense_cubecl::StateCheckpoint>,
+);
+
+impl WgpuTarget {
+    fn new(path: &Path, ctx: usize, chunk: usize) -> Result<Self, String> {
+        let t0 = std::time::Instant::now();
+        let fwd = Qwen38WgpuForward::new(path, ctx, chunk)
+            .map_err(|e| format!("[t5] wgpu target load failed: {e}"))?;
+        println!(
+            "[t5] wgpu forward constructed in {:.1}s",
+            t0.elapsed().as_secs_f32()
+        );
+        Ok(Self(fwd, None))
+    }
+}
+
+impl T5Target for WgpuTarget {
+    fn vocab_size(&self) -> usize {
+        self.0.config.vocab_size
+    }
+    fn ingest_capture(
+        &mut self,
+        tokens: &[u32],
+        base_pos: usize,
+        capture_layers: &[usize],
+    ) -> Result<(Vec<Vec<f32>>, Vec<f32>), String> {
+        self.0.ingest_capture(tokens, base_pos, capture_layers)
+    }
+    fn forward_token_capture(
+        &mut self,
+        token: u32,
+        pos: usize,
+        capture_layers: &[usize],
+    ) -> Result<(u32, Vec<f32>, Vec<Vec<f32>>), String> {
+        self.0.forward_token_capture(token, pos, capture_layers)
+    }
+    fn snapshot(&mut self) -> Result<(), String> {
+        let cp = self.0.checkpoint_state();
+        self.1 = Some(cp);
+        Ok(())
+    }
+    fn restore(&mut self) -> Result<(), String> {
+        if let Some(cp) = self.1.take() {
+            self.0.restore_state(&cp);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "ternary_gemv_cuda_raw", not(target_os = "macos")))]
+struct CudaTarget(riir_infer_gpu::qwen38_dense_cudarc::Qwen38DenseForward);
+
+#[cfg(all(feature = "ternary_gemv_cuda_raw", not(target_os = "macos")))]
+impl CudaTarget {
+    fn new(path: &Path, ctx: usize) -> Result<Self, String> {
+        let t0 = std::time::Instant::now();
+        let fwd = riir_infer_gpu::qwen38_dense_cudarc::Qwen38DenseForward::new(path, ctx)
+            .map_err(|e| format!("[t5] cuda target load failed: {e}"))?;
+        println!(
+            "[t5] cuda forward constructed in {:.1}s",
+            t0.elapsed().as_secs_f32()
+        );
+        Ok(Self(fwd))
+    }
+}
+
+#[cfg(all(feature = "ternary_gemv_cuda_raw", not(target_os = "macos")))]
+impl T5Target for CudaTarget {
+    fn vocab_size(&self) -> usize {
+        self.0.cfg.vocab_size
+    }
+    fn ingest_capture(
+        &mut self,
+        tokens: &[u32],
+        base_pos: usize,
+        capture_layers: &[usize],
+    ) -> Result<(Vec<Vec<f32>>, Vec<f32>), String> {
+        // The cudarc forward has no chunked capture ingest — the per-token
+        // loop is the same surface the trainer's recompute_taps uses. The
+        // forward_allocs arm (chunked + taps) exists but is verify-plane
+        // scoped; keep ONE honest path here.
+        let mut feats: Vec<Vec<f32>> = capture_layers.iter().map(|_| Vec::new()).collect();
+        let mut last_logits = Vec::new();
+        for (i, &t) in tokens.iter().enumerate() {
+            let (next, logits) =
+                self.0
+                    .forward_token_capture_logits(t, base_pos + i, capture_layers, &mut feats)?;
+            last_logits = logits;
+            let _ = next;
+        }
+        Ok((feats, last_logits))
+    }
+    fn forward_token_capture(
+        &mut self,
+        token: u32,
+        pos: usize,
+        capture_layers: &[usize],
+    ) -> Result<(u32, Vec<f32>, Vec<Vec<f32>>), String> {
+        let mut caps: Vec<Vec<f32>> = capture_layers
+            .iter()
+            .map(|_| vec![0.0f32; self.0.cfg.n_embd])
+            .collect();
+        let (next, logits) =
+            self.0
+                .forward_token_capture_logits(token, pos, capture_layers, &mut caps)?;
+        Ok((next, logits, caps))
+    }
+    fn snapshot(&mut self) -> Result<(), String> {
+        self.0.verify_snapshot_gdn()
+    }
+    fn restore(&mut self) -> Result<(), String> {
+        self.0.verify_rollback_gdn()
+    }
 }
 
 fn dequant_lm_head(gg: &GgufFile, vocab: usize, e: usize) -> Vec<f32> {
