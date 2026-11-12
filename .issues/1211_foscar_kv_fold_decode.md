@@ -1,6 +1,7 @@
 # Issue 1211: Fold the Q8KV decode-attention dequant (FOSCAR affine folding)
 
 **Status:** Open — filed from [`.research/026_FOSCAR_Affine_Folding.md`](../.research/026_FOSCAR_Affine_Folding.md) (arXiv:2611.09722); Premise corrected at verdict round 1 (fold directions were inverted — token-wise Q8_0 groups per (position, 32-dim block))
+**Claimed:** zed-1211-foscar@amo, 1794521339, expires 2026-11-14T22:08:59+00:00
 
 ## Premise
 
