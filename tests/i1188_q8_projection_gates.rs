@@ -9,9 +9,7 @@
 
 use bytemuck::Zeroable;
 use riir_infer_core::deltanet::ternary_weights::{GateProjWeights, ProjWeights};
-use riir_infer_core::quant::q8kv::{
-    BlockQ8_0, Q8_BLOCK_SIZE, dequantize_row_q8_0, gemv_q8_0_row, quantize_row_q8_0,
-};
+use riir_infer_core::quant::q8kv::{BlockQ8_0, Q8_BLOCK_SIZE, gemv_q8_0_row, quantize_row_q8_0};
 
 /// Deterministic weight-shaped fixture values (no RNG — the determinism
 /// law; the sin/cos mix gives both signs and a realistic dynamic range).
