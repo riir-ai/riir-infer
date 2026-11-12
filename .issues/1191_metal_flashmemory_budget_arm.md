@@ -4,7 +4,10 @@
 
 **LARGE-UPDATE 2026-11-11 (~15:45 +0700, lane `zed-95d14db9@m3` — under the owner's speed directive; the prior lease `amo-zed-1191metal@amo` expired 10:35Z with the raise unshipped and the 128k lane stalled 3 days on the CPU fallback at 1.1 tok/s):** the parked capacity call LANDED — `FM_MAX_SEL` 128 → 1024 + `FM_MAX_BLOCKS_SMEM` 2048 → 4096 (parity-faithful per issue 1200's own analysis; the CPU rule has no cap, the GPU constant was the fork). Envelope tests 7/7 at `--features flashmemory_budget_metal` (the 1200 incident thresholds re-pinned as cap-independent arithmetic facts; the refusal fixture is now cap-relative; the T4 operating geometry — 2049 blocks at both operating rhos — pinned IN-envelope). Metal smoke green on amo (dense 12.5 / ρ 10.7–12.2 tok/s at ctx 2048) and **the 128K Metal trio is RUNNING on amo** (`~/riir-bench/i1117_128k_metal/`, separate out dir — device-posture bins never mix with the CPU trio's). The bmo CPU ρ=0.30 restart (job `01a1c9ac`, exclusive) stays queued for the host-identity leg. `--resume` stays unproven for sparse arms — riir-infer issue 1204 (the state-rebuild replay is missing from the code); the Metal trio runs fresh, not resumed.
 
-**Claimed:** amo-zed-1191metal@amo, 1794220517, expires 2026-11-11T10:35:17+00:00
+**Lease closed:** amo-zed-1191metal@amo, 1794220517, expired 2026-11-11T10:35:17+00:00 — holder gone; the raise + 128K lane continued under zed-95d14db9@m3 (documented in the LARGE-UPDATE above), then zed-293d980a@m3 (the v1 trio, the 1213 collision + fix, bench 1209, the v2 launch).
+
+**Claimed:** zed-d565d322@m3, 1794522000, expires 2026-11-14T12:00:00Z
+(scope: the v2 ρ(M) re-run supervision + the checkpoint/completing wakes — the ρ0.15 sel sanity at ~14:20 +0700 and the full T4 verdict + record at the 2026-11-14 08:00 +0700 wake; primary wakes on zed-293d980a@m3, staggered backups on zed-d565d322@m3, dedup-guarded)
 
 ## Why
 

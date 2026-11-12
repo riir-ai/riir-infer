@@ -2,7 +2,10 @@
 
 **Status:** Open — the lane is qualified on amo (m5ultra) and the CUDA twin on 4090; m3 (M3 Max, the third Metal box) has never run it until the 1201 T2 G1 attempt. Found while fetching the league model to m3 for the FlashStates cell; reproduces CACHE-FREE through the league bench, so it is the forward/runtime, never the harness.
 
-**Claimed:** zed-m3-1201t2b@m3, 1794369600, expires 2026-11-13T04:00:00+00:00
+**Lease closed:** zed-m3-1201t2b@m3, 1794369600, expired 2026-11-13T04:00:00+00:00 — holder gone from m3's live threads (evidence stand recorded above; no post-expiry landing found).
+
+**Claimed:** zed-d565d322@m3, 1794522000, expires 2026-11-14T18:00:00+00:00
+(scope: the m3 stall DIAGNOSIS — repro + sample + readback-pathology triage per the suspicions below — gated on the 1191 v2 128K run completing: m3 is caffeinate-held by that run until ~2026-11-14 05:20 +0700 and the v2 walls require a quiet box, so NO GPU work on m3 before then; DIAGNOSIS READ-ONLY — the vendored cubecl tree is dirty from a sibling lane, any vendor-side fix waits for that lane)
 
 ## The evidence (2026-11-11, m3, release builds, sha256-verified model `e00082f7`)
 
