@@ -28,10 +28,10 @@
 #![cfg(feature = "qwen38_wgpu")]
 
 use cubecl_wgpu::compute::{
-    ENQUEUE_EXEC_COUNT, ENQUEUE_EXEC_NANOS, ENQUEUE_WRITE_COUNT, ENQUEUE_WRITE_NANOS,
-    FLUSH_COUNT, FLUSH_NANOS, LAUNCH_COUNT, LAUNCH_NANOS, PIPELINE_NANOS, PREPARE_NANOS,
-    READ_COUNT, READ_NANOS, REGISTER_NANOS, REGULATE_COUNT, REGULATE_NANOS, SUBMIT_COUNT,
-    WRITE_COUNT, WRITE_POLL_COUNT, WRITE_POLL_NANOS, reset_dispatch_profile,
+    ENQUEUE_EXEC_COUNT, ENQUEUE_EXEC_NANOS, ENQUEUE_WRITE_COUNT, ENQUEUE_WRITE_NANOS, FLUSH_COUNT,
+    FLUSH_NANOS, LAUNCH_COUNT, LAUNCH_NANOS, PIPELINE_NANOS, PREPARE_NANOS, READ_COUNT, READ_NANOS,
+    REGISTER_NANOS, REGULATE_COUNT, REGULATE_NANOS, SUBMIT_COUNT, WRITE_COUNT, WRITE_POLL_COUNT,
+    WRITE_POLL_NANOS, reset_dispatch_profile,
 };
 use riir_infer_core::tokenizer::BpeTokenizer;
 use riir_infer_gpu::qwen38_dense_cubecl::Qwen38WgpuForward;
@@ -92,7 +92,9 @@ fn main() {
                 prompt = args[i].clone();
             }
             other => {
-                eprintln!("[probe] unknown arg {other} (flags: --gguf --pp --decode --ctx --chunk --prompt)");
+                eprintln!(
+                    "[probe] unknown arg {other} (flags: --gguf --pp --decode --ctx --chunk --prompt)"
+                );
                 std::process::exit(2);
             }
         }
@@ -115,7 +117,10 @@ fn main() {
         ids.extend_from_slice(&seed);
     }
     ids.truncate(padded);
-    println!("[probe] prompt: {} chars -> padded to {padded} tokens", prompt.len());
+    println!(
+        "[probe] prompt: {} chars -> padded to {padded} tokens",
+        prompt.len()
+    );
 
     // Warm-up pass (untimed): pipelines compiled, caches warm — then the
     // counters reset so the measured window is the whole story.
@@ -166,20 +171,32 @@ fn main() {
         }
     };
 
-    println!("[probe] wall {:.3}s ({} ns)", wall.as_secs_f64(), wall_nanos);
+    println!(
+        "[probe] wall {:.3}s ({} ns)",
+        wall.as_secs_f64(),
+        wall_nanos
+    );
     println!(
         "[probe] LAUNCH        count={:>7}  ms={:>9.1}  wall%={:5.1}  per-launch-us={:8.1}",
         launch_c,
         launch_n as f64 / 1e6,
         pct(launch_n),
-        if launch_c == 0 { 0.0 } else { launch_n as f64 / launch_c as f64 / 1e3 },
+        if launch_c == 0 {
+            0.0
+        } else {
+            launch_n as f64 / launch_c as f64 / 1e3
+        },
     );
     println!(
         "[probe] ENQUEUE_EXEC  count={:>7}  ms={:>9.1}  wall%={:5.1}  per-enqueue-us={:8.1}",
         exec_c,
         exec_n as f64 / 1e6,
         pct(exec_n),
-        if exec_c == 0 { 0.0 } else { exec_n as f64 / exec_c as f64 / 1e3 },
+        if exec_c == 0 {
+            0.0
+        } else {
+            exec_n as f64 / exec_c as f64 / 1e3
+        },
     );
     println!(
         "[probe]   PIPELINE    ms={:>9.1}",
@@ -213,7 +230,11 @@ fn main() {
         pct(regulate_n),
         {
             let c = load(&REGULATE_COUNT);
-            if c == 0 { 0.0 } else { regulate_n as f64 / c as f64 / 1e3 }
+            if c == 0 {
+                0.0
+            } else {
+                regulate_n as f64 / c as f64 / 1e3
+            }
         },
     );
     println!(
@@ -230,7 +251,11 @@ fn main() {
         pct(read_n),
         {
             let c = load(&READ_COUNT);
-            if c == 0 { 0.0 } else { read_n as f64 / c as f64 / 1e6 }
+            if c == 0 {
+                0.0
+            } else {
+                read_n as f64 / c as f64 / 1e6
+            }
         },
     );
 
@@ -249,9 +274,13 @@ fn main() {
         gpu_paced as f64 / 1e6,
         pct(gpu_paced)
     );
+    println!("[probe] [gemv-engagement] dense dispatches Δ+{dd_delta} over the measured pass");
     println!(
-        "[probe] [gemv-engagement] dense dispatches Δ+{dd_delta} over the measured pass"
+        "[probe] verdict input: encode-bound wall%={:.1} vs GPU-paced wall%={:.1} — ENCODE-bound = dispatch-serialization class (b), GPU-paced = throughput class (a)",
+        pct(exec_n.saturating_sub(flush_n)),
+        pct(gpu_paced)
     );
-    println!("[probe] verdict input: encode-bound wall%={:.1} vs GPU-paced wall%={:.1} — ENCODE-bound = dispatch-serialization class (b), GPU-paced = throughput class (a)", pct(exec_n.saturating_sub(flush_n)), pct(gpu_paced));
-    println!("[probe] posture reminder: the stderr load banner ([Issue 1150] armed / [Issue 1176] DEMOTED) adjudicates what this measured — a feature-less build measures the incumbent, not the armed path.");
+    println!(
+        "[probe] posture reminder: the stderr load banner ([Issue 1150] armed / [Issue 1176] DEMOTED) adjudicates what this measured — a feature-less build measures the incumbent, not the armed path."
+    );
 }
