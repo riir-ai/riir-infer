@@ -6,3 +6,4 @@
 //! overlay seam (T2), never a parallel system.
 
 pub mod mask_codec;
+pub mod q2_apply;

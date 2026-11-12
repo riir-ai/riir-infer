@@ -229,7 +229,7 @@ golden_nll = ["katgpt-core/diagnostics"]
 # battery. Self-contained leaf under src/adapter/; the serving-side
 # application (T2) and the PQ2_0 LUT (T3) join this feature. The
 # promotion-bar feature name is pre-pinned by riir-train Research 493.
-deletion_mask = ["dep:zstd", "dep:ed25519-dalek"]
+deletion_mask = ["dep:zstd", "dep:ed25519-dalek", "q2_0_ternary_bridge"]
 # act_diagonal_calibration (riir-infer Issue 014 T1, 2026-09-26): the
 # activation-diagonal collector over the Bonsai-2 ternary lane — the
 # `vk_calibration` shape at the Issue-886 tap points (linear-layer INPUTS,
