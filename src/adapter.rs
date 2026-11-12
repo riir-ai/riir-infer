@@ -9,3 +9,4 @@
 pub mod f32_apply;
 pub mod mask_codec;
 pub mod q2_apply;
+pub mod wanda;

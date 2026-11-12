@@ -507,6 +507,13 @@ name = "i1208_g2_cell"
 path = "src/bin/i1208_g2_cell.rs"
 required-features = ["deletion_mask", "deltanet_inference"]
 
+# Issue 1208 T5 — the Wanda scoring arm (forward-only calibration sweep
+# -> saliency artifact). Reader protection row (the green-zero law).
+[[bin]]
+name = "i1208_wanda_score"
+path = "src/bin/i1208_wanda_score.rs"
+required-features = ["deletion_mask", "deltanet_inference"]
+
 # Issue 049 — GDN delta-roll journal gates: the G1 round-trip drift pin
 # (unwind vs fresh sequential replay, per decay regime), the conditioning
 # gate's fail-closed refusal, the f64 escape hatch, and the storage

@@ -175,6 +175,62 @@ fn g1_three_way_parity_and_identity() {
 }
 
 #[test]
+fn wanda_capture_rides_the_forward_deterministically() {
+    use riir_infer_core::adapter::wanda::{saliency_for, WandaGateCapture};
+
+    let cfg = hybrid_config();
+    let weights = synth_hybrid_weights(&cfg, 0x57AC);
+    let rope_freq = RopeFreqTable::new(cfg.rope_theta, cfg.rope_dimension_count);
+    let tokens: Vec<usize> = (0..10).map(|i| (i * 3 + 1) % cfg.vocab_size).collect();
+
+    let sweep = |tokens: &[usize]| -> WandaGateCapture {
+        let mut cache = HybridCache::with_layer_types(&cfg, &weights.layer_types);
+        let mut scratch = HybridForwardScratch::new(&cfg);
+        scratch.wanda_gate_capture = Some(WandaGateCapture::new(&[0, 1, 2], cfg.n_embd));
+        let mut x = vec![0.0f32; cfg.vocab_size.max(cfg.n_embd) * 2];
+        for (step, &tok) in tokens.iter().enumerate() {
+            forward_qwen_deltanet(
+                &mut x,
+                &weights,
+                &mut cache,
+                tok,
+                step,
+                &cfg,
+                &mut scratch,
+                &rope_freq,
+            );
+        }
+        scratch.wanda_gate_capture.take().unwrap()
+    };
+
+    let cap_a = sweep(&tokens);
+    let cap_b = sweep(&tokens);
+    assert_eq!(cap_a.tokens_seen(), 10);
+    assert_eq!(cap_a.sweep_digest(), cap_b.sweep_digest(), "same sweep -> same digest");
+
+    // a longer sweep moves the digest AND grows the norms
+    let cap_long = sweep(&tokens[..5]);
+    assert_ne!(cap_a.sweep_digest(), cap_long.sweep_digest());
+    let norms_short = cap_long.column_norms(0).unwrap();
+    let norms_full = cap_a.column_norms(0).unwrap();
+
+    // the saliency path: norms x |W| for layer 0, hand-checked shape
+    let data = weights.layers[0].gate_proj.dense_data();
+    let scores = saliency_for(data, &norms_full, cfg.n_embd);
+    assert_eq!(scores.len(), data.len());
+    let first_row_sum: f32 = (0..cfg.n_embd)
+        .map(|j| data[j].abs() * norms_full[j])
+        .sum();
+    let scores_row_sum: f32 = scores[..cfg.n_embd].iter().sum();
+    assert!((first_row_sum - scores_row_sum).abs() < 1.0e-3, "saliency row recompute");
+
+    // the norms are positive and grow with more sweeps folded (short < full
+    // holds on AVERAGE column-wise; assert the sum, which is order-pinned)
+    let sum_short: f32 = norms_short.iter().sum();
+    let sum_full: f32 = norms_full.iter().sum();
+    assert!(sum_full > sum_short, "more tokens folded -> larger norms");
+}
+#[test]
 fn overlay_leaves_base_pristine() {
     let cfg = hybrid_config();
     let weights = synth_hybrid_weights(&cfg, 0xABCD);

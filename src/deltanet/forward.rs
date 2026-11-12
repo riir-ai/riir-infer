@@ -1307,6 +1307,12 @@ pub struct HybridForwardScratch {
     /// otherwise.
     #[cfg(feature = "deletion_mask")]
     pub gate_mask_overlay: crate::adapter::f32_apply::GateMaskOverlayField,
+    /// The Wanda calibration capture (Issue 1208 T5): per-column Σx² at
+    /// the gate GEMV input, folded in sequential token order (the
+    /// Issue-940 order-pinned law). `None` unless the offline sweep
+    /// arms it; cfg-gated so a flag-off build compiles the field out.
+    #[cfg(feature = "deletion_mask")]
+    pub wanda_gate_capture: Option<crate::adapter::wanda::WandaGateCapture>,
 }
 
 impl HybridForwardScratch {
@@ -1329,6 +1335,8 @@ impl HybridForwardScratch {
             sink_audit_q: None,
             #[cfg(feature = "deletion_mask")]
             gate_mask_overlay: None,
+            #[cfg(feature = "deletion_mask")]
+            wanda_gate_capture: None,
         }
     }
 }
@@ -1461,6 +1469,12 @@ fn forward_qwen_deltanet_body<'a>(
         }
         #[cfg(not(feature = "deletion_mask"))]
         layer_weights.gate_proj.matvec(&x[..n], &mut scratch.gate);
+        // Wanda calibration (Issue 1208 T5): fold the gate GEMV input's
+        // per-column squares — armed only in the offline sweep pass.
+        #[cfg(feature = "deletion_mask")]
+        if let Some(cap) = scratch.wanda_gate_capture.as_mut() {
+            cap.capture(layer_idx, &x[..n]);
+        }
         layer_weights.up_proj.matvec(&x[..n], &mut scratch.up);
         swiglu(&mut scratch.hidden, &scratch.gate, &scratch.up);
 
