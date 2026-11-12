@@ -7,6 +7,7 @@
 
 #[cfg(feature = "deltanet_inference")]
 pub mod f32_apply;
+pub mod geometry;
 pub mod mask_codec;
 pub mod q2_apply;
 pub mod wanda;
