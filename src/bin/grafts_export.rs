@@ -28,9 +28,19 @@
 //!     --model ../riir-train/data/Qwen3.5-0.8B-Base-Q8_0.gguf \
 //!     --samples .benchmarks/grafts_cell_t2b/slots_early.json \
 //!     --offtask .benchmarks/grafts_cell_t2b/offtask.json \
+//!     --offtask-test .benchmarks/grafts_cell_t2b/offtask_test.json \
 //!     --report .benchmarks/grafts_cell_t2b/report.json \
 //!     --out .benchmarks/grafts_cell_t2b
 //! ```
+//!
+//! Posture 3 (katgpt-rs issue 998, verdict session `40a812a8`): the
+//! threshold rule is the CALIBRATION split's max raw ridge score × 2.0
+//! (M frozen in the posture-3 pre-registration; RAW SCORE SPACE — the
+//! margin never applies in sigmoid space, asserted below). `--tail-
+//! diagnostics` runs the same fit + score path READ-ONLY and prints the
+//! pooled untrained-tail evidence the pre-registration quotes (verdict
+//! amendments 2+3+4): top scores, per-class maxima, a GPD tail fit, and
+//! expected exceedances at candidate margins. No writes, no placement.
 //!
 //! The bench in katgpt-rs reconstructs activations FROM the artifact's
 //! own read/switch weights to hit each frozen row's recorded triple and
@@ -85,10 +95,14 @@ const SPLIT_OFFTASK_TEST: u8 = 3;
 /// (the threshold's source; reported in the rows for diagnostics, never
 /// gated).
 const SPLIT_OFFTASK_CALIBRATION: u8 = 4;
-/// The detector's false-arm target (the G3(b) flip bar): threshold
-/// placed at the off-task-fit score quantile 0.995 — 998 T2
-/// pre-registration.
-const DETECTOR_QUANTILE: f64 = 0.995;
+/// Posture 3 (katgpt-rs issue 998 posture-3 pre-registration, verdict
+/// session 40a812a8): the threshold = the CALIBRATION split's max off-
+/// task score × this margin, in RAW RIDGE SCORE SPACE (amendment 1 —
+/// the margin NEVER applies in sigmoid space; the placement asserts the
+/// space below). M frozen a priori from the pre-registration's measured
+/// tail evidence (expected exceedance 0.0357/600 at M = 2.0, far under
+/// the 0.5/600 decision line). Calibration-ONLY (amendment 3).
+const DETECTOR_TAIL_MARGIN: f64 = 2.0;
 
 struct Args {
     model: PathBuf,
@@ -101,10 +115,16 @@ struct Args {
     /// The posture-2 FRESH test corpus (single-segment cache, seed
     /// `OFFTASK_SEED_TEST`) — the ONLY off-task gate surface. Required:
     /// gating on calibration/fit data is what posture 1's refusal
-    /// forbids.
+    /// forbids. Posture 3: the FRESH P3 corpus (seed
+    /// `OFFTASK_SEED_TEST_P3`) replaces it as the gate surface; the
+    /// spent posture-2 cache feeds the tail diagnostics only.
     offtask_test: PathBuf,
-    report: PathBuf,
-    out: PathBuf,
+    report: Option<PathBuf>,
+    out: Option<PathBuf>,
+    /// Read-only tail-diagnostics mode (posture-3 pre-registration
+    /// evidence): fit + score, print the pooled untrained tail, exit
+    /// before placement. Writes nothing.
+    tail_diagnostics: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -114,6 +134,7 @@ fn parse_args() -> Result<Args> {
     let mut offtask_test = None;
     let mut report = None;
     let mut out = None;
+    let mut tail_diagnostics = false;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -133,17 +154,28 @@ fn parse_args() -> Result<Args> {
                 report = Some(PathBuf::from(it.next().context("--report needs a value")?))
             }
             "--out" => out = Some(PathBuf::from(it.next().context("--out needs a value")?)),
+            "--tail-diagnostics" => tail_diagnostics = true,
             other => bail!("unknown arg {other} (usage in the module doc)"),
         }
     }
+    let tail_diagnostics = tail_diagnostics;
     Ok(Args {
         model: model.context("--model is required")?,
         samples: samples.context("--samples is required")?,
         offtask: offtask.context("--offtask is required (detector fit + calibration segments)")?,
         offtask_test: offtask_test
             .context("--offtask-test is required (the fresh gate corpus — posture-2 ruling)")?,
-        report: report.context("--report is required")?,
-        out: out.context("--out is required")?,
+        report: if tail_diagnostics {
+            report
+        } else {
+            Some(report.context("--report is required (export mode)")?)
+        },
+        out: if tail_diagnostics {
+            out
+        } else {
+            Some(out.context("--out is required (export mode)")?)
+        },
+        tail_diagnostics,
     })
 }
 
@@ -159,7 +191,12 @@ fn put_u64(out: &mut Vec<u8>, v: u64) {
 
 fn main() -> Result<()> {
     let args = parse_args()?;
-    std::fs::create_dir_all(&args.out).with_context(|| format!("mkdir {}", args.out.display()))?;
+    std::fs::create_dir_all(
+        args.out
+            .as_ref()
+            .context("--out is required (export mode)")?,
+    )
+    .with_context(|| format!("mkdir {}", args.out.as_ref().unwrap().display()))?;
 
     // ── Header-only model facts (n_embd, n_layer → the probe plan) ──
     let t0 = std::time::Instant::now();
@@ -300,26 +337,54 @@ fn main() -> Result<()> {
         .map(|r| score(&detector, &r.rows))
         .collect();
 
-    // Threshold placement — POSTURE 2 (pre-registered BEFORE the fresh
-    // capture existed): the CALIBRATION split's off-task score quantile
-    // at α = 0.995 (split-conformal shape; the calibration rows are
-    // off-task rows the detector never trained on — the posture-1
-    // held-out segment, re-labeled by the ruling). No automatic
-    // fallback — a degenerate placement is a FAIL, recorded.
+    // ── Posture-3 tail diagnostics (katgpt-rs issue 998 posture-3
+    // pre-registration, verdict session 40a812a8 amendments 2+3+4): the
+    // pooled untrained-tail evidence the pre-registration quotes, from
+    // the SAME fit + score path the placement uses. READ-ONLY: nothing
+    // is written, the run exits before threshold placement. Pooling is
+    // a diagnostics decision only — the THRESHOLD stays calibration-only
+    // (amendment 3, frozen).
+    if args.tail_diagnostics {
+        print_tail_diagnostics(
+            &cal_scores,
+            &test_scores,
+            &offtask_calibration,
+            &offtask_test,
+        );
+        return Ok(());
+    }
+
+    // Threshold placement — POSTURE 3 (pre-registered in katgpt-rs
+    // issue 998 BEFORE the fresh capture exists, commit ebe59f611; the
+    // verdict session 40a812a8 AGREE): the CALIBRATION split's max
+    // off-task score × M = 2.0, in RAW RIDGE SCORE SPACE. The margin is
+    // a multiplier on the SCORE, never on the sigmoid — asserted here:
+    // a sigmoid-space 2× of a >0.5 threshold would exceed 1 and disarm
+    // everything, so the placed sigmoid must land in (0.5, 1) and the
+    // placed score must be exactly M × cal_max. No automatic fallback —
+    // a degenerate placement is a FAIL, recorded.
     let mut cal_sorted = cal_scores.clone();
     cal_sorted.sort_by(f64::total_cmp);
-    let q_idx = ((DETECTOR_QUANTILE * cal_sorted.len() as f64).ceil() as usize)
-        .saturating_sub(1)
-        .min(cal_sorted.len() - 1);
-    let q_tail_support = cal_sorted.len() - q_idx;
-    let q_value = cal_sorted[q_idx];
-    let th_score = q_value;
+    let cal_max = cal_sorted[cal_sorted.len() - 1];
+    let th_score = DETECTOR_TAIL_MARGIN * cal_max;
     let th_source = format!(
-        "calibration-split quantile (alpha={DETECTOR_QUANTILE}, n={})",
+        "calibration max x M={DETECTOR_TAIL_MARGIN} (RAW score space, n={}), posture-3 pre-registration commit ebe59f611",
         cal_sorted.len()
     );
     let th_sigmoid = exact_sigmoid(th_score as f32);
+    assert!(
+        th_score > cal_max && (0.5..1.0).contains(&th_sigmoid),
+        "posture-3 placement space assertion FAILED: score {th_score} vs cal_max {cal_max}, sigmoid {th_sigmoid} — the margin must multiply the RAW score"
+    );
     detector.threshold = th_sigmoid;
+    // Tail support at a max-based threshold = the calibration rows AT the
+    // max (1 unless ties) — disclosed on every verdict line per the
+    // posture-2 ruling's tail-support law.
+    let tail_support = cal_sorted
+        .iter()
+        .rev()
+        .take_while(|&&v| v >= cal_max)
+        .count();
 
     // Diagnostics: arm rates per surface at the PLACED threshold + AUC
     // (fit and held-out separately — the T1 law: in-sample proves
@@ -380,7 +445,7 @@ fn main() -> Result<()> {
     contract(&task_dev_scores, "dev (held-out task)")?;
 
     println!(
-        "# detector: threshold score {th_score:.4} (sigmoid {th_sigmoid:.4}, source: {th_source}, tail support {q_tail_support}) | AUC fit {fit_auc:.4} cal {cal_auc:.4} TEST {test_auc:.4}"
+        "# detector: threshold score {th_score:.6} (sigmoid {th_sigmoid:.6}, source: {th_source}, cal max {cal_max:.6}, tail support {tail_support}) | AUC fit {fit_auc:.4} cal {cal_auc:.4} TEST {test_auc:.4}"
     );
     println!(
         "# detector rates: task fit {}/{} armed (reported) | task dev {}/{} armed (gated contract) | calibration {}/{} armed (placement data, reported) | TEST {}/{} armed (GATED)",
@@ -434,6 +499,7 @@ fn main() -> Result<()> {
     // (task rows: solved/dev from the task cache; off-task rows: fit and
     // held-out from the off-task cache; armed bits from the PLACED
     // detector switch).
+    let out = args.out.as_ref().context("--out is required (export mode)")?;
     let mut rows = Vec::with_capacity(
         (solved.len()
             + dev.len()
@@ -560,8 +626,8 @@ fn main() -> Result<()> {
     put_u32(&mut bin, artifact.canonical.len() as u32);
     bin.extend_from_slice(&artifact.canonical);
 
-    let artifact_path = args.out.join("grafts_t2b_artifact.bin");
-    let rows_path = args.out.join("grafts_t2b_rows.bin");
+    let artifact_path = out.join("grafts_t2b_artifact.bin");
+    let rows_path = out.join("grafts_t2b_rows.bin");
     std::fs::write(&artifact_path, &bin)
         .with_context(|| format!("write {}", artifact_path.display()))?;
     std::fs::write(&rows_path, &rows).with_context(|| format!("write {}", rows_path.display()))?;
@@ -584,9 +650,13 @@ fn main() -> Result<()> {
     );
 
     // ── Manifest (provenance chain + the crosstab the G3 cell reads) ──
+    let report_path = args
+        .report
+        .as_ref()
+        .context("--report is required (export mode)")?;
     let report: serde_json::Value = serde_json::from_reader(
-        std::fs::File::open(&args.report)
-            .with_context(|| format!("open {}", args.report.display()))?,
+        std::fs::File::open(report_path)
+            .with_context(|| format!("open {}", report_path.display()))?,
     )
     .context("parse report")?;
     let manifest = serde_json::json!({
@@ -607,7 +677,7 @@ fn main() -> Result<()> {
             "detector_threshold_score": th_score,
             "detector_threshold_sigmoid": th_sigmoid,
             "detector_threshold_source": th_source,
-            "posture": "2 — calibration-split placement; posture-1 (fit-quantile placement) FAILED the off-task gate 234/600 and was recorded, never re-thresholded",
+            "posture": "3 — calibration-max x M=2.0 (raw score space; posture-1 fit-quantile FAILED 234/600, posture-2 calibration-quantile FAILED 1/600 — both recorded, never re-thresholded)",
             "n_embd": n_embd,
             "probe_layers": layers,
             "artifact_epoch": ARTIFACT_EPOCH,
@@ -618,7 +688,7 @@ fn main() -> Result<()> {
             "calibration_n": offtask_calibration.len(),
             "test_cache_blake3": offtask_test_blake3,
             "test_n": offtask_test.len(),
-            "test_provenance": "OFFTASK_SEED_TEST fresh capture, taken AFTER the posture-2 rule commit (the ruling's contamination ban)",
+            "test_provenance": "OFFTASK_SEED_TEST_P3 fresh capture (posture 3, seed 0x998_0FF3), taken AFTER the posture-3 pre-registration commit ebe59f611 (the ruling's contamination ban); the spent posture-2 corpus feeds the tail diagnostics only",
             "classes": "1 easy / 2 hard-A digits-non-arithmetic / 3 hard-B arithmetic-words (998 T2 pre-registration)",
         },
         "fixtures": {
@@ -638,14 +708,35 @@ fn main() -> Result<()> {
             },
         },
         "detector": {
-            "law": "998 T2 posture 2 — gated legs: dev-200 task disarm contract + sealed-400 capture-only arm check (cell run) + off-task TEST 600 CP-UB gate + hard sub-leg; fit/calibration rates reported, never gated",
+            "law": "998 T2 posture 3 — gated legs: dev-200 task disarm contract + sealed-400 capture-only arm check (cell run) + off-task TEST 600 CP-UB gate (0 false ARMS, the durable unit) + hard sub-leg; fit/calibration rates reported, never gated; FIRES reported beside, never gating (arms are table-independent)",
             "fit_auc": fit_auc,
             "cal_auc": cal_auc,
             "test_auc": test_auc,
             "threshold_score": th_score,
             "threshold_sigmoid": th_sigmoid,
-            "quantile": DETECTOR_QUANTILE,
-            "quantile_tail_support": q_tail_support,
+            "tail_margin": DETECTOR_TAIL_MARGIN,
+            "cal_max_score": cal_max,
+            "tail_support": tail_support,
+            "class_maxima_test": {
+                "easy": test_scores
+                    .iter()
+                    .zip(offtask_test.iter())
+                    .filter(|(_, r)| r.class == 1)
+                    .map(|(s, _)| *s)
+                    .fold(f64::NEG_INFINITY, f64::max),
+                "hard_a": test_scores
+                    .iter()
+                    .zip(offtask_test.iter())
+                    .filter(|(_, r)| r.class == 2)
+                    .map(|(s, _)| *s)
+                    .fold(f64::NEG_INFINITY, f64::max),
+                "hard_b": test_scores
+                    .iter()
+                    .zip(offtask_test.iter())
+                    .filter(|(_, r)| r.class == 3)
+                    .map(|(s, _)| *s)
+                    .fold(f64::NEG_INFINITY, f64::max),
+            },
             "task_fit_armed": armed_frac(&task_fit_scores),
             "task_fit_n": task_fit_scores.len(),
             "task_dev_armed": armed_frac(&task_dev_scores),
@@ -661,7 +752,7 @@ fn main() -> Result<()> {
             "kl_labeling": "Zipf-surface KL(top-40) — never a real-model no-harm proof",
         },
     });
-    let manifest_path = args.out.join("grafts_t2b_manifest.json");
+    let manifest_path = out.join("grafts_t2b_manifest.json");
     std::fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)
         .with_context(|| format!("write {}", manifest_path.display()))?;
     println!("# manifest {}", manifest_path.display());
@@ -678,4 +769,176 @@ fn qwen35_dims(gguf: &GgufFile) -> Result<(usize, usize)> {
         .metadata_u64("qwen35.block_count")
         .context("qwen35.block_count missing from the GGUF header")? as usize;
     Ok((n_embd, n_layer))
+}
+
+/// The posture-3 pre-registration's tail evidence (katgpt-rs issue 998,
+/// verdict session 40a812a8 amendments 2+3+4), printed READ-ONLY from
+/// the same fit + score path the placement uses:
+/// - amendment 2: the top scores of the POOLED 1,200 untrained rows
+///   (calibration + the spent posture-2 test) plus a tail estimate with
+///   expected exceedances at candidate margins — the number the 0-arms
+///   gate's power rests on, quoted BEFORE the fresh capture exists;
+/// - amendment 3 disclosed here: the threshold stays CALIBRATION-ONLY
+///   (the posture-2 test corpus was a gate surface; admitting it into
+///   placement would blur the placement/gate separation the rulings
+///   built — the margin carries the tail uncertainty instead);
+/// - amendment 4: per-class maxima, hard-A named (the posture-2 false
+///   arm was a hard-A row).
+fn print_tail_diagnostics(
+    cal_scores: &[f64],
+    test_scores: &[f64],
+    cal_rows: &[riir_infer_core::grafts_cell::OfftaskRow],
+    test_rows: &[riir_infer_core::grafts_cell::OfftaskRow],
+) {
+    println!(
+        "# tail-diagnostics: posture-3 pre-registration inputs (verdict 40a812a8 amendments 2+3+4) — read-only, no placement"
+    );
+
+    // Posture-2 reproduction check: the SAME quantile rule must land on
+    // the recorded threshold — proof this run reads the same fit. A
+    // mismatch is a hard stop, never a footnote.
+    let mut cal_sorted = cal_scores.to_vec();
+    cal_sorted.sort_by(f64::total_cmp);
+    let q_idx = ((0.995 * cal_sorted.len() as f64).ceil() as usize)
+        .saturating_sub(1)
+        .min(cal_sorted.len() - 1);
+    let reproduced = cal_sorted[q_idx];
+    const POSTURE2_THRESHOLD: f64 = 0.05397161468863487;
+    let matches = (reproduced - POSTURE2_THRESHOLD).abs() < 1e-12;
+    println!(
+        "# posture-2 reproduction: cal quantile(0.995) = {reproduced:.17} vs recorded {POSTURE2_THRESHOLD:.17} — {}",
+        if matches {
+            "MATCH (same fit surface)"
+        } else {
+            "MISMATCH — STOP: this run is NOT reading the posture-2 fit surface"
+        }
+    );
+    if !matches {
+        println!("# tail-diagnostics ABORTED on the reproduction mismatch (the numbers below would describe a different detector)");
+        return;
+    }
+
+    let mut pooled: Vec<f64> = cal_scores.iter().chain(test_scores.iter()).copied().collect();
+    pooled.sort_by(f64::total_cmp);
+    let n = pooled.len();
+    let cal_max = cal_sorted[cal_sorted.len() - 1];
+    let mut test_sorted = test_scores.to_vec();
+    test_sorted.sort_by(f64::total_cmp);
+    let test_max = test_sorted[test_sorted.len() - 1];
+    let top = |k: usize, v: &[f64]| -> Vec<String> {
+        let k = k.min(v.len());
+        v[v.len() - k..]
+            .iter()
+            .rev()
+            .map(|x| format!("{x:.6}"))
+            .collect()
+    };
+    println!(
+        "# pooled untrained rows: {n} (calibration {} + spent posture-2 test {})",
+        cal_scores.len(),
+        test_scores.len()
+    );
+    println!("# pooled top-10 (desc): {}", top(10, &pooled).join(" "));
+    println!(
+        "# cal top-5: {} | test top-5: {}",
+        top(5, &cal_sorted).join(" "),
+        top(5, &test_sorted).join(" ")
+    );
+    println!(
+        "# maxima: cal {cal_max:.6} test {test_max:.6} pooled {:.6} | fresh/cal ratio {:.4}",
+        cal_max.max(test_max),
+        test_max / cal_max
+    );
+
+    // Amendment 4: per-class maxima — hard-A named (its posture-2 false
+    // arm sat at 0.1043).
+    for c in [1u8, 2, 3] {
+        let cm = cal_rows
+            .iter()
+            .zip(cal_scores)
+            .filter(|(r, _)| r.class == c)
+            .map(|(_, s)| *s)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let tm = test_rows
+            .iter()
+            .zip(test_scores)
+            .filter(|(r, _)| r.class == c)
+            .map(|(_, s)| *s)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let name = match c {
+            1 => "easy",
+            2 => "hard-A",
+            _ => "hard-B",
+        };
+        println!("# class {c} ({name}) max: cal {cm:.6} test {tm:.6}");
+    }
+
+    // Amendment 2: the tail estimate. GPD over the pooled exceedances
+    // above the pooled p90 (method-of-moments; diagnostics grade, so a
+    // validity failure is printed, never hidden), expected exceedances
+    // per 600 fresh rows at each candidate margin, and the raw top-k
+    // spacing as the nonparametric cross-check.
+    let u = pooled[((0.90 * (n as f64 - 1.0)) as usize).min(n - 1)];
+    let ex: Vec<f64> = pooled
+        .iter()
+        .copied()
+        .filter(|&x| x > u)
+        .map(|x| x - u)
+        .collect();
+    let n_ex = ex.len();
+    if n_ex >= 10 {
+        let m = ex.iter().sum::<f64>() / n_ex as f64;
+        let var = ex
+            .iter()
+            .map(|e| (e - m) * (e - m))
+            .sum::<f64>()
+            / (n_ex as f64 - 1.0);
+        let xi = 0.5 * (1.0 - m * m / var);
+        let sigma = m * (1.0 - xi);
+        let p_u = n_ex as f64 / n as f64;
+        println!(
+            "# GPD(u=p90={u:.6}, n_ex={n_ex}): xi {xi:.4} sigma {sigma:.6} p_u {p_u:.5} (moments){}",
+            if (0.0..0.5).contains(&xi) {
+                ""
+            } else {
+                " [INVALID xi — fit not usable, read the spacing line instead]"
+            }
+        );
+        if (0.0..0.5).contains(&xi) {
+            for &margin in &[1.5f64, 2.0, 2.5, 3.0] {
+                let t = margin * cal_max;
+                if t <= u {
+                    println!(
+                        "# expected exceedances @ threshold {t:.6} (M={margin}): BELOW the fit threshold u — GPD unusable there"
+                    );
+                } else {
+                    let tail = p_u * (1.0 + xi * (t - u) / sigma).powf(-1.0 / xi);
+                    println!(
+                        "# expected exceedances @ threshold {t:.6} (M={margin}): {:.4} per 600 fresh rows (P per row {:.3e})",
+                        600.0 * tail,
+                        tail
+                    );
+                }
+            }
+        }
+    } else {
+        println!("# GPD skipped: only {n_ex} exceedances above the pooled p90 {u:.6}");
+    }
+    let top5: Vec<f64> = pooled[pooled.len().saturating_sub(5)..].to_vec();
+    let gaps: Vec<String> = top5
+        .windows(2)
+        .map(|w| format!("{:.6}", w[1] - w[0]))
+        .collect();
+    println!(
+        "# top-5 spacing (asc, gaps): {} → gaps {}",
+        top5.iter().map(|x| format!("{x:.6}")).collect::<Vec<_>>().join(" "),
+        gaps.join(" ")
+    );
+    let above_p2 = pooled
+        .iter()
+        .filter(|&&x| x > POSTURE2_THRESHOLD)
+        .count();
+    println!(
+        "# context: {above_p2}/{n} pooled rows exceed the posture-2 threshold {POSTURE2_THRESHOLD:.5}"
+    );
 }

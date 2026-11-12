@@ -106,6 +106,13 @@ struct Args {
     /// pre-registration): `OFFTASK_SEED_TEST`, the pinned 600-row test
     /// plan, saved as a single-segment cache. Same pinned task/format.
     offtask_test_capture: Option<PathBuf>,
+    /// Posture-3 FRESH test corpus capture (katgpt-rs issue 998
+    /// posture-3 pre-registration, verdict session 40a812a8):
+    /// `OFFTASK_SEED_TEST_P3`, same pinned 600-row test plan — the only
+    /// posture-3 gate surface; the spent posture-2 corpus feeds the tail
+    /// diagnostics only. Must be captured only AFTER the pre-registration
+    /// commit (the ruling's contamination ban, same as posture 2).
+    offtask_test_capture_p3: Option<PathBuf>,
     /// Sealed capture-only arm check (998 T2 pre-registration, gated leg
     /// 1): load a grafts artifact, capture the 400 sealed prompts at the
     /// fit geometry, compute `switches_armed_at` per prompt — never
@@ -127,6 +134,7 @@ fn parse_args() -> Result<Args> {
         fit_only: false,
         offtask_capture: None,
         offtask_test_capture: None,
+        offtask_test_capture_p3: None,
         sealed_arm_check: None,
     };
     let mut it = std::env::args().skip(1);
@@ -168,6 +176,11 @@ fn parse_args() -> Result<Args> {
                     it.next().context("--offtask-test-capture needs a value")?,
                 ))
             }
+            "--offtask-test-capture-p3" => {
+                a.offtask_test_capture_p3 = Some(PathBuf::from(
+                    it.next().context("--offtask-test-capture-p3 needs a value")?,
+                ))
+            }
             "--sealed-arm-check" => {
                 a.sealed_arm_check = Some(PathBuf::from(
                     it.next().context("--sealed-arm-check needs a value")?,
@@ -200,6 +213,7 @@ fn parse_args() -> Result<Args> {
         if a.offtask_capture.is_none()
             && a.sealed_arm_check.is_none()
             && a.offtask_test_capture.is_none()
+            && a.offtask_test_capture_p3.is_none()
         {
             bail!("full-cell runs pin the task + format from run A: --task <k> --format <f>");
         }
@@ -208,13 +222,14 @@ fn parse_args() -> Result<Args> {
         // bug — refuse, never silently diverge.
         if a.task.is_some() || a.format.is_some() {
             bail!(
-                "--offtask-capture/--offtask-test-capture/--sealed-arm-check pin ThreeOpAdd10/FewShot themselves; pass no --task/--format"
+                "--offtask-capture/--offtask-test-capture(-p3)/--sealed-arm-check pin ThreeOpAdd10/FewShot themselves; pass no --task/--format"
             );
         }
     }
     if [
         a.offtask_capture.is_some(),
         a.offtask_test_capture.is_some(),
+        a.offtask_test_capture_p3.is_some(),
         a.sealed_arm_check.is_some(),
     ]
     .iter()
@@ -223,7 +238,7 @@ fn parse_args() -> Result<Args> {
         > 1
     {
         bail!(
-            "--offtask-capture/--offtask-test-capture/--sealed-arm-check are separate modes; one per run"
+            "--offtask-capture/--offtask-test-capture(-p3)/--sealed-arm-check are separate modes; one per run"
         );
     }
     Ok(a)
@@ -708,6 +723,14 @@ fn main() -> Result<()> {
                 riir_infer_core::grafts_cell::OFFTASK_TEST_N,
                 "offtask-test-capture",
             )
+        } else if args.offtask_test_capture_p3.is_some() {
+            run_offtask_capture(
+                &args,
+                &host,
+                riir_infer_core::grafts_cell::OFFTASK_SEED_TEST_P3,
+                riir_infer_core::grafts_cell::OFFTASK_TEST_N,
+                "offtask-test-capture-p3",
+            )
         } else if args.sealed_arm_check.is_some() {
             run_sealed_arm_check(&args, &host, checkpoint_blake3)
         } else {
@@ -758,12 +781,13 @@ fn run_offtask_capture(args: &Args, host: &Host, seed: u64, total: usize, tag: &
         .offtask_capture
         .clone()
         .or_else(|| args.offtask_test_capture.clone())
+        .or_else(|| args.offtask_test_capture_p3.clone())
         .unwrap();
-    let test_mode = args.offtask_test_capture.is_some();
+    let test_mode = args.offtask_test_capture.is_some() || args.offtask_test_capture_p3.is_some();
     println!(
         "# off-task capture [{tag}]: seed {seed:#x}, {total} rows, task {PINNED_TASK:?}/{PINNED_FORMAT:?} — pinned by 998 T2{}",
         if test_mode {
-            " (POSTURE-2 FRESH TEST corpus — captured after the calibration-rule commit)"
+            " (POSTURE FRESH TEST corpus — captured after the placement-rule commit, the ruling's contamination ban)"
         } else {
             ""
         }

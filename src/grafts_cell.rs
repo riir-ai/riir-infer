@@ -819,6 +819,11 @@ pub const OFFTASK_SEED: u64 = 0x998_0FF1;
 /// The fresh test corpus's generator seed (independent of
 /// [`OFFTASK_SEED`] and every task-space seed).
 pub const OFFTASK_SEED_TEST: u64 = 0x998_0FF2;
+/// The posture-3 FRESH test corpus's generator seed (katgpt-rs issue
+/// 998 posture-3 pre-registration, verdict session 40a812a8): a third
+/// independent stream — the spent posture-2 corpus feeds the tail
+/// diagnostics only, never a gate.
+pub const OFFTASK_SEED_TEST_P3: u64 = 0x998_0FF3;
 /// Pinned fresh-test counts: 600 held-out test rows, hard ≈ 1/3 —
 /// 0 false arms at n = 600 certifies a CP 95% UB ≤ 0.5%.
 pub const OFFTASK_TEST_N: usize = 600;
@@ -958,7 +963,7 @@ pub fn offtask_sentence(i: usize, j: usize) -> String {
 pub fn offtask_sentence_seed(seed: u64, i: usize, j: usize) -> String {
     let class = if seed == OFFTASK_SEED {
         offtask_class(i)
-    } else if seed == OFFTASK_SEED_TEST {
+    } else if seed == OFFTASK_SEED_TEST || seed == OFFTASK_SEED_TEST_P3 {
         offtask_test_class(i)
     } else {
         offtask_class(i)
