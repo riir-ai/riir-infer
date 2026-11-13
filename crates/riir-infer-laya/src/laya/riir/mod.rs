@@ -72,6 +72,16 @@ pub mod cuda;
 #[cfg(feature = "laya-riir-cubecl")]
 pub mod cubecl;
 
+/// The integer-exact reference backend (`int_ref`, Issue 1214) — a fully
+/// integer forward whose value is SELF-VERIFICATION (bit-identical to
+/// itself on every rig), never throughput, never a serving default.
+/// Zero deps: pure integer std arithmetic; the type-level no-float rule
+/// is enforced by the module's own source-scan test. Off by default
+/// everywhere; demote is the feature switch itself (never armed at
+/// runtime by any env).
+#[cfg(feature = "int_ref")]
+pub mod int_ref;
+
 /// The Apple Neural Engine whole-graph backend (`laya-riir-ane`, macOS) —
 /// compiles to nothing everywhere else.
 #[cfg(all(target_os = "macos", feature = "laya-riir-ane"))]

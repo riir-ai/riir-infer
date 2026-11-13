@@ -131,6 +131,13 @@ laya-riir-cuda = ["laya-riir", "dep:cudarc"]
 # arm wins a REGIME (the plan prices that as unlikely). This arm exists
 # to prove ONE op vocabulary + to be the portability/CI lane.
 laya-riir-cubecl = ["laya-riir", "dep:riir-infer-gpu"]
+# Issue 1214 — the integer-exact reference lane (the DetLLM port): a fully
+# integer forward beside the float backends whose value is SELF-VERIFICATION
+# (bit-identical to itself on every rig — determinism by arithmetic, not by
+# discipline), never throughput, never a serving default. Implies the lane
+# substrate (weights/tokenizer/config reader); zero new deps (the arithmetic
+# core is pure integer std).
+int_ref = ["laya-riir"]
 
 # Issue 022 (TWT phase collapse) — the residual-state capture hook
 # (`Encoder::forward_capture`). No deps: pure compile gating of a
