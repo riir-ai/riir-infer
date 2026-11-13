@@ -17,12 +17,14 @@
 //! no-float rule); the source-scan test in this module's test tree
 //! refuses float tokens so the guard holds by test, not by hope.
 
+mod artifact;
 mod dyadic;
 mod model;
 mod num;
 mod ops;
 mod tensor;
 
+pub use artifact::{ArtifactDigests, StMap, assemble_artifact, load_dir, parse_container};
 pub use dyadic::Dyadic;
 pub use model::{
     IntRefArtifact, IntRefConfig, IntRefModel, KvCache, LayerWeights, LinearWeights, greedy_pick,
@@ -53,6 +55,7 @@ mod no_float_guard {
         ("int_ref/dyadic.rs", include_str!("dyadic.rs")),
         ("int_ref/tensor.rs", include_str!("tensor.rs")),
         ("int_ref/model.rs", include_str!("model.rs")),
+        ("int_ref/artifact.rs", include_str!("artifact.rs")),
         ("int_ref/ops/mod.rs", include_str!("ops/mod.rs")),
         ("int_ref/ops/di_exp.rs", include_str!("ops/di_exp.rs")),
         (

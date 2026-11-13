@@ -17,7 +17,7 @@ use super::super::num::round_half_away_div;
 /// the row's dyadic scale (`k ≤ 62` — `2^k` must stay in int64).
 /// Returns `(result, tpos)`; `tpos >= 1`.
 pub fn di_exp_row(x: &[i64], m: i64, k: u32) -> (Vec<i64>, i64) {
-    assert!(k <= 62, "di_exp: k must stay <= 62");
+    assert!(k <= 62, "di_exp: k must stay <= 62 (got {k})");
     // m_f = m + (m >> 1) - (m >> 4) — the paper's constant, verbatim
     let m_f = m + (m >> 1) - (m >> 4);
     let tpos = round_half_away_div(1_i64.checked_shl(k).expect("di_exp: 2^k overflow"), m_f).max(1);

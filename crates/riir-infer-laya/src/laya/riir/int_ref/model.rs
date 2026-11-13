@@ -49,6 +49,7 @@
 //! Integer-only by construction — the module-level no-float guard scans
 //! this file.
 
+use super::num::rshift_round;
 use super::ops::{
     OUT_FRAC_BITS, P_OUT_BITS, RopeTables, apply_int_rope, di_rmsnorm, di_rmsnorm_gamma,
     di_softmax_row, di_swiglu, int_gemm,
@@ -700,6 +701,17 @@ impl IntRefModel {
                         std::slice::from_mut(&mut sk),
                         16,
                     );
+                    // the int64 wall: di_exp computes 2^k, so the claimed
+                    // exponent must stay ≤ 62. norm_scale(16) normally pins
+                    // k far below, but a degenerate (≈zero) row's fit can
+                    // push it past — renormalize the pair by shifting m down
+                    // (value-preserving up to one rshift_round rounding).
+                    if sk > 62 {
+                        let drop =
+                            u32::try_from(sk - 62).expect("int_ref: score exponent overflow");
+                        sm = rshift_round(sm, drop);
+                        sk = 62;
+                    }
                     assert!(sk >= 0, "int_ref: score exponent underflowed past zero");
                     let sk_u = u32::try_from(sk).expect("int_ref: score exponent overflow");
                     let probs = di_softmax_row(

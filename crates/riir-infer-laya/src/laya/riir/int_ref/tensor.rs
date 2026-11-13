@@ -421,6 +421,19 @@ pub fn residual_add(
     let mut sum = Vec::with_capacity(h.len());
     for (r, ((&dm_r, &dk_r), &kr)) in dm.iter().zip(dk.iter()).zip(k_res.iter()).enumerate() {
         let rel = dk_r - kr; // > 0: delta finer -> shift delta down
+        // past a 63-bit finer-ness gap the biased shift is undefined
+        // (1 << (k-1) overflows); the aligned contribution rounds to 0 —
+        // cap it instead of crashing on a degenerate artifact
+        if rel >= 64 {
+            for c in 0..h.cols {
+                let s = h
+                    .get(r, c)
+                    .checked_add(0)
+                    .expect("residual_add: h read overflow");
+                sum.push(s);
+            }
+            continue;
+        }
         let down = rel.max(0) as u32;
         let up = (-rel).max(0) as u32;
         for c in 0..h.cols {
