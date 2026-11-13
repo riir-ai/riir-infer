@@ -30,18 +30,21 @@
 //! prefill and decode see the same ints by construction (G1 arm:
 //! `prefill_decode_split_matches_full_prefill`).
 //!
-//! Scale provenance — the offline calibration contract [`IntRefModel::new`]
-//! enforces at load: the QK smoothing dyadic `c` (`qs_m`/`qs_k`) multiplies
-//! Q at runtime and is folded into K's static cache scale (`kq_m`/`kq_k`)
-//! offline, leaving the per-kv-head score scale (`ks_m`/`ks_k`; upstream
-//! folds the 1/sqrt(head_dim) attention factor there too):
-//!
-//! ```text
-//! kq_m[c] · 2^qs_k · ks_m[kvh] == qs_m[c] · 2^(kq_k[c] + ks_k[kvh])
-//! ```
-//!
-//! A violation would make the score bookkeeping silently wrong, so the
-//! lane refuses at load instead of rounding through it.
+//! Scale provenance — the offline calibration contract (upstream
+//! `prepare.py`): the QK smoothing dyadic `c` (`qs_m`/`qs_k`) multiplies
+//! Q at runtime and folds into K's static cache scale (`kq_m`/`kq_k`)
+//! offline, leaving the per-kv-head score scale (`ks_m`/`ks_k`) with the
+//! attention 1/sqrt(head_dim) folded in (upstream `prepare.py`:
+//! `kq = c·s_kh` per channel, `ks = s_kh/sqrt(hd)` per head, `qs = c`).
+//! The runtime-consumed consequence: the softmax's exp arguments equal
+//! `q·k/sqrt(hd)` exactly as scaled — `v(qs)·v(ks)/v(kq) == 1/sqrt(hd)`
+//! per channel. Because sqrt(hd) is not dyadic for general hd, this is
+//! a FLOAT-calibrated, per-channel-fitted relation with NO exact integer
+//! identity — the load path checks shapes and mantissa positivity and
+//! trusts the calibration (as upstream does); it does NOT pretend to
+//! re-verify the fit. (An earlier exact-identity assert here was WRONG:
+//! it dropped the 1/sqrt(hd) fold and would have refused every
+//! upstream-faithful artifact.)
 //!
 //! Integer-only by construction — the module-level no-float guard scans
 //! this file.
@@ -99,6 +102,8 @@ pub struct LayerWeights {
     /// QK smoothing per-channel dyadic c — folded into K's static cache
     /// scale offline (`model.py:319-324`); multiplying Q by it cancels
     /// identically in the score dot product. Length `n_kv * head_dim`.
+    /// Contract (calibration-side, upstream `prepare.py`): `v(kq)[c] =
+    /// v(qs)[c]·sqrt(hd)·v(ks)[kvh]` so the softmax consumes `q·k/sqrt(hd)`.
     pub qs_m: Vec<i64>,
     pub qs_k: u32,
     /// Attention-input per-channel smoothing (1/s; s folded into the
@@ -249,21 +254,6 @@ fn lin_check(what: &str, l: &LinearWeights, k_in: usize, n_out: usize) {
     );
 }
 
-/// `a·2^pa == b·2^pb`, compared by left-shifting the side with the
-/// smaller exponent (checked; an absurd shift or overflow refuses as
-/// false — the caller asserts).
-fn dyadic_pow2_eq(a: i64, pa: i64, b: i64, pb: i64) -> bool {
-    let (base, shift, target) = if pa >= pb {
-        (a, pa - pb, b)
-    } else {
-        (b, pb - pa, a)
-    };
-    match u32::try_from(shift) {
-        Ok(s) => base.checked_shl(s) == Some(target),
-        Err(_) => false,
-    }
-}
-
 /// The integer model: the artifact + its load-time derived scales,
 /// ready to run.
 pub struct IntRefModel {
@@ -355,25 +345,6 @@ impl IntRefModel {
                 .chain(lw.os_m.iter())
                 .all(|&m| m > 0);
             assert!(scales_ok, "layer {li}: scale mantissas must be positive");
-            // the calibration contract: qs folded into K's cache scale
-            // leaves a per-kv-head-constant score scale (see module doc)
-            for kvh in 0..c.n_kv {
-                for d in 0..c.head_dim {
-                    let ch = kvh * c.head_dim + d;
-                    let lhs = lw.kq_m[ch]
-                        .checked_mul(lw.ks_m[kvh])
-                        .expect("int_ref: kq·ks overflow");
-                    assert!(
-                        dyadic_pow2_eq(
-                            lhs,
-                            i64::from(lw.qs_k),
-                            lw.qs_m[ch],
-                            lw.kq_k[ch] + lw.ks_k[kvh],
-                        ),
-                        "layer {li} channel {ch}: qs/kq/ks calibration contract violated"
-                    );
-                }
-            }
             let vk_shared = lw.vq_k.iter().copied().max().unwrap_or(0);
             let mut cols = Vec::with_capacity(q_dim);
             for qh in 0..c.n_q {
@@ -1072,11 +1043,11 @@ mod toy {
     /// A self-consistent toy artifact (2L, hidden 8, 2 q-heads / 1
     /// kv-head, hd 4, vocab 16, ffn 16): every path live — linears k=22,
     /// norms k=11 (one signed γ channel), smoothings k=10, embed_k=20,
-    /// identity rope over 64 positions. The qs/kq/ks family is chosen to
-    /// SATISFY the calibration contract with a live K cache: the
-    /// contract pins kq_m = qs_m << (kq_k + ks_k - qs_k) = qs_m << 8,
-    /// and the resulting cache scale (~2^-7) keeps |k8| spread across
-    /// the int8 range instead of collapsing to zeros.
+    /// identity rope over 64 positions. The qs/kq/ks family satisfies
+    /// the upstream calibration semantics (v(kq) = v(qs)·sqrt(hd)·v(ks):
+    /// hd=4, v(qs)=5/2^10, v(ks)=1/2 → v(kq)=5/2^10, i.e. kq_m = qs_m
+    /// << 7 at kq_k = 17) with a live K cache — |k8| spreads across the
+    /// int8 range instead of collapsing to zeros.
     pub(super) fn toy_artifact() -> IntRefArtifact {
         let cfg = IntRefConfig {
             n_layers: 2,
@@ -1093,7 +1064,9 @@ mod toy {
         let mut layers = Vec::with_capacity(cfg.n_layers);
         for _ in 0..cfg.n_layers {
             let qs_m = vec![5, 7, 5, 7];
-            let kq_m: Vec<i64> = qs_m.iter().map(|&m| m << 8).collect();
+            // v(kq) = v(qs)·sqrt(hd)·v(ks) = 5/2^10 · 2 · 1/2 = 5/2^10
+            // → kq_m = qs_m << 7 at kq_k = 17 (5·2^7 / 2^17 = 5/2^10)
+            let kq_m: Vec<i64> = qs_m.iter().map(|&m| m << 7).collect();
             layers.push(LayerWeights {
                 q: lin(&mut rng, cfg.hidden, cfg.n_q * hd),
                 k: lin(&mut rng, cfg.hidden, kv_dim),
