@@ -287,8 +287,14 @@ def prepare(out_dir: str, calib_samples: int = 48, calib_len: int = 1024,
         assert K * 127 * 127 < 2 ** 31, K
     assert cfg.max_position_embeddings * 128 * 127 < 2 ** 31  # probs·V accum
 
-    rope_theta = float(getattr(cfg, "rope_theta",
-                               cfg.rope_parameters["rope_theta"]))
+    # v4 has rope_theta at the top level; v5 moved it into rope_parameters.
+    # NB: getattr's default arg is evaluated EAGERLY — never inline the
+    # fallback into the call (the eager form crashes on v4, where
+    # rope_parameters does not exist).
+    _rt = getattr(cfg, "rope_theta", None)
+    if _rt is None:
+        _rt = cfg.rope_parameters["rope_theta"]
+    rope_theta = float(_rt)
     print(f"config ok: {n_layers}L hidden={hidden} heads={n_q}/{n_kv} hd={hd} "
           f"inter={inter} vocab={vocab} rope_theta={rope_theta}")
 

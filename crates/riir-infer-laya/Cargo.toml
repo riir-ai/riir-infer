@@ -312,6 +312,20 @@ required-features = ["laya-riir-cubecl"]
 name = "cubecl_encoder_probe"
 required-features = ["laya-riir-cubecl"]
 
+# Issue 1214 — the int_ref lane's two int-gated test targets (whole-file
+# #![cfg(feature = "int_ref")]; the rows keep a feature-less selection
+# skipping loudly instead of printing a green zero):
+#  - the Python-mirror cross-check (T1a, generated fixture vectors);
+#  - the real-artifact receipt (T1c, env I1214_ARTIFACT_DIR, skipped loud
+#    without the calibrated artifact — never a green zero).
+[[test]]
+name = "int_ref_python_mirror"
+required-features = ["int_ref"]
+
+[[test]]
+name = "int_ref_real_artifact"
+required-features = ["int_ref"]
+
 # The sgemm MMA-roofline probe (measurement only) — the f16-axis
 # discriminator for the T7 follow-up rungs (reflex issue 020). macOS +
 # metal-gated like the gates above; the row keeps a feature-less selection
