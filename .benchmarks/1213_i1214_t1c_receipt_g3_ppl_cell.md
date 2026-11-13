@@ -2,7 +2,23 @@
 
 **Date:** 2026-11-14
 **Issue:** riir-infer Issue 1214 (the int_ref DetLLM port — T1c)
-**Verdict: G3 PASS — ΔPPL = +0.067 ≤ +1.0 bar.** The G1 determinism arms that ran here are GREEN (a, b); (c) GPU-int-GEMM and (d) cross-rig receipts remain open.
+**Verdict: G3 PASS — ΔPPL = +0.067 ≤ +1.0 bar. G1(a) + G1(b) + G1(d) GREEN — the cross-vendor receipt (amo M5 Ultra ARM/macOS vs 4090 x86_64/Windows) is BIT-IDENTICAL through logits, greedy tokens, G3 PPL, and the eval-side fixed-point digest.** G1(c) CPU-vs-GPU-int-GEMM remains open (no GPU int8 GEMM lane exists yet).
+
+## G1(d) — the cross-vendor receipt (the lane's headline claim, PROVEN)
+
+The artifact + eval ids scp'd to the 4090 (`E:/git/riir-infer/artifacts/qwen3-0.6b-int8/`, byte-count 781,358,936 = amo's copy), repo synced to tip `5d2abb2` via the gitsync scheduled task (git-over-ssh hangs there), then `agent-mail rig run 4090 --shared` job `01a1d65b-cdc7` (45 min, 2714.67 s of it the test):
+
+| | amo (M5 Ultra ARM/macOS) | 4090 (x86_64 Windows) |
+|---|---|---|
+| model digest | `13224d13452c441d…` | `13224d13452c441d…` — IDENTICAL |
+| config digest | `d1b23eadf744316c…` | `d1b23eadf744316c…` — IDENTICAL |
+| logits_final | `22d4844a1d6d2e0a…74048edd` | IDENTICAL |
+| greedy | `[8, 11185, 271, 785]` | IDENTICAL |
+| G3 int8 PPL | 22.931885 | **22.931885 — IDENTICAL** |
+| nll_fixed | `0000001909272416` | **`0000001909272416` — IDENTICAL** |
+| G2 decode b1 | 2.165 tok/s | 1.618 tok/s (informational, box classes differ) |
+
+The identical `nll_fixed` proves not just the lane but the fixed-order f64 eval reader is cross-vendor deterministic (no FMA contraction, sequential folds) — the receipt line means the same thing on both vendors, which IS the lane's one-hash purpose. 4090 G3 elapsed 2672.6 s vs amo's 1945.4 s (same 8-thread reader; different CPU classes, same numbers).
 
 ## The chain exercised
 
@@ -95,8 +111,9 @@ lane (issue 1214's round-1 verdict).
 ## What remains for the G1 suite (the issue's zero-tolerance set)
 
 - (c) CPU int reference vs GPU int GEMM — no GPU int8 GEMM lane exists yet in
-  int_ref; when one lands, the same receipt line must reproduce.
-- (d) two different vendor boxes — run `tests/int_ref_real_artifact.rs` on bmo
-  (and/or 4090) with the same artifact digests and quote the SAME
-  `logits_final` hash + `nll_fixed`. The artifact travels by digest, never by
+  int_ref; when one lands, the same receipt line must reproduce. THE ONLY
+  OPEN G1 ARM.
+- ~~(d) two different vendor boxes~~ — **DONE 2026-11-14**: the 4090
+  (x86_64/Windows) quoted the byte-identical receipt line AND the identical
+  G3 PPL + nll_fixed (table above); the artifact traveled by digest, never by
   repo commit (weights never enter a repo).
