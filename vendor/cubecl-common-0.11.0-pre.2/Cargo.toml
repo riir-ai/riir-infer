@@ -194,3 +194,10 @@ warnings = "warn"
 [lints.rustdoc]
 broken_intra_doc_links = "warn"
 invalid_html_tags = "warn"
+
+# Empty workspace table — vendored crate consumed via [patch.crates-io]; not
+# a workspace member (mirrors the cubecl-wgpu vendor pattern). Added 2026-11-11:
+# a sibling WORKTREE of riir-ai at /Users/kat/git/<name> resolves this manifest
+# through [patch.crates-io] and without the marker cargo nests it under the
+# NEAREST ancestor workspace it can find, producing a package collision.
+[workspace]

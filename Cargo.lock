@@ -3675,6 +3675,7 @@ dependencies = [
  "bytemuck",
  "cubecl",
  "cubecl-environment",
+ "cubecl-wgpu",
  "cudarc",
  "fastrand",
  "half",
