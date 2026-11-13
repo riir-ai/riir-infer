@@ -383,6 +383,12 @@ impl IntRefModel {
         &self.a.head.m
     }
 
+    /// The LM head's shared exponent (pairs [`head_m`](Self::head_m):
+    /// real logit ≈ `logits · xm/2^xk · head_m[v]/2^head_k`).
+    pub fn head_k(&self) -> i64 {
+        self.a.head.k
+    }
+
     fn layer(&self, li: usize) -> &LayerWeights {
         &self.a.layers[li]
     }

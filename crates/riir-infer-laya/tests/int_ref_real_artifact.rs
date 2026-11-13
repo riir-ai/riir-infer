@@ -126,3 +126,179 @@ fn real_artifact_receipt() {
         gens[0]
     );
 }
+
+// ---------------------------------------------------------------------------
+// G3 — the ΔPPL eval on the frozen slice (env I1214_EVAL_IDS, default
+// `<artifact dir>/eval_ids.json` from scripts/i1214_eval_ids.py; skipped
+// loud without the file).
+//
+// Protocol (pre-registered in `.issues/1214_integer_exact_reference_lane.md`):
+// wikitext-2-raw-v1 TEST, first 32,768 tokens, chunks of 1024,
+// non-overlapping; HF next-token convention — logits row t scores the
+// gold id at t+1, so each chunk yields chunk-1 predictions and the last
+// row's prediction (past the chunk edge) is DROPPED. The identical rule
+// runs in the Python baseline (`scripts/i1214_eval_baseline.py`), so
+// ΔPPL is clean. The eval reader is allowed float — it is a measurement
+// instrument beside the lane, never a lane surface; the lane itself
+// stays integer.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn real_artifact_g3_ppl() {
+    let Some(dir) = std::env::var_os("I1214_ARTIFACT_DIR") else {
+        eprintln!(
+            "SKIP LOUD: I1214_ARTIFACT_DIR not set — G3 needs the calibrated \
+             artifact, never a green zero"
+        );
+        std::process::exit(0);
+    };
+    let dir = std::path::PathBuf::from(dir);
+    let ids_path = std::env::var_os("I1214_EVAL_IDS")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| dir.join("eval_ids.json"));
+    if !ids_path.exists() {
+        eprintln!(
+            "SKIP LOUD: {} missing — run scripts/i1214_eval_ids.py first, \
+             never a green zero",
+            ids_path.display()
+        );
+        std::process::exit(0);
+    }
+
+    let (a, _digests) = load_dir(&dir).unwrap_or_else(|e| panic!("load_dir: {e}"));
+    let model = std::sync::Arc::new(IntRefModel::new(a));
+    let c = model.config();
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&ids_path).expect("read eval ids"))
+            .expect("parse eval ids");
+    let chunk: usize = meta["chunk"].as_u64().expect("chunk") as usize;
+    let ids: Vec<u32> = meta["ids"]
+        .as_array()
+        .expect("ids array")
+        .iter()
+        .map(|v| v.as_u64().expect("id") as u32)
+        .collect();
+    assert_eq!(ids.len() % chunk, 0, "eval ids must tile whole chunks");
+    let n_chunks = ids.len() / chunk;
+
+    // per-vocab column scale head_m[v]/2^head_k (the LM head's grid)
+    let head_k = model.head_k();
+    let hm_f: Vec<f64> = model
+        .head_m()
+        .iter()
+        .map(|&m| m as f64 / (1u64 << head_k) as f64)
+        .collect();
+
+    let started = std::time::Instant::now();
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(8);
+    let next_chunk = std::sync::atomic::AtomicUsize::new(0);
+    let results = std::sync::Mutex::new(Vec::with_capacity(n_chunks));
+    std::thread::scope(|s| {
+        for _ in 0..threads {
+            s.spawn(|| {
+                loop {
+                    let ci = next_chunk.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if ci >= n_chunks {
+                        break;
+                    }
+                    let model = &model;
+                    let slice = &ids[ci * chunk..(ci + 1) * chunk];
+                    let positions: Vec<usize> = (0..chunk).collect();
+                    let (logits, xm, xk) = model.forward(slice, &positions, None, None, 1, chunk);
+                    // per-token quant: xm/xk carry ONE scale PER ROW — row t's
+                    // logits live under row t's scale (xm[0] would be wrong
+                    // for every other position)
+                    let xm_f: Vec<f64> = xm
+                        .iter()
+                        .zip(xk.iter())
+                        .map(|(&m, &k)| m as f64 / (1u64 << k) as f64)
+                        .collect();
+                    // HF convention: logits row t predicts slice[t+1] — score
+                    // tokens 1..chunk-1 with rows 0..chunk-2 (the last row
+                    // predicts past the chunk edge and is dropped; the
+                    // Python baseline applies the same rule)
+                    let mut nll_sum = 0.0f64;
+                    let mut nll_fixed = 0u64;
+                    for t in 0..chunk - 1 {
+                        let row = &logits[t * c.vocab..(t + 1) * c.vocab];
+                        // real-domain logits (f64; exact products: i32 x
+                        // 16-bit mantissa scales fit the 53-bit mantissa)
+                        let mut max = f64::NEG_INFINITY;
+                        let mut real: Vec<f64> = Vec::with_capacity(c.vocab);
+                        for (v, &l) in row.iter().enumerate() {
+                            let r = l as f64 * xm_f[t] * hm_f[v];
+                            real.push(r);
+                            if r > max {
+                                max = r;
+                            }
+                        }
+                        let mut lse = 0.0f64;
+                        for &r in &real {
+                            lse += (r - max).exp();
+                        }
+                        let lse = max + lse.ln();
+                        let nll = lse - real[slice[t + 1] as usize];
+                        nll_sum += nll;
+                        // fixed-point receipt: nll * 2^20 rounded — the
+                        // deterministic eval-side digest input (per-position
+                        // rounding, sequential fold; the lane's own Issue-940
+                        // tie law does not reach eval arithmetic, but the
+                        // receipt must still be reproducible per platform)
+                        nll_fixed =
+                            nll_fixed.wrapping_add(((nll * (1u64 << 20) as f64).round()) as u64);
+                    }
+                    results
+                        .lock()
+                        .expect("results lock")
+                        .push((ci, nll_sum, nll_fixed));
+                }
+            });
+        }
+    });
+    let mut results = results.into_inner().expect("results lock");
+    results.sort_by_key(|r| r.0);
+    let total_nll: f64 = results.iter().map(|r| r.1).sum();
+    let total_fixed: u64 = results.iter().fold(0u64, |a, r| a.wrapping_add(r.2));
+    let n_pred = ids.len() - n_chunks; // chunk-count * (chunk-1)
+    let ppl = (total_nll / n_pred as f64).exp();
+    let elapsed = started.elapsed();
+
+    eprintln!(
+        "i1214 G3 int8: ppl={:.6} n_pred={} chunks={} threads={} elapsed={:.1}s \
+         nll_fixed={:016x}",
+        ppl,
+        n_pred,
+        n_chunks,
+        threads,
+        elapsed.as_secs_f32(),
+        total_fixed
+    );
+
+    // G2 (informational, no bar): sampled decode at b1 on chunk 0's tail
+    let mut cache = KvCache::new(1, c.n_layers, c.n_kv, c.head_dim);
+    let prefill: Vec<u32> = ids[..64].to_vec();
+    let positions: Vec<usize> = (0..64).collect();
+    let (_lg, _xm, _xk) = model.forward(&prefill, &positions, None, Some(&mut cache), 1, 64);
+    let mut cur = prefill[63];
+    let g_started = std::time::Instant::now();
+    let steps = 10;
+    let mut toks = Vec::with_capacity(steps);
+    for step in 0..steps {
+        let (lg, _xm, _xk) = model.forward(&[cur], &[64 + step], None, Some(&mut cache), 1, 1);
+        let tok = riir_infer_laya::laya::riir::int_ref::greedy_pick(&lg[..c.vocab], model.head_m());
+        toks.push(tok);
+        cur = tok as u32;
+    }
+    let g_elapsed = g_started.elapsed();
+    eprintln!(
+        "i1214 G2 decode (b1, PROVISIONAL): {:.3} tok/s over {} steps \
+         ({:.3}s) tokens={:?} — quote only with box state",
+        steps as f64 / g_elapsed.as_secs_f64(),
+        steps,
+        g_elapsed.as_secs_f64(),
+        toks
+    );
+}
