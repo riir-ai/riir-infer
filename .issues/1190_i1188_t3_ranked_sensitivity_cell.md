@@ -90,3 +90,7 @@ caffeinate -is ./target/release/si_zero_shot_ppl ... --family-ablate ffn_down ..
 ⛔ Scope guards (carried from 1188): NOT a new quantizer; the posture decision
 is owner-gated; citation as "riir-infer issue 1190", never a bare number
 across repos.
+
+## bmo run failure 2026-11-12 (rig job a45099bc, logged by zed-061faf21@amo housekeeping)
+
+The first bmo exclusive run FAILED at exit 101 during staging: `failed to select a version for katgpt-core` — dependency resolution could not resolve the conflict (staged sandbox missing/mismatched sibling checkout). Log: /Users/katopz/.agent-mail/jobs/logs/01a1cc2f-6fad-7e51-bfb3-7297a45099bc.log on bmo. The lease-holder's inbox (zed-c21902cf@amo) is session-less (boss housekeeping sweep 2026-11-12); before re-queueing, fix the sandbox's katgpt-core resolution — the t2b staging pattern (SB_STAGED_OK sibling layout check, /Users/katopz/riir932/sb-amo/) resolves the same sibling deps and is the known-good staging shape.
