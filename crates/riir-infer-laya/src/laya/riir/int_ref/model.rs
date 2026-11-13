@@ -220,6 +220,13 @@ impl KvCache {
     }
 }
 
+/// The linear-GEMM seam: `a [m, k] · w8t [k, n] → [m, n] int32`. The
+/// CPU forward installs [`int_gemm`]; the G1(c) arm installs the GPU
+/// twin — the two MUST agree bit-for-bit (zero tolerance), which is
+/// exactly what `tests/int_ref_real_artifact.rs` receipts on the real
+/// model.
+pub type GemmFn<'a> = dyn Fn(&[i8], usize, usize, &[i8], usize) -> Vec<i32> + 'a;
+
 /// Greedy pick over one logits row: `argmax(logits·head_m)` with the
 /// PINNED first-index tie rule (upstream's lowest-token-id tie-break;
 /// katgpt-rs Issue 940 law). `logits_row` is the int32 GEMM output for
@@ -498,6 +505,7 @@ impl IntRefModel {
     #[allow(clippy::too_many_arguments)]
     fn run_layer(
         &self,
+        gemm: &GemmFn<'_>,
         li: usize,
         h: Mat<'_, i64>,
         k_res: &[i64],
@@ -518,9 +526,9 @@ impl IntRefModel {
 
         // ---- attention ----
         let (x8, xm, xk) = self.norm_quant(h, Some(lw.as_m.as_slice()), lw.as_k);
-        let p_q = int_gemm(x8.as_slice(), rows, c.hidden, lw.q.w8t.as_slice(), q_dim);
-        let p_k = int_gemm(x8.as_slice(), rows, c.hidden, lw.k.w8t.as_slice(), kv_dim);
-        let p_v = int_gemm(x8.as_slice(), rows, c.hidden, lw.v.w8t.as_slice(), kv_dim);
+        let p_q = gemm(x8.as_slice(), rows, c.hidden, lw.q.w8t.as_slice(), q_dim);
+        let p_k = gemm(x8.as_slice(), rows, c.hidden, lw.k.w8t.as_slice(), kv_dim);
+        let p_v = gemm(x8.as_slice(), rows, c.hidden, lw.v.w8t.as_slice(), kv_dim);
 
         let (q_raw, qkk) = self.qk_head_pipeline(
             p_q.as_slice(),
@@ -768,7 +776,7 @@ impl IntRefModel {
             self.attn_cols[li].as_slice(),
             self.attn_ks[li],
         );
-        let p_o = int_gemm(a8.as_slice(), rows, q_dim, lw.o.w8t.as_slice(), c.hidden);
+        let p_o = gemm(a8.as_slice(), rows, q_dim, lw.o.w8t.as_slice(), c.hidden);
         let po64: Vec<i64> = p_o.iter().map(|&v| i64::from(v)).collect();
         let (d32, dm, dk) = requant_i32_common(
             Mat::from((po64.as_slice(), rows, c.hidden)),
@@ -788,7 +796,7 @@ impl IntRefModel {
         );
 
         // ---- MLP ----
-        self.mlp_tail(li, h2.as_slice(), &k2, rows)
+        self.mlp_tail(gemm, li, h2.as_slice(), &k2, rows)
     }
 
     /// The MLP tail (`model.py:404-425`): norm+smooth → gate/up GEMMs →
@@ -796,20 +804,27 @@ impl IntRefModel {
     /// per-row m/k feed the op) → down-input smoothing multiply →
     /// dynamic per-token int8 → down GEMM → requant at 20 bits →
     /// residual add.
-    fn mlp_tail(&self, li: usize, h32: &[i32], k_res: &[i64], rows: usize) -> (Vec<i32>, Vec<i64>) {
+    fn mlp_tail(
+        &self,
+        gemm: &GemmFn<'_>,
+        li: usize,
+        h32: &[i32],
+        k_res: &[i64],
+        rows: usize,
+    ) -> (Vec<i32>, Vec<i64>) {
         let c = self.config();
         let lw = self.layer(li);
         let h64: Vec<i64> = h32.iter().map(|&v| i64::from(v)).collect();
         let hmat = Mat::from((h64.as_slice(), rows, c.hidden));
         let (x8, xm, xk) = self.norm_quant(hmat, Some(lw.ms_m.as_slice()), lw.ms_k);
-        let p_g = int_gemm(
+        let p_g = (gemm)(
             x8.as_slice(),
             rows,
             c.hidden,
             lw.gate.w8t.as_slice(),
             c.intermediate,
         );
-        let p_u = int_gemm(
+        let p_u = (gemm)(
             x8.as_slice(),
             rows,
             c.hidden,
@@ -871,7 +886,7 @@ impl IntRefModel {
             &ym,
             &ydk,
         );
-        let p_d = int_gemm(
+        let p_d = (gemm)(
             y8.as_slice(),
             rows,
             c.intermediate,
@@ -901,6 +916,9 @@ impl IntRefModel {
     /// optional `chunk_valid` `[B, T]` (None = all real), optional cache.
     /// Returns int32 logits `[B*T, vocab]` plus the per-row output scale
     /// `(xm, xk)`: logit value ≈ `logits · xm·head_m[v] / 2^(xk+head_k)`.
+    /// The CPU forward — every linear through [`int_gemm`]. The receipt
+    /// path; see [`forward_gemm`](Self::forward_gemm) for the G1(c) GPU
+    /// twin.
     pub fn forward(
         &self,
         ids: &[u32],
@@ -909,6 +927,35 @@ impl IntRefModel {
         cache: Option<&mut KvCache>,
         b: usize,
         t: usize,
+    ) -> (Vec<i32>, Vec<i64>, Vec<i64>) {
+        self.forward_gemm(
+            ids,
+            positions,
+            chunk_valid,
+            cache,
+            b,
+            t,
+            &|a, m, k, w, n| int_gemm(a, m, k, w, n),
+        )
+    }
+
+    /// The forward with the LINEAR GEMMs supplied by `gemm` — the G1(c)
+    /// seam: the whole pipeline runs with the GPU twin
+    /// (`IntGemmGpu::gemm`) in place of [`int_gemm`] and MUST produce
+    /// bit-identical logits (zero tolerance). Everything between the
+    /// linears (norms, attention bookkeeping, quant/requant, softmax,
+    /// SwiGLU) stays the CPU integer ops — the arm isolates the GEMM as
+    /// the only substitution.
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward_gemm(
+        &self,
+        ids: &[u32],
+        positions: &[usize],
+        chunk_valid: Option<&[bool]>,
+        cache: Option<&mut KvCache>,
+        b: usize,
+        t: usize,
+        gemm: &GemmFn<'_>,
     ) -> (Vec<i32>, Vec<i64>, Vec<i64>) {
         let c = self.config();
         assert!(b >= 1 && t >= 1, "forward: empty batch or chunk");
@@ -960,6 +1007,7 @@ impl IntRefModel {
         for li in 0..c.n_layers {
             let h64: Vec<i64> = h32.iter().map(|&v| i64::from(v)).collect();
             let (h2, k2) = self.run_layer(
+                gemm,
                 li,
                 Mat::from((h64.as_slice(), rows, c.hidden)),
                 &k_res,
@@ -979,7 +1027,7 @@ impl IntRefModel {
         let h64: Vec<i64> = h32.iter().map(|&v| i64::from(v)).collect();
         let hw = Mat::from((h64.as_slice(), rows, c.hidden));
         let (x8, xm, xk) = self.norm_quant(hw, None, 0);
-        let logits = int_gemm(
+        let logits = gemm(
             x8.as_slice(),
             rows,
             c.hidden,

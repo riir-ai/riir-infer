@@ -24,6 +24,11 @@ mod num;
 mod ops;
 mod tensor;
 
+/// The G1(c) GPU twin of [`int_gemm`] — macOS Metal only (the
+/// `laya-riir-metal` dep set), compiles to nothing everywhere else.
+#[cfg(all(target_os = "macos", feature = "laya-riir-metal"))]
+pub mod gpu;
+
 pub use artifact::{ArtifactDigests, StMap, assemble_artifact, load_dir, parse_container};
 pub use dyadic::Dyadic;
 pub use model::{

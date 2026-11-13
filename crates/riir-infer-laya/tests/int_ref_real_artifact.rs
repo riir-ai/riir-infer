@@ -128,6 +128,73 @@ fn real_artifact_receipt() {
 }
 
 // ---------------------------------------------------------------------------
+// G1(c) — the GPU int GEMM arm (macOS + int_ref + laya-riir-metal; the
+// in-source gate is the documented platform class required-features
+// cannot express). The whole pipeline runs with the GPU twin in place of
+// `int_gemm` and MUST reproduce the byte-identical logits — the receipt
+// hash above is the reference. Zero tolerance.
+// ---------------------------------------------------------------------------
+
+#[cfg(all(target_os = "macos", feature = "laya-riir-metal"))]
+#[test]
+fn real_artifact_g1c_gpu_gemm_receipt() {
+    use riir_infer_laya::laya::riir::int_ref::gpu::IntGemmGpu;
+
+    let Some(dir) = std::env::var_os("I1214_ARTIFACT_DIR") else {
+        eprintln!(
+            "SKIP LOUD: I1214_ARTIFACT_DIR not set — G1(c) needs the calibrated \
+             artifact, never a green zero"
+        );
+        std::process::exit(0);
+    };
+    let dir = std::path::PathBuf::from(dir);
+    let (a, digests) = load_dir(&dir).unwrap_or_else(|e| panic!("load_dir: {e}"));
+    let gpu = IntGemmGpu::new().expect("IntGemmGpu build");
+    let model = IntRefModel::new(a);
+    let c = model.config();
+    let t = 8;
+    let ids = prompt_ids(c.vocab, t, 1);
+    let junk = prompt_ids(c.vocab, t, 9_999);
+
+    // the GPU-twin forward: same ids, same positions, every linear on
+    // the Metal kernel
+    let positions: Vec<usize> = (0..t).collect();
+    let (gpu_logits, _xm, _xk) =
+        model.forward_gemm(&ids, &positions, None, None, 1, t, &|a8, m, k, w, n| {
+            gpu.gemm(a8, m, k, w, n).expect("gpu gemm")
+        });
+    let gpu_last = &gpu_logits[(t - 1) * c.vocab..t * c.vocab];
+    let gpu_hash = logits_row_digest(gpu_last);
+    assert_eq!(
+        gpu_hash, "22d4844a1d6d2e0a0018d769b6c0001cb6173fcb81f350aaaa3a763474048edd",
+        "GPU-twin logits hash diverges from the CPU receipt"
+    );
+
+    // batch composition on the GPU path too (G1(a) crosses the seam)
+    let mut b_ids = ids.clone();
+    b_ids.extend_from_slice(&junk);
+    let mut b_pos = positions.clone();
+    b_pos.extend_from_slice(&positions);
+    let (blogits, _xm, _xk) =
+        model.forward_gemm(&b_ids, &b_pos, None, None, 2, t, &|a8, m, k, w, n| {
+            gpu.gemm(a8, m, k, w, n).expect("gpu gemm")
+        });
+    let b_last = &blogits[(t - 1) * c.vocab..t * c.vocab];
+    assert_eq!(
+        b_last, gpu_last,
+        "GPU batched row diverges (G1a on the seam)"
+    );
+
+    eprintln!(
+        "i1214 G1(c) receipt: model={} config={} logits_final={} (GPU igemm_i8 — \
+         identical to the CPU receipt)",
+        &digests.model[..16],
+        &digests.config[..16],
+        gpu_hash
+    );
+}
+
+// ---------------------------------------------------------------------------
 // G3 — the ΔPPL eval on the frozen slice (env I1214_EVAL_IDS, default
 // `<artifact dir>/eval_ids.json` from scripts/i1214_eval_ids.py; skipped
 // loud without the file).
@@ -168,6 +235,28 @@ fn real_artifact_g3_ppl() {
     let (a, _digests) = load_dir(&dir).unwrap_or_else(|e| panic!("load_dir: {e}"));
     let model = std::sync::Arc::new(IntRefModel::new(a));
     let c = model.config();
+
+    // I1214_GEMM=metal arms the G1(c) dual-compute: every chunk runs
+    // BOTH the CPU forward and the GPU-twin forward, and the two logits
+    // grids must be row-exact equal (zero tolerance) — the strongest
+    // form of the arm, over the whole eval corpus rather than probes.
+    #[cfg(all(target_os = "macos", feature = "laya-riir-metal"))]
+    let gpu: Option<std::sync::Arc<riir_infer_laya::laya::riir::int_ref::gpu::IntGemmGpu>> =
+        if std::env::var("I1214_GEMM").as_deref() == Ok("metal") {
+            Some(std::sync::Arc::new(
+                riir_infer_laya::laya::riir::int_ref::gpu::IntGemmGpu::new()
+                    .expect("IntGemmGpu build"),
+            ))
+        } else {
+            None
+        };
+    #[cfg(not(all(target_os = "macos", feature = "laya-riir-metal")))]
+    let gpu: Option<()> = if std::env::var("I1214_GEMM").as_deref() == Ok("metal") {
+        panic!("I1214_GEMM=metal needs the laya-riir-metal feature on macOS")
+    } else {
+        None
+    };
+    let gemm_tag = if gpu.is_some() { "metal" } else { "cpu" };
     let meta: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&ids_path).expect("read eval ids"))
             .expect("parse eval ids");
@@ -207,7 +296,29 @@ fn real_artifact_g3_ppl() {
                     let model = &model;
                     let slice = &ids[ci * chunk..(ci + 1) * chunk];
                     let positions: Vec<usize> = (0..chunk).collect();
-                    let (logits, xm, xk) = model.forward(slice, &positions, None, None, 1, chunk);
+                    let (logits, xm, xk) = match &gpu {
+                        #[cfg(all(target_os = "macos", feature = "laya-riir-metal"))]
+                        Some(g) => model.forward_gemm(
+                            slice,
+                            &positions,
+                            None,
+                            None,
+                            1,
+                            chunk,
+                            &|a8, m, k, w, n| g.gemm(a8, m, k, w, n).expect("gpu gemm"),
+                        ),
+                        _ => model.forward(slice, &positions, None, None, 1, chunk),
+                    };
+                    // G1(c) dual-compute: the CPU reference over the same
+                    // chunk must be row-exact equal to the GPU grid
+                    if gpu.is_some() {
+                        let (cpu_logits, _xm, _xk) =
+                            model.forward(slice, &positions, None, None, 1, chunk);
+                        assert_eq!(
+                            cpu_logits, logits,
+                            "G1(c): GPU-twin chunk {ci} diverges from the CPU reference"
+                        );
+                    }
                     // per-token quant: xm/xk carry ONE scale PER ROW — row t's
                     // logits live under row t's scale (xm[0] would be wrong
                     // for every other position)
@@ -267,12 +378,13 @@ fn real_artifact_g3_ppl() {
     let elapsed = started.elapsed();
 
     eprintln!(
-        "i1214 G3 int8: ppl={:.6} n_pred={} chunks={} threads={} elapsed={:.1}s \
+        "i1214 G3 int8: ppl={:.6} n_pred={} chunks={} threads={} gemm={} elapsed={:.1}s \
          nll_fixed={:016x}",
         ppl,
         n_pred,
         n_chunks,
         threads,
+        gemm_tag,
         elapsed.as_secs_f32(),
         total_fixed
     );
