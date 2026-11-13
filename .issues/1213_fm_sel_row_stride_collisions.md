@@ -1,9 +1,9 @@
 # Issue 1213 — the FM sel row stride stayed 128 through the FM_MAX_SEL raise: the 128K Metal ρ arms measured a collided selector (VOID)
 
-**Status:** OPEN — fix LANDED (`5425494e` + `19c12a3c`), regression lock GREEN (2 passed 04:33), e2e validation PASS (ctx 16384 reads sel 0.4926 ≈ ρ); the 128K ρ re-run (v2) is IN FLIGHT — launched 05:11 +0700 Nov 13 on the fixed build, dense auto-loaded (45396.1s wall recorded), pace 12.7% ahead of v1 at the same position, ρ0.15 ETA ~13:25 +0700 Nov 13, ρ0.30 ETA ~02:40 Nov 14 (bound 05:20); sel-checkpoint + completing wakes armed, dedup-guarded (ground truth: `~/riir-bench/i1117_128k_metal_v2/CHECKPOINT_PLAN.md`). Closes at the completing wake on sel ≈ ρ at 128K + the T4 record.
+**Status:** OPEN — fix LANDED (`5425494e` + `19c12a3c`), regression lock GREEN (2 passed 04:33), e2e validation PASS (ctx 16384 reads sel 0.4926 ≈ ρ); the m3 v2 128K re-run **DIED at 55%** of ρ0.15 (72192/131072 @ 10386s, log mtime 08:04 +0700 Nov 13 — the m3 laptop closed; no process, no sel-checkpoint marker; all five m3 wake threads gone with the box). **RE-ANCHORED TO BMO per owner directive 2026-11-13 ~19:2x +0700** (zed-41cd0608@amo): the same gate binary at the same fixed HEAD (bmo `~/git/riir-infer` = `5bba632`, fix `19c12a3c` verified present) runs the trio on bmo (M5 Ultra, QUIET, AC) — **dense re-measured ON BMO** (not the m3 dense auto-load: the dNLL baseline + the speedup denominator must be same-box; the m3 dense 2.4405 stays the m3 record), corpus = the bmo CPU trio's own `~/riibench` corpus bytes (identical corpus to the bmo host legs → clean ddNLL), then ρ0.15 + ρ0.30, driver `~/riir-bench/i1117_128k_metal_bmo/run_metal_bmo.sh` (caffeinate -is, load trace, incremental bins + digest auto-load resume — the CPU-trio loss lessons), queued `agent-mail rig run bmo --exclusive`. Closes at the completing wake on sel ≈ ρ at 128K + the T4 record.
 
-**Claimed:** zed-d565d322@m3, 1794522000, expires 2026-11-14T12:00:00Z
-(scope: the same lane as 1191 — v2 re-run supervision, the sel checkpoint, the completing record that folds this issue's closure)
+**Claimed:** zed-41cd0608@amo, 1794572172, expires 2026-11-15T12:00:00Z
+(supersedes the dead zed-d565d322@m3 claim — holder gone, run dead at 55%; scope: the bmo re-run, the sel checkpoint, the completing T4 record + the 1213/1200 closures; ground truth: bmo `~/riir-bench/i1117_128k_metal_bmo/CHECKPOINT_PLAN.md` + the rig job's start/end mail)
 
 ## Found by
 
