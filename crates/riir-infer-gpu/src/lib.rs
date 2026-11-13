@@ -70,6 +70,8 @@ pub mod attention_causal_fused_cubecl;
 pub mod attention_cubecl;
 #[cfg(feature = "cubecl_runtime")]
 pub mod attention_q8kv_cubecl;
+#[cfg(feature = "cubecl_runtime")]
+pub mod attention_q8kv_folded;
 // The DQ phase-sensitivity fake-quant instrument (Plan 614 / Issue 026) —
 // the pure spec/knobs are UNGATED (host-reference unit tests compile at
 // default features); the CubeCL kernels are cubecl_runtime-gated like every
@@ -140,6 +142,8 @@ pub use attention_cubecl::AttentionBlockCausalParams;
 pub use attention_cubecl::{AttentionCubeCL, AttentionParams};
 #[cfg(feature = "cubecl_runtime")]
 pub use attention_q8kv_cubecl::{AttentionQ8KVCubeCL, Q8KVBuffers};
+#[cfg(feature = "cubecl_runtime")]
+pub use attention_q8kv_folded::AttentionQ8KVFolded;
 #[cfg(feature = "cubecl_runtime")]
 pub use elementwise_cubecl::{
     SigmoidCubeCL, SiluCubeCL, SituCubeCL, SoftmaxCubeCL, Split2CubeCL, Split4CubeCL, TopKCubeCL,

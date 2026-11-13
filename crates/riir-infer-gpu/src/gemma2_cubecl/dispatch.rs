@@ -9,6 +9,42 @@
 
 use super::*;
 
+/// The Issue-1211 promoted Q8KV decode-attention launch (the env-switch
+/// law): routes to [`riir_infer_gpu::attention_q8kv_folded::AttentionQ8KVFolded`]
+/// unless `RIIR_Q8KV_FOLD` carries the exact demote literal (0/false/off),
+/// which restores the incumbent `AttentionQ8KVCubeCL` byte-identically.
+/// One home for all three dispatch sites; the latch reads once per process
+/// (`attention_q8kv_folded::q8kv_fold_enabled`).
+#[cfg(feature = "q8_kv_cache")]
+fn launch_q8kv_attention<R: Runtime>(
+    client: &ComputeClient<R>,
+    query_handle: Handle,
+    kv_qs_handle: Handle,
+    kv_scales_handle: Handle,
+    attn_out_handle: Handle,
+    params: &crate::attention_cubecl::AttentionParams,
+) {
+    if crate::attention_q8kv_folded::q8kv_fold_enabled() {
+        crate::attention_q8kv_folded::AttentionQ8KVFolded::launch::<R>(
+            client,
+            query_handle,
+            kv_qs_handle,
+            kv_scales_handle,
+            attn_out_handle,
+            params,
+        );
+    } else {
+        crate::attention_q8kv_cubecl::AttentionQ8KVCubeCL::launch::<R>(
+            client,
+            query_handle,
+            kv_qs_handle,
+            kv_scales_handle,
+            attn_out_handle,
+            params,
+        );
+    }
+}
+
 #[allow(dead_code)] // GPU dispatch scaffolding — called under additional features (Issue 429 clippy).
 impl GpuGemmaCubeCL {
     // ── CubeCL dispatch helpers ─────────────────────────────────────
@@ -690,10 +726,11 @@ impl GpuGemmaCubeCL {
         let attn_out_handle = self.client.empty(q_dim * core::mem::size_of::<f32>());
         let wo_out_handle = self.client.empty(n_embd * core::mem::size_of::<f32>());
 
-        // Launch Q8_0 attention
+        // Launch Q8_0 attention (the Issue-1211 promoted fold, demote
+        // RIIR_Q8KV_FOLD=0)
         let mut params = self.attn_params;
         params.n_positions = pos + 1;
-        AttentionQ8KVCubeCL::launch::<ActiveRuntime>(
+        launch_q8kv_attention(
             &self.client,
             query_handle,
             kv_qs_handle,
@@ -747,10 +784,11 @@ impl GpuGemmaCubeCL {
         let attn_out_handle = self.client.empty(q_dim * core::mem::size_of::<f32>());
         let wo_out_handle = self.client.empty(n_embd * core::mem::size_of::<f32>());
 
-        // Launch Q8_0 attention
+        // Launch Q8_0 attention (the Issue-1211 promoted fold, demote
+        // RIIR_Q8KV_FOLD=0)
         let mut params = self.attn_params;
         params.n_positions = pos + 1;
-        AttentionQ8KVCubeCL::launch::<ActiveRuntime>(
+        launch_q8kv_attention(
             &self.client,
             query_handle,
             kv_qs_handle,
@@ -1560,7 +1598,7 @@ impl GpuGemmaCubeCL {
             let kv_scales_handle = self
                 .client
                 .create_from_slice(f32::as_bytes(&q8kv.kv_scales));
-            AttentionQ8KVCubeCL::launch::<ActiveRuntime>(
+            launch_q8kv_attention(
                 &self.client,
                 query_handle,
                 kv_qs_handle,

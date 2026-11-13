@@ -327,6 +327,11 @@ q4k_lanesliced_decode_gemv = ["cubecl_runtime"]
 gemv_fma_contract = ["cubecl_runtime"]
 # Kernel fold dispatch (opt-in until the >=5% GOAT proof validates).
 fold_dispatch = ["cubecl_runtime"]
+# Issue 1211 (FOSCAR affine fold) — the A/B cell harness posture: incumbent
+# vs folded Q8KV decode-attention kernel latency + the parity class. The
+# kernel/launcher half rides `cubecl_runtime` (inert — no serving path
+# calls it); this feature gates only the [[bin]] row below.
+q8kv_fold_cell = ["cubecl_runtime"]
 # Q8_KV sink-token guard arm (opt-in).
 q8kv_sink_guard = ["cubecl_runtime"]
 # DeltaNet chunkwise parallel prefill kernels - the chunked conv1d and the
@@ -1054,6 +1059,14 @@ required-features = ["flashstates_tracegen"]
 name = "flashstates_cell"
 path = "src/bin/flashstates_cell.rs"
 required-features = ["flashstates_cell"]
+
+# Issue 1211 — the FOSCAR fold A/B cell: incumbent vs folded Q8KV
+# decode-attention kernel latency (interleaved pairs, median) at decode /
+# long-context shapes. Parity lives in attention_q8kv_folded's tests.
+[[bin]]
+name = "i1211_fold_ab_cell"
+path = "src/bin/i1211_fold_ab_cell.rs"
+required-features = ["q8kv_fold_cell"]
 
 # Plan 630 / Issue 1201 T2 — the multi-session manager's gates over the
 # real substrate (the ledger + share + recovery + eviction + round-trip).

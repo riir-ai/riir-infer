@@ -69,7 +69,21 @@ Our Q8_0 KV cache (`src/quant/q8kv.rs`, consumed by `attention_q8kv_cubecl.rs` d
 
 ## 3. Verdict
 
-**Tier: Gain.** Exact, modelless, inference-only algebra with a concrete consumer (the Q8KV decode lane) and shipping proof infrastructure (`kvq_ab.rs`). Not GOAT yet — the gain at Q8 is expected modest (FOSCAR's own data: folding buys 1.07–1.15× where reconstruction is within issue peak; Q8 reconstruction is 4× cheaper than INT2 again, so the honest bar is a kernel-level single-digit %, demote-if-fail per Issue 1211's pre-registered gate). Not Super-GOAT — the mechanism is external and published; no novel combination of our primitives yet produces a capability competitors lack (the GDN-state fusion is recorded, unproven).
+**Tier: Gain — GATE PASSED, PROMOTED (2026-11-13, Bench 1210).** Exact, modelless,
+inference-only algebra with a concrete consumer (the Q8KV decode lane) and shipping
+proof infrastructure (`kvq_ab.rs`). The Issue-1211 pre-registered gate ran end to
+end on Metal: parity held (folded-vs-f64 ≤ 2× incumbent-vs-f64 at 1/32/300/512 +
+the sink posture — folded at-or-BELOW the incumbent's own error everywhere), latency
+cleared the ≥5% bar at EVERY shape (geomean **0.9360×** folded/incumbent: 0.9358 /
+0.9326 / 0.9395 at 512/4096/32768) — above the single-digit expectation this verdict
+sketched. The folded kernel is PROMOTED into the q8kv dispatch path (the three
+`gemma2_cubecl/dispatch.rs` sites route through the env latch; demote
+`RIIR_Q8KV_FOLD=0` restores the incumbent byte-identically; 327/0 lib regression
+battery at the promoted posture, 13+14 at the demote posture). Record:
+`.benchmarks/1210_i1211_foscar_fold_cell.md`. Still not Super-GOAT — the mechanism is
+external and published; the GDN-state fusion remains the recorded, unproven novel
+combination. Not a Metal-only claim: other backends inherit the fold by default with
+the demote literal available; a cross-backend re-cell is a new task.
 
 **MOAT gate (riir-infer row):** inference-substrate novelty (quant formats, kernels) shipped public + upstream-clean — fits exactly; this note + Issue 1211 are public-surface artifacts. Not a reflex/rethink/ai concern: no decision-serving, game-runtime, or economy surface is touched.
 

@@ -53,8 +53,6 @@ use cubecl::server::Handle;
 use crate::cubecl_runtime::ActiveRuntime;
 
 use crate::attention_cubecl::{AttentionCubeCL, AttentionParams};
-#[cfg(feature = "q8_kv_cache")]
-use crate::attention_q8kv_cubecl::AttentionQ8KVCubeCL;
 
 #[cfg(feature = "cubecl_runtime")]
 use crate::gemv_f16_cubecl::{F16Handle, GemvF16CubeCL};
