@@ -18,11 +18,15 @@
 //! refuses float tokens so the guard holds by test, not by hope.
 
 mod dyadic;
+mod model;
 mod num;
 mod ops;
 mod tensor;
 
 pub use dyadic::Dyadic;
+pub use model::{
+    IntRefArtifact, IntRefConfig, IntRefModel, KvCache, LayerWeights, LinearWeights, greedy_pick,
+};
 pub use num::{argmax_first, ilog2_floor, isqrt, round_half_away_div, rshift_round};
 pub use ops::{
     OUT_FRAC_BITS, P_OUT_BITS, PROB_ONE, ROPE_FRAC_BITS, RopeTables, SIG_BITS, SIG_ONE,
@@ -48,6 +52,7 @@ mod no_float_guard {
         ("int_ref/num.rs", include_str!("num.rs")),
         ("int_ref/dyadic.rs", include_str!("dyadic.rs")),
         ("int_ref/tensor.rs", include_str!("tensor.rs")),
+        ("int_ref/model.rs", include_str!("model.rs")),
         ("int_ref/ops/mod.rs", include_str!("ops/mod.rs")),
         ("int_ref/ops/di_exp.rs", include_str!("ops/di_exp.rs")),
         (
