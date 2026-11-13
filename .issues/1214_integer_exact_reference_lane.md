@@ -1,0 +1,37 @@
+# Issue 1214: Integer-exact reference lane (`int_ref`) — the DetLLM port
+
+**Date:** 2026-11-13
+**Status:** OPEN — filed from [`.research/027_DetLLM_Integer_Exact_Deterministic_Inference.md`](../.research/027_DetLLM_Integer_Exact_Deterministic_Inference.md)
+**Source:** nathanrs/detllm @ `9c3f1c9cdd42294087cc0507992c21dfde944bea` — **no LICENSE upstream → decision-content-only transcription; no vendoring, no outbound PR; calibrate OUR checkpoints, never their HF artifact**
+
+## Goal
+
+An opt-in `int_ref` backend beside `cuda.rs`/`metal.rs` in the laya lane: a fully-integer forward (int8 dyadic weights/activations, integer exp/softmax/RMSNorm/SwiGLU/RoPE, no float between ids and int32 logits) whose value is **self-verification, not throughput** — bit-identical to itself on every rig, never a serving-default claim (detllm's 3.6× is vs fp16 *eager*; int8 prefill is ~46× slower than fp16; our optimized float lanes win any league bout on speed). In-fleet lineage: riir-ai Issue 845 (RESOLVED-SCOPED PASSED — PoT-scale snapping, verified in riir-refine Research 116 / arXiv:2609.00363) took the scale-snapping step; this lane is the next construction — whole-pipeline integer.
+
+**What it is: a separately calibrated, SELF-VERIFYING model — bit-identical to itself on every rig.** ⛔ It is NOT an oracle for the float lanes (round-1 verdict, binding): int-vs-float error is ~1e-2-class per GEMM — above drift_guard's `DIV_CENTER = 3e-3` (`crates/riir-infer-gpu/src/drift_guard.rs`) — a different numerical model, not an exact float twin. The lane certifies itself; drift_guard keeps its same-platform float twin.
+
+Consumers:
+1. **Cross-rig byte-identity receipts** (the headline) — one logits-hash line that means the same thing on every box (today "byte-identical" is a per-box claim).
+2. **The lane's own parity is exact** — int-vs-int reference-path parity is bit-exact; the float lanes' G5 laya-parity (riir-reflex `AGENTS.md` §GOAT gates) stays tolerance-based and is NOT upgraded by this lane.
+3. **Ternary skip (follow-up arm)** — ternary weights {−1,0,+1} are already integer: activations-only dyadic treatment, no weight-calibration error at all.
+
+## Proof path (pre-registered — the G-gates)
+
+- **G1 (the point, zero-tolerance):** the §9.3-shaped determinism suite on the Rust port — same-bits logits across (a) batch composition (target row inside a junk batch), (b) prefill/decode split, (c) CPU int reference vs GPU int GEMM, (d) two different vendor boxes. One hash, every row — logits AND generated token ids. NO tolerance anywhere.
+- **G1 tie rule (round-1 verdict):** int32 logits can tie exactly — the decode argmax carries a PINNED tie rule, first-index (katgpt-rs Issue 940 tie law), and a test arm plants an exact tie and asserts identical token output on every backend. detllm's sharpest datum was exactly an unpinned-tie fork (M1 Pro, step 457, top-2 gap one fp16 ulp): "one hash" must hold for tokens, not just logits.
+- **G1-falsification arms:** a deliberate `f32` op on the numerical path must fail the type-level no-float guard (compile-fail test or runtime refusal); an order-invariance property test asserting int GEMM accumulation is order-independent by construction (permute accumulation chunks, assert identity).
+- **G2 (cost, sampled only):** decode tok/s of the int lane at b1, recorded with box state — informational, no bar, no promotion talk.
+- **G3 (accuracy, pre-registered numeric bar):** named target — **dense Qwen3-0.6B, bf16 safetensors pulled from HF, digest pinned in the artifact manifest** (detllm-parity class; tests their −0.23 PPL datum on the same model). ⛔ NOT Qwen3.5: it is GDN-hybrid (research 018: "our league runs qwen3.8 GDN hybrids"), detllm's op set covers dense softmax attention only, and the only Qwen3.5-0.8B on disk is a Q8_0 GGUF — pre-quantized, which fails the never-pre-quantized rule (int8-from-dequantized-Q8_0 stacks two quantization errors). Eval: WikiText2-style PPL at a fixed slice. **Bar: int8 (p_out=15) ΔPPL ≤ +1.0 vs that checkpoint's bf16 baseline on the identical eval slice** (detllm reference datum: −0.23 on Qwen3-0.6B — int8 slightly BEAT fp16 at p_out=15; the bar leaves 4× headroom). Ternary arm (when a small ternary checkpoint is minted): same ≤ +1.0 bar vs its own bf16 baseline, weights exact; the 27B league model is out of scope for an eager-class reference lane.
+- **Tranche 2 (pre-registered, separate — integer GDN recurrence):** the delta-rule state update, its exp/sigmoid gates, the L2 norm and the short conv in integer arithmetic, with its OWN gates — a state-renorm/k-drift bound over long sequences (the recurrent state accumulates rescale error every step; detllm never asks this question) + the same ΔPPL ≤ +1.0 bar on a hybrid checkpoint. Only the qwen3.5/3.8 hybrids depend on this tranche; tranche 1 (dense) ships without it.
+
+## Scope guards
+
+- Decision-content transcription only: port the documented algorithms (frozen rounding rules — `rshift_round` ties-toward-+inf for power-of-two rescales, `round_half_away_div` for non-power-of-two divisors; dyadic `(data,m,k)` bookkeeping; residual renorm window; DI-exp shift decomposition with the 1.4375·m constant; sentinel-masked softmax; hi/lo int8 prob split), citing file:line at the pinned sha.
+- Type-level no-float: the lane module compiles with no `f32` in scope — stronger than detllm's runtime `NoFloatMode`, by construction.
+- Argmax tie rule: first-index, pinned (katgpt-rs Issue 940 tie law) — never a tolerance band, never HashMap order.
+- Offline calibration is the float stage (SmoothQuant-style analytic, α=0.5, training-free) — artifact pinned by digest, preparation never required to be bit-reproducible (detllm's own rule).
+- Feature-gated `int_ref`, opt-in, never in `production`; demote path is the exact-literal env per the env-switch law.
+- GPU GEMM guard: if a vendor int8 GEMM path is used, operand guard rows are mandatory (cuBLASLt CUTLASS speculative over-reads up to 16 KB past operands — detllm `GUARD_ROWS = 64`).
+- Consumers outside this repo (quorum-committed decisions, frozen-brain NPC cognition) wait for G1 proof and file their own consumption in their own repos — no speculative wiring here.
+
+**Status after G1 pass:** promote the research note's fusion section to a plan + guide in the same commit that records the bench; on FAIL, demote the note's tier line to Withdrawn (ungoat law).
