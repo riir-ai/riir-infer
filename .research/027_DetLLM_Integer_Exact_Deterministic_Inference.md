@@ -2,7 +2,7 @@
 
 > **Source:** nathanrs/detllm — "Fully deterministic cross-device LLMs inference" @ `9c3f1c9cdd42294087cc0507992c21dfde944bea` (GitHub, **NO LICENSE file — decision-content-only transcription posture, outbound-PR FAIL-CLOSED**)
 > **Date:** 2026-11-13
-> **Status:** DISTILLED — pending owner decision
+> **Status:** PROMOTED — the G1 pass landed (2026-11-14; all four arms green, zero tolerance — bench 1213); the fusion section §3A is now [`.plans/632_i1214_int_ref_self_verification_guide.md`](../.plans/632_i1214_int_ref_self_verification_guide.md) (the issue's status-after-G1 rule); §3B consumers stay with their owning repos (plan 632 T5)
 > **Related Research:** 024 (LeapQuant GDN state quant — static storage scales), 002 (e8 int8 tables)
 > **Classification:** Public (riir-infer note; mechanism is public upstream)
 

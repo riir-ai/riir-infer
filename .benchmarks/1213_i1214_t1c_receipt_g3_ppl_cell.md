@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-14
 **Issue:** riir-infer Issue 1214 (the int_ref DetLLM port — T1c)
-**Verdict: G3 PASS — ΔPPL = +0.067 ≤ +1.0 bar. G1(a) + G1(b) + G1(d) GREEN — the cross-vendor receipt (amo M5 Ultra ARM/macOS vs 4090 x86_64/Windows) is BIT-IDENTICAL through logits, greedy tokens, G3 PPL, and the eval-side fixed-point digest. G1(c) GREEN on probes: the Metal `igemm_i8` twin reproduces the byte-identical logits hash through the whole 28-layer pipeline (every linear on GPU); the corpus-wide dual-compute run (every chunk CPU+GPU, row-exact asserted) in flight — its result completes the arm.**
+**Verdict: G3 PASS — ΔPPL = +0.067 ≤ +1.0 bar. G1 FULL PASS — all four arms green, zero tolerance: (a) batch composition, (b) prefill/decode split, (c) CPU-vs-GPU-int-GEMM (probes byte-identical + corpus-wide dual-compute: all 32 chunks row-exact CPU==GPU, identical ppl/nll_fixed at `gemm=metal`), (d) cross-vendor bit-identical (amo M5 Ultra ARM/macOS vs 4090 x86_64/Windows). The fusion promotion is filed in the bench-record commit per the issue's status-after-G1 rule: `.plans/632_i1214_int_ref_self_verification_guide.md`.**
 
 ## G1(d) — the cross-vendor receipt (the lane's headline claim, PROVEN)
 
@@ -122,7 +122,13 @@ lane (issue 1214's round-1 verdict).
   all-±127 worst case. The corpus-wide dual-compute posture
   (`I1214_GEMM=metal`: every G3 chunk runs BOTH lanes, row-exact
   asserted over all 32,768 tokens) runs in flight at record time — its
-  green line completes the arm.
+  green line completes the arm. **COMPLETED 2026-11-14: the corpus-wide
+  dual-compute run is GREEN — `ppl=22.931885 n_pred=32736 chunks=32
+  threads=8 gemm=metal elapsed=2013.5s nll_fixed=0000001909272416` —
+  identical to the CPU-only values; every chunk's logits grid asserted
+  row-exact equal. G1 is FULL PASS (all four arms); the fusion
+  promotion filed as `.plans/632_i1214_int_ref_self_verification_guide.md`
+  in the bench-record commit per the issue's status-after-G1 rule.**
 - ~~(d) two different vendor boxes~~ — **DONE 2026-11-14**: the 4090
   (x86_64/Windows) quoted the byte-identical receipt line AND the identical
   G3 PPL + nll_fixed (table above); the artifact traveled by digest, never by
