@@ -105,3 +105,5 @@ something we MEASURE on amo+bmo (Plan 623 Phase 0), never a quoted number.**
   (shared storage)? If not, the floor is one memcpy per side.
 - Single-box decode tok/s for the target models on riir-infer's Metal path vs MLX vs
   llama.cpp Metal — the multi-host claim is meaningless if the single-host arm loses.
+
+> **Follow-up (2026-11-13):** [Research 028](028_oMLX_LAN_Prefill_Accelerator_Intel.md) — oMLX 0.8.0rc1 ships the Prefill Accelerator: levers 5 + 7-TCP-rung productized in the PREFILL-ONLY design point (helper takes first layers of prompt chunks, Mac decodes + keeps KV; refuse-slow-split auto gate). Deferred intel — owner trigger "4× M5 Ultra 128GB".
