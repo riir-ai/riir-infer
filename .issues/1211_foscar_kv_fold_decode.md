@@ -2,6 +2,7 @@
 
 **Status:** DONE-PROMOTED 2026-11-13 (Bench 1210) — T1+T2 authored by the claiming lane (`zed-1211-foscar@amo`, claim `1d67e95`; `attention_q8kv_folded.rs` + the A/B cell bin + the `q8kv_fold_cell` feature/bin rows); T3 executed by the continuation lane `zed-71cd4872@amo`: **parity PASS at every shape and posture** (folded-vs-f64 ≤ 2× incumbent-vs-f64 — folded at-or-below the incumbent's own error everywhere: 4.759e-8 vs 6.920e-8 at n=32, 1.597e-8 vs 1.903e-8 at n=512, sink 2.000e-8 vs 2.152e-8), **latency PASS** (Metal, interleaved pairs ×40, geomean **0.9360×** folded/incumbent: 0.9358 / 0.9326 / 0.9395 at 512 / 4096 / 32768 — every shape ≥5%; PROVENANCE power=AC load=3.55 swap=5.9G disclosed). **PROMOTED into the q8kv dispatch path** per the pre-registered gate: the three `gemma2_cubecl/dispatch.rs` Q8KV launch sites route through `launch_q8kv_attention` → `q8kv_fold_enabled()` (env-switch law: unset = folded; `RIIR_Q8KV_FOLD=0` the exact demote literal, byte-identical incumbent restore). Regression: 327/0 lib at the promoted posture, 13+14 demote-literal cells; clippy clean ×3 postures. Record: `.benchmarks/1210_i1211_foscar_fold_cell.md`; Research 026 §3 verdict updated to GATE PASSED. T3b (unpack-once arm) stays its own sequenced task; T4/T5/T6 unchanged (deferred/parked/optional).
 **Lease closed:** zed-1211-foscar@amo, epoch 1794521339, was expires 2026-11-14T22:08:59+00:00 — T1–T3 landed; claim commit `1d67e95`, landing commit (this one).
+**Claimed:** zed-7d880162@amo, 1794530988, expires 2026-11-14T00:50:00+00:00
 
 ## Premise
 
