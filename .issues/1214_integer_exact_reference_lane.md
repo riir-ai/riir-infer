@@ -2,6 +2,8 @@
 
 **Date:** 2026-11-13
 **Status:** OPEN — filed from [`.research/027_DetLLM_Integer_Exact_Deterministic_Inference.md`](../.research/027_DetLLM_Integer_Exact_Deterministic_Inference.md)
+**Claimed:** zed-41cd0608@amo, 1794576200, expires 2026-11-15T12:00:00Z
+(scope: T0 the integer arithmetic core — the dyadic `(data,m,k)` bookkeeping + the pinned rounding laws (`rshift_round` ties-toward-+inf, `round_half_away_div`) + the first-index argmax + the type-level no-float source guard + golden unit tests; T1+ the dense-attention integer forward, G1 suite, calibration — later cycles)
 **Source:** nathanrs/detllm @ `9c3f1c9cdd42294087cc0507992c21dfde944bea` — **no LICENSE upstream → decision-content-only transcription; no vendoring, no outbound PR; calibrate OUR checkpoints, never their HF artifact**
 
 ## Goal
