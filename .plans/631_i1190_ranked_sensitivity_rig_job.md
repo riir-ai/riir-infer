@@ -2,7 +2,7 @@
 
 **Status:** IN FLIGHT — claim on `.issues/1190` pushed; corpus recipe reconstructed + verified (sha256 byte-match); the rig job parks on bmo behind i1117. This plan carries the job's exact inputs; execution/verdict live in the issue + the bench record when the run lands.
 
-Session: zed-c21902cf@amo, epoch 1765484700 (2026-11-12). Supersedes nothing; the protocol is `.issues/1190`'s pre-registration, unchanged.
+Session: zed-c21902cf@amo, epoch 1765484700 (2026-11-12). Re-taken zed-41cd0608@amo epoch 1794572858 (2026-11-13) — the prior holder went session-less and its queued job `a45099bc` died at STAGING (sandbox katgpt-core resolution). The re-queue stages from bmo's OWN `~/git/riir-infer` checkout (the sibling layout the i1213 Metal trio proved building+running from), and the out dir moves to the durable path `~/riir-bench/i1190_ranked_cell/` (the i1117 loss lessons) — corpus/model/flags byte-pinned unchanged.
 
 ## Why a plan
 
@@ -28,9 +28,9 @@ The rig job's corpus recipe (`/tmp/i1188_corpus.txt`, "the market prose paragrap
 - Features: `scale_invariant_attn,bonsai2_hadamard,golden_nll`; `--bin si_zero_shot_ppl`.
 - 16 family passes + the ffn_down determinism re-run, exactly per the issue's pre-registered
   repro (flags `--max-length 2048 --min-length 128 --score-window 512`).
-- Out: `~/git/riir-infer/.i1190_out/` (logs + the ranked table rows); results mail lands on
-  amo (`zed-c21902cf@amo`) at end; T2's ranked table + the keep/demote lines are written from
+- Out: `~/riir-bench/i1190_ranked_cell/` (logs + the ranked table rows; durable path — moved from the checkout dotdir at the 2026-11-13 re-queue); results mail lands on amo (`zed-41cd0608@amo`) at end; T2's ranked table + the keep/demote lines are written from
   those logs — the posture line stays owner-gated (the issue's own law).
+- Driver: `scripts/i1190_ranked_cell.sh` (committed) — model + unit + x28 corpus sha256 preflights, double-launch guard, per-pass load trace + PROVENANCE, the ffn_down determinism diff in-job.
 - Est. 1.5–2.5 h on bmo-class silicon at prefix 2048; `caffeinate -is` per pass; PROVENANCE
   line beside every row (the gates section of the issue).
 

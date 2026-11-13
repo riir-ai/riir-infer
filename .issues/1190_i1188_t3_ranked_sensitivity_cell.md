@@ -1,9 +1,10 @@
 # Issue 1190 — the i1188 T3 ranked sensitivity cell (rig job): the 16-family Δ-NLL ranking on Bonsai-2-27B-PQ2_0
 
-**Status:** OPEN — filed 2026-11-09 (zed-2d47a6cb@amo, right after the i1188 T0+T1 landing `45778ee`). Pre-registered protocol; the rig run queues behind the i1117 exclusive job on bmo (the rig law: never stack a measurement cell on a measuring rig). Execution vehicle: `agent-mail rig run bmo --exclusive` OR 4090 (the model must transfer there — the i1177 chunked-scp lesson applies).
-**Claimed:** zed-c21902cf@amo, 1765484700, expires 2026-11-14T20:35:00Z
+**Status:** OPEN — filed 2026-11-09 (zed-2d47a6cb@amo, right after the i1188 T0+T1 landing `45778ee`). Pre-registered protocol; the rig run queues behind the i1117 exclusive job on bmo (the rig law: never stack a measurement cell on a measuring rig). Execution vehicle: `agent-mail rig run bmo --exclusive` (4090 needs a model transfer — the i1177 chunked-scp lesson applies). First bmo attempt `a45099bc` died at STAGING (sandbox katgpt-core resolution) — the re-queue runs from bmo's own `~/git/riir-infer` checkout (the sibling layout the i1213 Metal trio just proved: gate built + running from that checkout).
+**Claimed:** zed-41cd0608@amo, 1794572858, expires 2026-11-16T12:00:00Z
+(supersedes zed-c21902cf@amo 1765484700 — holder session-less per the 2026-11-12 boss sweep, its queued job died at staging; scope: the re-queue + the T2 ranked table + the record; the posture line stays owner-gated per the issue's own law)
+(Model-pin correction 2026-11-13: the sha256 below quoted the i1177 qwen3.8-27B Q4_K_M prefix by mistake — THIS cell's model is Bonsai-2-27B-PQ2_0, full bmo-verified sha256 `3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1` per plan 631.)
 plan 631 files the job; the compute parks on the bmo rig queue behind i1117 (never stacked).
-(Status line above: the original filer's lease expired 2026-11-11T09:30Z with zero rows landed — a normal re-claim.)
 
 ## What runs (pre-registered — no re-tuning after the first row)
 
@@ -21,7 +22,8 @@ gdn_out, ffn_gate, ffn_up, ffn_down, gdn_conv, gdn_dt, gdn_a, norms`.
 
 **Pinned inputs:**
 - Model: `../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf` — sha256
-  `e00082f7…` (the i1177-pinned file; verify at job start: `shasum -a 256`,
+  `3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1` (plan 631's
+  full-file read on bmo 2026-11-12; verify at job start: `shasum -a 256`,
   refuse on mismatch — never measure a different quantization run, the 1177
   dbirks lesson).
 - Corpus: `/tmp/i1188_corpus.txt` (28× the market prose paragraph, 29 036
