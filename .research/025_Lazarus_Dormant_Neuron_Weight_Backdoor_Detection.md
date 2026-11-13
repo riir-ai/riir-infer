@@ -2,7 +2,7 @@
 
 > **Source:** Yuchen Zeng, Giorgio Severi, Blake Bullwinkel, Eric Horvitz, Dimitris Papailiopoulos. *Lazare, veni foras: Reprogramming Dormant Neurons to Backdoor AI Agents.* Microsoft Research + Microsoft AI Red Team, Nov 2026. <https://papail.io/papers/Lazarus.pdf> · code: <https://github.com/microsoft/lazarus>
 > **Date:** 2026-11-12
-> **Status:** Done — verdict Gain (defensive distillation); lane work item filed as `.issues/1209`
+> **Status:** Done — verdict Gain (defensive distillation); lane LANDED 2026-11-13 (`3dc77e2`, gates G1–G5 PASS, record `.benchmarks/1209_weight_audit_zoo_baseline.md`; the work-item issue file removed at close — HISTORY row carries the arc)
 > **Related Research (internal):** katgpt-rs 422 (Statistically Undetectable Backdoors → Model Provenance), katgpt-rs 258 (attention sinks / dormant heads), riir-train 492 (read-only neuron patch, dormant)
 > **Related internal records:** katgpt-rs `.docs/09_feature_catalog/negative_results.md` §11 (Issue 152 — SAR spectral backdoor detection, closed impractical), katgpt-rs Issue 138 PoC addendum (R422 fusion shelved)
 > **Classification:** Public (defensive content only)
@@ -133,7 +133,7 @@ Per-surface scoring (skill §1.5, on the pinned integration claim): Q1 no prior 
 
 ---
 
-## 4. Proof path (filed as `.issues/1209`; summary here)
+## 4. Proof path (landed per the record; summary here)
 
 - **Fixture**: in-repo synthetic SwiGLU block (N≈512, D≈64, V≈128) + the paper's construction recipe applied to K planted neurons (tied gate/up on a separating direction; down column on an exposing direction derived from the fixture's own unembedding) + the five-feature census. The planter is `#[cfg(test)]`-gated and typed to the fixture's own block — never reachable from loaded-model tensors (G5 surface rules). Deterministic folds per the Issue-940 law (ascending-index ordered dot/norm, f32).
 - **Falsification arms**: (i) untie gate/up → alignment feature drops while norm features hold; (ii) shrink the write below its Theorem-4 floor → the payload loses the argmax *and* the detector goes quiet — silence is then correct, pinning the bound's direction; (iii) plant a natural-style massive-activation neuron → the census must NOT flag it as tamper by default (the FPR-hazard arm).
@@ -158,7 +158,7 @@ Per-surface scoring (skill §1.5, on the pinned integration claim): Q1 no prior 
 
 - `katgpt-rs/.research/422_Statistically_Undetectable_Backdoors_Model_Provenance.md` — R422; the class-boundary counterpart (training-time, distribution-undetectable; provenance flip shelved on G1).
 - `katgpt-rs/.docs/09_feature_catalog/negative_results.md` §11 — Issue 152 SAR closure; this note is the reference-free instrument that record lacked.
-- `riir-infer/.issues/1209_weight_structure_audit_lane.md` — the work item (fixture, arms, zoo cell, gates).
+- the landed work item (fixture, arms, zoo cell, gates) — removed at close; the record is `.benchmarks/1209_weight_audit_zoo_baseline.md` + the repo HISTORY row
 - `src/family_census.rs` (Issue 1188) — the census-bin precedent this lane follows.
 - `src/bin/sink_audit.rs` + katgpt-rs Research 258 — per-unit census genre, attention-side.
 - reflexer-vessel `.sig`/pins + riir-train `data/BASE_MODELS.md` — the transport/provenance layers the census composes with (§2.7 table).

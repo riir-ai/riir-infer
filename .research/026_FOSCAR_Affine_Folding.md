@@ -2,7 +2,7 @@
 
 > **Source:** "FOSCAR: Accelerating Decode Attention over 2- and 4-Bit KV Caches through Affine Folding" — Zhuang, Ponnusamy, Wu, Song, Zhou (Together AI + U Sydney), [arXiv:2611.09722](https://arxiv.org/abs/2611.09722) (v1 2026-11-06). Open-source kernel library: `FutureMLS-Lab/FOSCAR`.
 > **Date:** 2026-11-12
-> **Status:** Active — verdict Gain; follow-up filed as [`.issues/1211`](../.issues/1211_foscar_kv_fold_decode.md)
+> **Status:** LANDED+PROMOTED 2026-11-13 — verdict Gain confirmed by gate (Bench 1210: geomean 0.9360× folded/incumbent, parity PASS, `RIIR_Q8KV_FOLD=0` demote; T3b unpack-once + T6 prefill-fold DONE-NEGATIVE, Bench 1211/1212 — the Q8KV Metal family is bandwidth-governed, the decode fold the exception). Record: AGENTS.md lanes row + `.benchmarks/1210…1212_i1211_*` (the follow-up issue file removed at close, HISTORY row carries the arc)
 > **Related Research:** 024 (LeapQuant — the GDN state-quant lane; the fusion axis), 023 (FlashStates), 020 (LSA), 007 (Triadic GDN)
 > **Related Issues:** 1211 (the KV-fold decode lane — proof path), 1207 (LeapQuant GDN state Q8 — the state-readout fold rides it), 919 (ternary_kvq — the KV-half precedent)
 > **Classification:** Public
