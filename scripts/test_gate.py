@@ -48,6 +48,11 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # - target_args names the cargo test target surface ("--lib" or "--test X").
 # - filter_args is the trailing test-name filter ("" = none).
 # - floor is a passed-count floor (downward-firing).
+# Rows measured 2026-11-14 (amo, AC, load 7.8–9.6) — T2 batch (issue 1215):
+# the four CPU-only integration/lib suites join with measured floors; the
+# entropy_bounded_commit lane does NOT (see the issue: the heavy gemma2_2b
+# GPU tests SIGKILL on this shared box's memory pressure — the lane
+# verifies on dedicated GPU boxes; its 6-test EB battery passes standalone).
 ROWS = [
     (
         "int_ref CPU core suite",
@@ -74,6 +79,42 @@ ROWS = [
         "--test int_ref_python_mirror",
         "",
         8,
+        1200,
+    ),
+    (
+        "issue879 GDN quant certification (reduced arms)",
+        "riir-infer-core",
+        "deltanet_ternary_inference",
+        "--release --test issue879_gdn_quant_certification",
+        "",
+        2,
+        1800,
+    ),
+    (
+        "bonsai2 rotation loader contract",
+        "riir-infer-core",
+        "bonsai2_hadamard",
+        "--release --test bonsai2_rotation_load",
+        "",
+        11,
+        600,
+    ),
+    (
+        "issue046 GDN spectral class spec",
+        "riir-infer-core",
+        "deltanet_inference",
+        "--release --test issue046_gdn_spectral_class_spec",
+        "",
+        4,
+        600,
+    ),
+    (
+        "exl3 trellis lane (lib)",
+        "riir-infer-core",
+        "exl3",
+        "--release --lib",
+        "",
+        308,
         1200,
     ),
 ]
