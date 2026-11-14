@@ -3,6 +3,8 @@
 **Status:** WATCH-CLASS FUSION IDEA — novelty TBD (published prior art: lithos-metal, cubecl #1993, CUDA Graphs); pre-registered gates below; likely-demotes on measurement. Do NOT implement before T1's measurement passes its bar.
 
 **Unclaimed.** The trigger that arms this lane: the riir-ai issue 1165 owner flip (`RIIR_DECODE_RESIDENT` default) lands AND a T1 measurement prices per-token host-encode cost above the pre-registered demote bar.
+**Claimed:** amo-idle-i1181@amo, 1794735060, expires 2026-11-16T14:00:00Z
+(T0 pre-gate + T1 encode-share demote gate; amo quiet-window measurement)
 
 ## Pinned claim
 
