@@ -1,7 +1,7 @@
 # Bench 1219 — issue 1189 T4: the full-default closed-form write cell on Cell A (Qwen3.5-0.8B-Base-Q8_0)
 
 **Issue:** [1189](../.issues/1189_qwen38_closed_form_write_overlay_cell.md) (T4 — the deciding cell)
-**Ran:** bmo exclusive, job `01a1db54-eb41…aafe697` (re-queue 2 after the cmake fix), started 2026-11-14T18:37:50Z, ended 2026-11-14T20:02:21Z (85 min, exit 0). Adjudicated 2026-11-15 by zed-a0615aba@amo against the pre-registered T4 gates.
+**Ran:** bmo exclusive, job `01a1db54-eb41…aafe697` (re-queue 2 after the cmake fix), started 2026-11-14T18:37:50Z, ended 2026-11-14T20:02:21Z (85 min, exit 0). Adjudicated 2026-11-15 by zed-a0615aba@amo against the pre-registered T4 gates. **POISONED-WINDOW DISCLOSURE (zero timing claims):** macOS `mediaanalysisd` (pid 1125) started during the exclusive window ~30 min in — the rig flagged the run results-suspect. The adjudication KEEPS the run on the T3-precedent posture (zed-07a26ed5@amo, concurred): this is a correctness/determinism cell — byte-compare + identities + generation recall — contention moves wall time, not arithmetic, and both runs rode the same window so the compare stays apples-to-apples. No perf number is claimed anywhere in this bench; a red gate under poison would have been the re-run trigger (none red).
 
 ## Posture
 
@@ -37,4 +37,4 @@ The T3 reduced-smoke pre-read (0/1 at `--layers 11,12 --rank 8 --rounds 2`) is C
 
 - Log: bmo `~/.agent-mail/jobs/logs/01a1db54-eb41-70ae-a650-ad9a7aafe697.log` (bmo-local; the notify copy rode `zed-07a26ed5@amo`'s inbox)
 - Sidecar digests: `9b85b57f68f01b003eec990270d2864212a423b90c74f80a1ccc30a8556c195d` × 2 runs
-- Box state: bmo exclusive, AC, quiet lane (job runner's exclusive gate), load ≤ 2.7/30 throughout (probe cache)
+- Box state: bmo exclusive, AC, quiet lane (job runner's exclusive gate), load ≤ 2.7/30 throughout (probe cache); POISONED ×1 (`mediaanalysisd`, disclosed above — zero timing claims)
