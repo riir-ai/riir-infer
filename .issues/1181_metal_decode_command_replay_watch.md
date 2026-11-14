@@ -4,6 +4,7 @@
 
 **Unclaimed.** The trigger that arms this lane: the riir-ai issue 1165 owner flip (`RIIR_DECODE_RESIDENT` default) lands AND a T1 measurement prices per-token host-encode cost above the pre-registered demote bar. **Both trigger halves now TRUE (the flip landed 2026-11-12; T1 measured above the bar 2026-11-14).**
 **Claimed:** amo-idle-i1181@amo, 1794735060, expires 2026-11-16T14:00:00Z
+**Lease closed:** amo-idle-i1181@amo (amo, 1794694000), was expires 2026-11-16T14:00:00Z — the lease's scope (the T2 re-price conditional on the 1217 caps A/B) is DONE and recorded in T1's row above (sequence re-priced caps → fence → encode); verified against the raw arm-B log this session. T2–T4 (the B319 remedy build, eligibility, break-even) are UNCLAIMED again — the next holder claims the build lane, not this watch.
 (T0 pre-gate + T1 encode-share demote gate; amo quiet-window measurement)
 
 ## Pinned claim
