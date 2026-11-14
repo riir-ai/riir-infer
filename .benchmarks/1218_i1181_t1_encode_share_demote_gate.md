@@ -41,3 +41,28 @@ Consequences, precisely scoped:
 - Not a promotion/demotion of any shipped posture: the resident default (1165 flip) and its league cells are untouched; this is a diagnostic instrument row + the 1181 gate verdict.
 - Not a CUDA lane claim: the 4090 prefill graphs arm is a different engine class (the issue's own scope note).
 - The bmo confirmation cell (`rig run bmo --exclusive`, job `01a1daaa-fa45`) was queued behind that box's shared lane; it runs when the slot frees and appends a cross-box confirmation row here in a follow-up commit. The verdict does not wait on it: the margin is 3× the bar, wider than any plausible load inflation, and the encode floor (2689 µs min) is an order-independent statistic.
+
+## Cross-box confirmation — bmo (job `01a1dabb-de8f` / short `f5e35186`), 2026-11-15
+
+**Date:** 2026-11-15 · **Box:** bmo (M5 Ultra 96 GB runner, exclusive lane, load 1.2–4.4) · **Session:** zed-07a26ed5@amo (adjudicating the landed job for the `amo-idle-i1181` lease lineage)
+**Commit:** bmo riir-infer develop tip `f3588305` (the probe + counters feature unchanged from `2a744b5`'s semantics; the 1217 caps env patch `dcb140f` IS in the tree but the envs were UNSET — this row is the incumbent decomposition, not the caps A/B).
+**Model:** same `Ternary-Bonsai-2-27B-PQ2_0.gguf`, folded=true, n_layer=64 (loaded from the riir-train/data absolute path).
+**Same probe, same posture** (census + uniform-cache override, 3 ABBA pairs, walk-identity assert `ok`, 29.6 s test):
+
+| figure | bmo (this row) | amo (T1 row above) |
+|---|---|---|
+| resident enqueue p10 | **2486.2 µs** (min 2289.2) | 3552.4 µs (min 2688.6) |
+| incumbent front median | 2304.8 µs | 2979.1 µs |
+| resident enqueue blocking p50 | 14400.4 µs | 14495.7 µs |
+| resident harvest p50 / burst | 25291.8 µs | ~24–26 ms |
+| decode wall incumbent | 18.03 ms/tok | 18.87 ms/tok |
+| decode wall resident | **16.05 ms/tok** (16.05–16.06 across all 3 pairs) | 16.21 ms/tok |
+| resident wall ratio | **0.890×** | 0.859× (0.872× vs G2) |
+| host busy share | 100.0% every pair | 100.0% every pair |
+| **counters (resident-only window)** | **REGULATE=75.0% (c=108) · WRITE_POLL=0.0% (c=0) · flush=77.8% (c=216) · launch=79.5% (n=108384) · exec=69.7% · write/read=0.0%** | (the counters row this cell was queued to produce) |
+
+**Cross-box verdict: the T1 gate holds on bmo too** — encode ≥ the 1.0 ms bar by 2.3–2.5× (2.49 ms p10 / 2.29 ms min pure-encode), the lane is OPEN on both boxes, and the ~1-deep queue shape reproduces exactly (blocking enqueue p50 ≈ one GPU token; harvest ≈ 2.5 tokens per 8-burst; host busy 100%).
+
+**The counters row is the first DIRECT on-hardware decomposition of the Issue-1217 mechanism, and it REFINES it:** REGULATE occupies **75.0%** of the resident-only window and fires c=108 ≈ once per token (the window is wall 1.540 s ≈ 96 resident tokens at 16.05 ms/tok; n=108384 launches ≈ 1129/token — the 512-cap crossing predicts ~2 fires/token, measured 1.1, the flush counter c=216 carrying the other half — the exact fire/cReset interplay is the vendored stream's, not re-derived here) — while **WRITE_POLL = 0.0% (c=0): the 64-cap write-poll site never fired in this window**. The corrected mechanism's SECOND poll point is therefore not a measurable serializer on this posture (the uniform writes evidently coalesce below 64 in-flight per poll epoch); the ~1-deep pacing is the REGULATE cap alone. Issue 1217's A/B arm B (raised 16384 on BOTH caps) stays the deciding cell — the pre-registered bars read the wall + the REGULATE share, both of which this row now pins incumbent-side (18.03 → target ≥ 0.4 ms/tok improvement; REGULATE 75.0% → materially down). Arm B queued as bmo job `01a1db54-a511` (the original `712bc463` arms died on the probe's cwd-relative GGUF default — `cargo test` runs from the package dir, so `../../riir-train/...` misses; the re-run carries the absolute `BONSAI_GGUF`).
+
+Commits: this one (the row). Full job log: bmo `~/.agent-mail/jobs/logs/01a1dabb-de8f-77ae-bcde-21c9f5e35186.log`.
