@@ -1,0 +1,37 @@
+# Issue 1216: Decision-head overlay PoC — closed-form scorer solve on the laya TYPED checkpoint, paired on typed_decisions (Research 671)
+
+**Status:** OPEN — unclaimed, queueable (light-compute lane: public checkpoints + local solve; no hosted writer in the primary arm)
+
+> **Research:** katgpt-rs `.research/671_dspy_wsp_Decision_Model_WSP.md` — dspy-wsp (cmpnd, 2026-11-13): the `simulate_head` result — closed-form head solves from direct reads beat forward-only search 5.75× externally (+16.1 vs +2.8 on d1-omni-600M, Typed Decisions; caveat: `simulate_head` is a writer LLM using head recomputation as a tool — this issue's writer-free solve is the extrapolation the PoC must earn). **Family resolution:** dspy-wsp's five backends include NONE of the laya families — the laya decision-head overlay surface is unclaimed and ours to host.
+
+## Premise (why this cell, and why the claim is narrow)
+
+Three recorded kills sit on ADJACENT cells, each on different axes (Research 671 §2):
+
+| Kill | Surface × supervision | Mode |
+|---|---|---|
+| riir-train Issue 665 **Lane 2** (Bench 706) | from-scratch drive-net × hosted-LLM writer × direct rig metric | Law-4 FAIL vs best-of-8 RandOpt (LCB95 −0.0592) — the writer-arm analogue, WITH the random control dspy-wsp lacks |
+| riir-train Issue 665 **T6** (rethink Bench 099) | backbone MLP × closed-form × teacher-KL | Law-4 FAIL (tied RandOpt) + G1 FAIL |
+| riir-train **Plan 425** (Bench 613) | HEAD scorer (s1+s3, encoder frozen) × GRADIENT × direct labels, banking77/english | ENCODER-CEILING kill: holdout 0.4110 ≈ teacher 0.4312 — features don't separate that suite; NOT a fitting-method failure |
+
+**Untried, and all this issue claims untried: closed-form author × typed checkpoint × typed_decisions × the head scorer surface.** Plan 425 is the binding warning: GD upper-bounds a closed-form solve on the SAME cell, so this PoC stands or dies on (a) the cell difference (typed checkpoint, typed_decisions suite — where the encoder-representation ceiling that killed 425 on banking77 is NOT established) and (b) the T0 headroom gate, never on the solve method. **Bench 099's re-open trigger:** T6 re-opens only on a fixed small vocabulary with no per-row option shuffle and an above-chance unedited readout — this issue SIDESTEPS the binding-hypothesis condition (the laya scorer is a shared d→1 map applied per marker, not a per-letter readout) and DISCHARGES the readout condition through T0's headroom gate before any solve spend. **Law 4 stays the adjudicator** — dspy-wsp reports no budget-matched random control (their control is a weaker writer class), so external numbers pre-clear nothing.
+
+## Scope (substrate-precise)
+
+- **Model:** the laya TYPED checkpoint (LAYA_WEIGHTS_DIR / LAYA_HOME / HF download, SHA-256 verified; HF-public — egress-trivial). **Surface: the typed head's SCORER block only** — the LayerNorm → d→d GELU → d→1 stack (+ its output logits); the LN affine stays FROZEN (the 425 posture); type-emb and the act head are OUT of scope in T1. **Weight-posture pin: `Weight2D::Dense` only in T1** — Q8/Q4 head loads carry the per-family lossy rule and are out of scope; fp32-exactness claims hold only at dense loads.
+- **Reads:** `head.rs::reads_of` alone is INSUFFICIENT (per-option logits + CLS sync, no design matrix). Reuse Plan 425's companion lane — `encode_question` + `dump_encoder_states` + scorer-tensors-as-data (Bench 613's landing) — and reconstruct the post-GELU s1 design matrix from captured marker rows + scorer weights exactly as 613's train-side reimplementation did (its transcription-fidelity gate: golden mean|Δ| 5.28e-7, pick agreement 1.0000). A T0 recon line records whether any new extraction is genuinely needed.
+- **Author (primary):** closed-form solve from the s1 design matrix — `katgpt-core::quant_error_lora` rank-r ridge or `weight_edit_overlay::lp_authoring` (Issue 993 min-L1 PDHG) — emitting `EditForm::DirectionSubtraction` (column-masked rank-1) or a scorer-scoped rank-r delta. NO hosted writer in the primary arm (a hosted-writer arm is optional later, behind the egress law).
+- **Apply:** overlay-at-dequant at the scorer site — extend `closed_form_write::WriteOverlays` (Issue 1189's lane) or `weight_edit_overlay`'s compose path — never touching the packed base (the Issue-1189 law).
+- **Score:** PAIRED, **scored by riir-reflex's harness (the typed_decisions suite) — this issue lives in riir-infer, the scoring instrument lives in reflex**; same seeds, ±SE, LB95. Pins, recorded in the bench record BEFORE any cell runs: N = the full typed_decisions held-out cell as built by `build_typed_decisions`; seeds = {0, 1, 2} (common random numbers); MDE δ = 1.0 pt (the reflex paired floor). Arms: **(A)** unedited baseline · **(A′)** A + threshold-refit (the reflex cal-fit posture on the UNEDITED model — attribution arm, so C is never unattributable; dspy-wsp's Strands cell is the warning: refit alone +13.7 beat the edit +10.4) · **(B)** scorer edit · **(C)** B + threshold-refit (the composition cell, reported SEPARATELY, never folded into B) · **(F)** Law-4 norm-matched RandOpt at the kills' own EVAL budget — best-of-8 seeds × 4-dose grid — with its selection split practice-derived ONLY (never test rows).
+- **Guard certificate** (T7 triad, carried verbatim from riir-train Issue 665 + the Bench-976 arms): a protection-OFF arm must RED; a seeded-random-256 arm must HARM; a tampered envelope must refuse LOUD at thaw. Scorer-only guardrail: any edit outside the scorer block refuses at emit.
+- **Contamination law:** harness test rows NEVER enter authoring or selection — author and select on train-split-derived rows only (the grammar-not-answers posture).
+- **Execution posture:** local checkpoints + local solve — light enough for m3 (quiet box), rig-queueable (`agent-mail rig run --shared`) for the paired cells; any latency cell `--exclusive` with box state recorded.
+
+## Tasks
+
+- [ ] **T0** Headroom gate + obstacle read (Law 1, the 425 lesson): on held-out PRACTICE rows, a closed-form refit probe (ridge/LP over the same scorer parameters) must beat the shipped scorer — **LB95(refit probe − shipped scorer) > 0, else the lane dies before any solve spend** (425's encoder-ceiling kill mode is exactly what this detects cheaply). Record also the OBSTACLE HYPOTHESIS: name the failure mechanism the edit would repair on the typed cell (candidate: per-option margin/threshold miscalibration — the Research-562 calibration-gap line); no nameable obstacle = ability-absent → refuse.
+- [ ] **T1** Author: solve the scorer delta from the reconstructed s1 matrix (ridge rank-r and/or LP min-L1); emit the overlay artifact (`WeightEditArtifact` + `ProvenanceTrailer`; base digest pinned; mint-once-then-freeze).
+- [ ] **T2** Apply + paired cells A / A′ / B / C / F; keep bars: paired LB95(B−A) > 0 AND LB95(B−F) > 0; the C composition is reported against BOTH A′ and B, never load-bearing for B's claim.
+- [ ] **T3** Guard battery: protection-OFF reds; seeded-random harms; tampered-refuses; scorer-scope refusal arm.
+- [ ] **T4** Retention: a held-out second suite must hold within the paired noise band (the per-family rule; exactness claims are dense-load-scoped per the Weight2D pin).
+- [ ] **T5** Record the verdict either direction in `.benchmarks/` + a Research-671 addendum line; on FAIL, the negative joins the Law-4 ledger with the surface/supervision/cell axes labeled (Research 671's table extends).
