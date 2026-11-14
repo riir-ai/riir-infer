@@ -83,7 +83,7 @@ for f in $FAMILIES; do
     --gguf "$GGUF" \
     --corpus "$CORPUS" \
     --family-ablate "$f" --family-posture q8 \
-    --max-length 2048 --min-length 128 --score-window 512 \
+    --max-length 2048 --min-length 512 --score-window 512 \
     > "$OUT/ablate_$f.log" 2>&1 || CELL_RC=$?
   grep -E "pooled|Δ|delta|tensors|bpw" "$OUT/ablate_$f.log" | tail -5 >> "$OUT/pass_times.log" || true
 done
@@ -93,7 +93,7 @@ caffeinate -is "$BIN" \
   --gguf "$GGUF" \
   --corpus "$CORPUS" \
   --family-ablate ffn_down --family-posture q8 \
-  --max-length 2048 --min-length 128 --score-window 512 \
+  --max-length 2048 --min-length 512 --score-window 512 \
   > "$OUT/ablate_ffn_down_rerun.log" 2>&1 || CELL_RC=$?
 
 kill "$TRACE_PID" 2>/dev/null || true

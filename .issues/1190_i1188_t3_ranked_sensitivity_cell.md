@@ -31,8 +31,18 @@ gdn_out, ffn_gate, ffn_up, ffn_down, gdn_conv, gdn_dt, gdn_a, norms`.
   — ONE frozen corpus across every family and every re-run; regenerate
   verbatim from the committed recipe if missing (the paragraph is in the rig
   job script, byte-exact).
-- Shape: `--max-length 2048 --min-length 128 --score-window 512` (prefix 2048,
+- Shape: `--max-length 2048 --min-length 512 --score-window 512` (prefix 2048,
   512 scored positions — the amo fixture used 256/128 for plumbing only).
+  ⛔ **CORRECTED 2026-11-14 (the first bmo run's fast-death):** the original
+  triple wrote `--min-length 128 --score-window 512`, which violates the
+  bin's own `assert!(score_window <= min_length)` (512 ≤ 128 is False) —
+  every pass panicked at `si_zero_shot_ppl.rs:1069` in ~1 s, zero compute.
+  The assert is a RUNG-ladder invariant (the scored span must fit the
+  smallest rung); family-ablate is standalone and returns before the
+  ladder builds, so `--min-length 512` (window == min-length) is the
+  minimal flag fix that preserves the exact scored geometry. The
+  pre-registration's INTENT (prefix 2048 / 512 scored) is unchanged —
+  this is the driver bug class, not a re-tuning.
 
 **Per-family row (the report fields the tool already prints):** pooled Δ-NLL
 nats/token (golden oracle), mean |Δ|, max |Δ|, argmax flips /512, the fp32-
@@ -80,7 +90,7 @@ for f in ffn_gate ffn_up ffn_down gdn_qkv gdn_out attn_q attn_k attn_v attn_out 
     --gguf ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
     --corpus /tmp/i1188_corpus.txt \
     --family-ablate $f --family-posture q8 \
-    --max-length 2048 --min-length 128 --score-window 512 \
+    --max-length 2048 --min-length 512 --score-window 512 \
     > .i1190_out/ablate_$f.log 2>&1
 done
 # determinism gate:
