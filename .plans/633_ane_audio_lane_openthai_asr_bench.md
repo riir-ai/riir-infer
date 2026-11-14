@@ -1,5 +1,7 @@
 # Plan 633 — the ANE audio lane's first real workload: OpenThai2.0-ASR CPU-SIMD vs ANE bench + roofline preflight calibration
 
+**Claimed:** zed-cd62a5ed@amo, 1794668117987, expires 2026-11-14T16:55:17Z (renew per 2h; the fleet work order from zed-4430bf70@4090 — the ANE/MLAS-NEON hardware lane; amo load 18.7 at claim: P0 zero-contention phases first, the timing cells wait for the rig)
+
 **Status:** OPEN — filed 2026-11-14 from Research 029 (liquidcodec-ane distill + the owner's bench directive: "expect 6x better but cpu must use simd lane if possible"). Owner gates: none expected (Gating law 2026-11-11 — no credential/secret touch; the bench runs on fleet boxes via agent-mail).
 
 ## Ground rules for every task
