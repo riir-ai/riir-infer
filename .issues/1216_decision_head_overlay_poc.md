@@ -1,6 +1,7 @@
 # Issue 1216: Decision-head overlay PoC — closed-form scorer solve on the laya TYPED checkpoint, paired on typed_decisions (Research 671)
 
 **Status:** OPEN — unclaimed, queueable (light-compute lane: public checkpoints + local solve; no hosted writer in the primary arm)
+**Claimed:** zed-a0dc2e37@amo, 1763128200, expires 2026-11-16T12:00:00+00:00
 
 > **Research:** katgpt-rs `.research/671_dspy_wsp_Decision_Model_WSP.md` — dspy-wsp (cmpnd, 2026-11-13): the `simulate_head` result — closed-form head solves from direct reads beat forward-only search 5.75× externally (+16.1 vs +2.8 on d1-omni-600M, Typed Decisions; caveat: `simulate_head` is a writer LLM using head recomputation as a tool — this issue's writer-free solve is the extrapolation the PoC must earn). **Family resolution:** dspy-wsp's five backends include NONE of the laya families — the laya decision-head overlay surface is unclaimed and ours to host.
 
