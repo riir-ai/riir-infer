@@ -1,0 +1,146 @@
+Using Python 3.11.17 environment at: /Users/katopz/git/riir-infer/.raw/asr-env
+Resolved 11 packages in 4.69s
+Downloading setuptools (1.2MiB)
+Downloading sympy (6.0MiB)
+Downloading torch (132.1MiB)
+ Downloaded setuptools
+Downloading networkx (2.0MiB)
+ Downloaded torch
+ Downloaded networkx
+ Downloaded sympy
+Prepared 8 packages in 1m 06s
+Installed 8 packages in 126ms
+ + jinja2==3.1.6
+ + markupsafe==3.0.3
+ + mpmath==1.3.0
+ + networkx==3.6.1
+ + setuptools==78.1.0
+ + sympy==1.14.0
+ + torch==2.15.0
+ + torchaudio==2.11.1
+Using Python 3.11.17 environment at: /Users/katopz/git/riir-infer/.raw/asr-env
+   Updating https://github.com/NVIDIA/NeMo.git (cf724ac)
+    Updated https://github.com/NVIDIA/NeMo.git (cf724ac337d1ebc7d0dda1e23fb80916f52927a5)
+Resolved 142 packages in 1m 04s
+   Building nemo-toolkit @ git+https://github.com/NVIDIA/NeMo.git@cf724ac337d1ebc7d0dda1e23fb80916f52927a5
+Downloading pandas (10.6MiB)
+Downloading tensorboard (5.3MiB)
+Downloading pydantic-core (2.0MiB)
+Downloading pillow (4.6MiB)
+Downloading lxml (8.2MiB)
+Downloading grpcio (12.1MiB)
+Downloading sentencepiece (1.4MiB)
+Downloading cytoolz (1.1MiB)
+Downloading pyarrow (35.6MiB)
+ Downloaded cytoolz
+ Downloaded sentencepiece
+      Built nemo-toolkit @ git+https://github.com/NVIDIA/NeMo.git@cf724ac337d1ebc7d0dda1e23fb80916f52927a5
+ Downloaded pydantic-core
+ Downloaded pillow
+ Downloaded tensorboard
+ Downloaded lxml
+ Downloaded pandas
+ Downloaded grpcio
+ Downloaded pyarrow
+Prepared 64 packages in 8.08s
+Uninstalled 3 packages in 40ms
+Installed 96 packages in 237ms
+ + absl-py==2.5.1
+ + aiohappyeyeballs==2.7.1
+ + aiohttp==3.14.5
+ + aiosignal==1.4.0
+ + aistore==2.2.0
+ + annotated-doc==0.0.6
+ + annotated-types==0.8.0
+ + antlr4-python3-runtime==4.9.3
+ + attrs==26.1.0
+ + braceexpand==0.1.7
+ + colorama==0.4.6
+ + cwevals==0.0.1b1
+ + cytoolz==1.2.0
+ + datasets==5.2.0
+ + dill==0.4.1
+ + distro==1.9.0
+ + einops==0.8.2
+ + frozenlist==1.8.0
+ - fsspec==2026.9.0
+ + fsspec==2025.12.0
+ + googleapis-common-protos==1.76.0
+ + grpcio==1.85.1
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + humanize==4.17.0
+ + hydra-core==1.3.2
+ + indic-numtowords==1.1.0
+ + intervaltree==3.2.1
+ + kaldialign==0.12.0
+ + lhotse==2.0.0a6
+ + lightning==2.4.0
+ + lightning-utilities==0.15.3
+ + lxml==6.1.3
+ + markdown==3.11.3
+ + markdown-it-py==4.3.0
+ + mdurl==0.1.2
+ + more-itertools==11.2.1
+ + msgspec==0.22.0
+ + multidict==7.2.1
+ + multiprocess==0.70.19
+ + nemo-toolkit==3.1.0+cf724ac337 (from git+https://github.com/NVIDIA/NeMo.git@cf724ac337d1ebc7d0dda1e23fb80916f52927a5)
+ + nv-one-logger-core==2.3.1
+ + nv-one-logger-pytorch-lightning-integration==2.3.1
+ + nv-one-logger-training-telemetry==2.3.1
+ + omegaconf==2.3.0
+ + opentelemetry-api==1.45.2
+ + opentelemetry-exporter-http-transport==0.66b2
+ + opentelemetry-exporter-otlp-common==0.66b2
+ + opentelemetry-exporter-otlp-proto-common==1.45.2
+ + opentelemetry-exporter-otlp-proto-http==1.45.2
+ + opentelemetry-proto==1.45.2
+ + opentelemetry-sdk==1.45.2
+ + opentelemetry-semantic-conventions==0.66b2
+ + overrides==7.7.0
+ - packaging==26.3
+ + packaging==24.2
+ + pandas==3.1.1
+ + pillow==13.0.0
+ + portalocker==4.4.2
+ + propcache==0.5.4
+ + pyarrow==26.0.1
+ + pydantic==2.14.3
+ + pydantic-core==2.50.4
+ + pygments==2.21.0
+ + python-dateutil==4.0.0
+ + pytorch-lightning==2.6.6
+ + regex==2026.11.9
+ + rich==15.0.0
+ + sacrebleu==2.6.0
+ + safetensors==0.8.0
+ + sentencepiece==0.2.3
+ - setuptools==78.1.0
+ + setuptools==84.2.1
+ + shellingham==1.5.4
+ + smart-open==9.0.4
+ + sniffio==1.3.1
+ + sortedcontainers==2.4.0
+ + strenum==0.4.15
+ + tabulate==0.10.0
+ + tenacity==9.2.1
+ + tensorboard==2.21.0
+ + tensorboard-data-server==0.7.2
+ + text-unidecode==1.3
+ + text2num==3.1.0
+ + tokenizers==0.23.3
+ + toml==0.10.2
+ + toolz==1.2.0
+ + torchmetrics==1.9.0
+ + transformers==5.23.0
+ + typer==0.29.1
+ + typing-inspection==0.4.5
+ + tzdata==2026.6
+ + wandb==0.31.0
+ + webdataset==1.0.2
+ + werkzeug==3.1.9
+ + whisper-normalizer==1.0.1
+ + wrapt==2.5.2
+ + xxhash==4.1.0
+ + yarl==1.25.1

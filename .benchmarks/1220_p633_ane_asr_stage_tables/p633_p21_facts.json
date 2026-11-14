@@ -1,0 +1,28 @@
+{
+  "att_context": [
+    56,
+    6
+  ],
+  "chunk_size": [
+    49,
+    56
+  ],
+  "shift_size": [
+    49,
+    56
+  ],
+  "pre_encode_cache": [
+    0,
+    9
+  ],
+  "drop_extra_pre_encoded": 2,
+  "valid_out_len": 7,
+  "last_channel_cache_size": 56,
+  "prompt_index": 32,
+  "num_prompts": 128,
+  "prompt_kernel": "Sequential(\n  (0): Linear(in_features=1152, out_features=2048, bias=True)\n  (1): ReLU()\n  (2): Linear(in_features=2048, out_features=1024, bias=True)\n)",
+  "self_attention_model": "rel_pos",
+  "att_context_style": "chunked_limited",
+  "n_layers": 24,
+  "d_model": 1024
+}

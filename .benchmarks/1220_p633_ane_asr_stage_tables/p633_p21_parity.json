@@ -1,0 +1,1768 @@
+{
+  "clips": [
+    {
+      "clip": "fleurs/data/th_th/audio/test/9383511766013567224.wav",
+      "family": "fleurs-th",
+      "audio_s": 13.08,
+      "n_steps": 24,
+      "steps": [
+        {
+          "step": 0,
+          "tag": "first",
+          "encoded_max_abs": 0.024171,
+          "encoded_rel_rms": 0.0076655,
+          "cache_max_abs": 2.12011,
+          "len_match": true,
+          "cache_len": [
+            7
+          ],
+          "torch_cache_len": [
+            7
+          ]
+        },
+        {
+          "step": 1,
+          "tag": "step",
+          "encoded_max_abs": 0.028388,
+          "encoded_rel_rms": 0.01169514,
+          "cache_max_abs": 4.686584,
+          "len_match": true,
+          "cache_len": [
+            14
+          ],
+          "torch_cache_len": [
+            14
+          ]
+        },
+        {
+          "step": 2,
+          "tag": "step",
+          "encoded_max_abs": 0.027766,
+          "encoded_rel_rms": 0.0090775,
+          "cache_max_abs": 5.455475,
+          "len_match": true,
+          "cache_len": [
+            21
+          ],
+          "torch_cache_len": [
+            21
+          ]
+        },
+        {
+          "step": 3,
+          "tag": "step",
+          "encoded_max_abs": 0.021859,
+          "encoded_rel_rms": 0.00802099,
+          "cache_max_abs": 3.379906,
+          "len_match": true,
+          "cache_len": [
+            28
+          ],
+          "torch_cache_len": [
+            28
+          ]
+        },
+        {
+          "step": 4,
+          "tag": "step",
+          "encoded_max_abs": 0.017321,
+          "encoded_rel_rms": 0.00683451,
+          "cache_max_abs": 4.592964,
+          "len_match": true,
+          "cache_len": [
+            35
+          ],
+          "torch_cache_len": [
+            35
+          ]
+        },
+        {
+          "step": 5,
+          "tag": "step",
+          "encoded_max_abs": 0.021652,
+          "encoded_rel_rms": 0.00671809,
+          "cache_max_abs": 4.014713,
+          "len_match": true,
+          "cache_len": [
+            42
+          ],
+          "torch_cache_len": [
+            42
+          ]
+        },
+        {
+          "step": 6,
+          "tag": "step",
+          "encoded_max_abs": 0.02708,
+          "encoded_rel_rms": 0.00969929,
+          "cache_max_abs": 5.522724,
+          "len_match": true,
+          "cache_len": [
+            49
+          ],
+          "torch_cache_len": [
+            49
+          ]
+        },
+        {
+          "step": 7,
+          "tag": "step",
+          "encoded_max_abs": 0.020362,
+          "encoded_rel_rms": 0.00695847,
+          "cache_max_abs": 4.420025,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 8,
+          "tag": "step",
+          "encoded_max_abs": 0.042012,
+          "encoded_rel_rms": 0.01307845,
+          "cache_max_abs": 6.10747,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 9,
+          "tag": "step",
+          "encoded_max_abs": 0.019158,
+          "encoded_rel_rms": 0.00716017,
+          "cache_max_abs": 2.717016,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 10,
+          "tag": "step",
+          "encoded_max_abs": 0.02661,
+          "encoded_rel_rms": 0.00997479,
+          "cache_max_abs": 4.635929,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 11,
+          "tag": "step",
+          "encoded_max_abs": 0.062325,
+          "encoded_rel_rms": 0.00905061,
+          "cache_max_abs": 5.962761,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 12,
+          "tag": "step",
+          "encoded_max_abs": 0.021176,
+          "encoded_rel_rms": 0.00735624,
+          "cache_max_abs": 4.589355,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 13,
+          "tag": "step",
+          "encoded_max_abs": 0.03582,
+          "encoded_rel_rms": 0.00915297,
+          "cache_max_abs": 2.865082,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 14,
+          "tag": "step",
+          "encoded_max_abs": 0.032263,
+          "encoded_rel_rms": 0.01130098,
+          "cache_max_abs": 4.268967,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 15,
+          "tag": "step",
+          "encoded_max_abs": 0.042715,
+          "encoded_rel_rms": 0.0091376,
+          "cache_max_abs": 6.934986,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 16,
+          "tag": "step",
+          "encoded_max_abs": 0.041385,
+          "encoded_rel_rms": 0.01552742,
+          "cache_max_abs": 4.626217,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 17,
+          "tag": "step",
+          "encoded_max_abs": 0.035593,
+          "encoded_rel_rms": 0.00816536,
+          "cache_max_abs": 6.021271,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 18,
+          "tag": "step",
+          "encoded_max_abs": 0.056534,
+          "encoded_rel_rms": 0.00994238,
+          "cache_max_abs": 5.115751,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 19,
+          "tag": "step",
+          "encoded_max_abs": 0.043339,
+          "encoded_rel_rms": 0.00697201,
+          "cache_max_abs": 3.177481,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 20,
+          "tag": "step",
+          "encoded_max_abs": 0.033432,
+          "encoded_rel_rms": 0.00781506,
+          "cache_max_abs": 7.195694,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 21,
+          "tag": "step",
+          "encoded_max_abs": 0.024131,
+          "encoded_rel_rms": 0.00679697,
+          "cache_max_abs": 4.982948,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 22,
+          "tag": "step",
+          "encoded_max_abs": 0.039069,
+          "encoded_rel_rms": 0.00641668,
+          "cache_max_abs": 4.654514,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 23,
+          "tag": "flush-cpu",
+          "note": "keep_all_outputs=True"
+        }
+      ],
+      "token_identity_pct": 100.0,
+      "ref_cer": null
+    },
+    {
+      "clip": "fleurs/data/th_th/audio/test/14092782195947690542.wav",
+      "family": "fleurs-th",
+      "audio_s": 21.48,
+      "n_steps": 39,
+      "steps": [
+        {
+          "step": 0,
+          "tag": "first",
+          "encoded_max_abs": 0.020366,
+          "encoded_rel_rms": 0.00736632,
+          "cache_max_abs": 2.107214,
+          "len_match": true,
+          "cache_len": [
+            7
+          ],
+          "torch_cache_len": [
+            7
+          ]
+        },
+        {
+          "step": 1,
+          "tag": "step",
+          "encoded_max_abs": 0.026061,
+          "encoded_rel_rms": 0.01004959,
+          "cache_max_abs": 1.803534,
+          "len_match": true,
+          "cache_len": [
+            14
+          ],
+          "torch_cache_len": [
+            14
+          ]
+        },
+        {
+          "step": 2,
+          "tag": "step",
+          "encoded_max_abs": 0.13391,
+          "encoded_rel_rms": 0.03811462,
+          "cache_max_abs": 2.495176,
+          "len_match": true,
+          "cache_len": [
+            21
+          ],
+          "torch_cache_len": [
+            21
+          ]
+        },
+        {
+          "step": 3,
+          "tag": "step",
+          "encoded_max_abs": 0.031357,
+          "encoded_rel_rms": 0.00673688,
+          "cache_max_abs": 4.152985,
+          "len_match": true,
+          "cache_len": [
+            28
+          ],
+          "torch_cache_len": [
+            28
+          ]
+        },
+        {
+          "step": 4,
+          "tag": "step",
+          "encoded_max_abs": 0.07535,
+          "encoded_rel_rms": 0.01377949,
+          "cache_max_abs": 4.471985,
+          "len_match": true,
+          "cache_len": [
+            35
+          ],
+          "torch_cache_len": [
+            35
+          ]
+        },
+        {
+          "step": 5,
+          "tag": "step",
+          "encoded_max_abs": 0.05317,
+          "encoded_rel_rms": 0.01499754,
+          "cache_max_abs": 6.250248,
+          "len_match": true,
+          "cache_len": [
+            42
+          ],
+          "torch_cache_len": [
+            42
+          ]
+        },
+        {
+          "step": 6,
+          "tag": "step",
+          "encoded_max_abs": 0.020172,
+          "encoded_rel_rms": 0.00705458,
+          "cache_max_abs": 2.953156,
+          "len_match": true,
+          "cache_len": [
+            49
+          ],
+          "torch_cache_len": [
+            49
+          ]
+        },
+        {
+          "step": 7,
+          "tag": "step",
+          "encoded_max_abs": 0.037782,
+          "encoded_rel_rms": 0.00761093,
+          "cache_max_abs": 2.768864,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 8,
+          "tag": "step",
+          "encoded_max_abs": 0.037321,
+          "encoded_rel_rms": 0.00816609,
+          "cache_max_abs": 4.504341,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 9,
+          "tag": "step",
+          "encoded_max_abs": 0.019784,
+          "encoded_rel_rms": 0.00996633,
+          "cache_max_abs": 11.440292,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 10,
+          "tag": "step",
+          "encoded_max_abs": 0.026492,
+          "encoded_rel_rms": 0.00908756,
+          "cache_max_abs": 6.422184,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 11,
+          "tag": "step",
+          "encoded_max_abs": 0.023631,
+          "encoded_rel_rms": 0.00925926,
+          "cache_max_abs": 4.073261,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 12,
+          "tag": "step",
+          "encoded_max_abs": 0.042871,
+          "encoded_rel_rms": 0.01170816,
+          "cache_max_abs": 4.7738,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 13,
+          "tag": "step",
+          "encoded_max_abs": 0.017515,
+          "encoded_rel_rms": 0.00689447,
+          "cache_max_abs": 4.747017,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 14,
+          "tag": "step",
+          "encoded_max_abs": 0.021076,
+          "encoded_rel_rms": 0.00886136,
+          "cache_max_abs": 4.446749,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 15,
+          "tag": "step",
+          "encoded_max_abs": 0.031329,
+          "encoded_rel_rms": 0.01024995,
+          "cache_max_abs": 4.567776,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 16,
+          "tag": "step",
+          "encoded_max_abs": 0.017673,
+          "encoded_rel_rms": 0.00732115,
+          "cache_max_abs": 5.037235,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 17,
+          "tag": "step",
+          "encoded_max_abs": 0.013938,
+          "encoded_rel_rms": 0.00704505,
+          "cache_max_abs": 7.536667,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 18,
+          "tag": "step",
+          "encoded_max_abs": 0.024997,
+          "encoded_rel_rms": 0.00926964,
+          "cache_max_abs": 6.439793,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 19,
+          "tag": "step",
+          "encoded_max_abs": 0.018961,
+          "encoded_rel_rms": 0.00727089,
+          "cache_max_abs": 5.528183,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 20,
+          "tag": "step",
+          "encoded_max_abs": 0.018295,
+          "encoded_rel_rms": 0.01003509,
+          "cache_max_abs": 5.036854,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 21,
+          "tag": "step",
+          "encoded_max_abs": 0.032588,
+          "encoded_rel_rms": 0.01003599,
+          "cache_max_abs": 2.838921,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 22,
+          "tag": "step",
+          "encoded_max_abs": 0.03067,
+          "encoded_rel_rms": 0.01219486,
+          "cache_max_abs": 6.259615,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 23,
+          "tag": "step",
+          "encoded_max_abs": 0.040452,
+          "encoded_rel_rms": 0.00951185,
+          "cache_max_abs": 5.582596,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 24,
+          "tag": "step",
+          "encoded_max_abs": 0.064293,
+          "encoded_rel_rms": 0.01342013,
+          "cache_max_abs": 3.623192,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 25,
+          "tag": "step",
+          "encoded_max_abs": 0.027053,
+          "encoded_rel_rms": 0.0095254,
+          "cache_max_abs": 4.034094,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 26,
+          "tag": "step",
+          "encoded_max_abs": 0.024078,
+          "encoded_rel_rms": 0.0088245,
+          "cache_max_abs": 2.88385,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 27,
+          "tag": "step",
+          "encoded_max_abs": 0.019765,
+          "encoded_rel_rms": 0.0070267,
+          "cache_max_abs": 4.033714,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 28,
+          "tag": "step",
+          "encoded_max_abs": 0.040861,
+          "encoded_rel_rms": 0.01245786,
+          "cache_max_abs": 4.097368,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 29,
+          "tag": "step",
+          "encoded_max_abs": 0.04397,
+          "encoded_rel_rms": 0.0125311,
+          "cache_max_abs": 6.500549,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 30,
+          "tag": "step",
+          "encoded_max_abs": 0.070667,
+          "encoded_rel_rms": 0.01719757,
+          "cache_max_abs": 3.621506,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 31,
+          "tag": "step",
+          "encoded_max_abs": 0.027942,
+          "encoded_rel_rms": 0.00808867,
+          "cache_max_abs": 6.085556,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 32,
+          "tag": "step",
+          "encoded_max_abs": 0.030354,
+          "encoded_rel_rms": 0.00483625,
+          "cache_max_abs": 5.90464,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 33,
+          "tag": "step",
+          "encoded_max_abs": 0.024506,
+          "encoded_rel_rms": 0.00803591,
+          "cache_max_abs": 4.094444,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 34,
+          "tag": "step",
+          "encoded_max_abs": 0.029916,
+          "encoded_rel_rms": 0.01152757,
+          "cache_max_abs": 7.757744,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 35,
+          "tag": "step",
+          "encoded_max_abs": 0.05262,
+          "encoded_rel_rms": 0.01235151,
+          "cache_max_abs": 5.203705,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 36,
+          "tag": "step",
+          "encoded_max_abs": 0.094658,
+          "encoded_rel_rms": 0.02745427,
+          "cache_max_abs": 3.095947,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 37,
+          "tag": "step",
+          "encoded_max_abs": 0.033854,
+          "encoded_rel_rms": 0.00909114,
+          "cache_max_abs": 5.912064,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 38,
+          "tag": "flush-cpu",
+          "note": "keep_all_outputs=True"
+        }
+      ],
+      "token_identity_pct": 100.0,
+      "ref_cer": null
+    },
+    {
+      "clip": "fixtures/tvspeech_audio/9.wav",
+      "family": "tvspeech",
+      "audio_s": 29.248,
+      "n_steps": 53,
+      "steps": [
+        {
+          "step": 0,
+          "tag": "first",
+          "encoded_max_abs": 0.031948,
+          "encoded_rel_rms": 0.0136851,
+          "cache_max_abs": 3.133619,
+          "len_match": true,
+          "cache_len": [
+            7
+          ],
+          "torch_cache_len": [
+            7
+          ]
+        },
+        {
+          "step": 1,
+          "tag": "step",
+          "encoded_max_abs": 0.031165,
+          "encoded_rel_rms": 0.01251943,
+          "cache_max_abs": 3.704792,
+          "len_match": true,
+          "cache_len": [
+            14
+          ],
+          "torch_cache_len": [
+            14
+          ]
+        },
+        {
+          "step": 2,
+          "tag": "step",
+          "encoded_max_abs": 0.032723,
+          "encoded_rel_rms": 0.01437361,
+          "cache_max_abs": 4.611843,
+          "len_match": true,
+          "cache_len": [
+            21
+          ],
+          "torch_cache_len": [
+            21
+          ]
+        },
+        {
+          "step": 3,
+          "tag": "step",
+          "encoded_max_abs": 0.031379,
+          "encoded_rel_rms": 0.01116418,
+          "cache_max_abs": 2.867699,
+          "len_match": true,
+          "cache_len": [
+            28
+          ],
+          "torch_cache_len": [
+            28
+          ]
+        },
+        {
+          "step": 4,
+          "tag": "step",
+          "encoded_max_abs": 0.100551,
+          "encoded_rel_rms": 0.02635523,
+          "cache_max_abs": 3.582134,
+          "len_match": true,
+          "cache_len": [
+            35
+          ],
+          "torch_cache_len": [
+            35
+          ]
+        },
+        {
+          "step": 5,
+          "tag": "step",
+          "encoded_max_abs": 0.02626,
+          "encoded_rel_rms": 0.01094459,
+          "cache_max_abs": 3.544965,
+          "len_match": true,
+          "cache_len": [
+            42
+          ],
+          "torch_cache_len": [
+            42
+          ]
+        },
+        {
+          "step": 6,
+          "tag": "step",
+          "encoded_max_abs": 0.048645,
+          "encoded_rel_rms": 0.01474287,
+          "cache_max_abs": 4.070175,
+          "len_match": true,
+          "cache_len": [
+            49
+          ],
+          "torch_cache_len": [
+            49
+          ]
+        },
+        {
+          "step": 7,
+          "tag": "step",
+          "encoded_max_abs": 0.046975,
+          "encoded_rel_rms": 0.0102505,
+          "cache_max_abs": 5.934952,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 8,
+          "tag": "step",
+          "encoded_max_abs": 0.042373,
+          "encoded_rel_rms": 0.01450257,
+          "cache_max_abs": 4.465206,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 9,
+          "tag": "step",
+          "encoded_max_abs": 0.05537,
+          "encoded_rel_rms": 0.01401621,
+          "cache_max_abs": 4.915188,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 10,
+          "tag": "step",
+          "encoded_max_abs": 0.02273,
+          "encoded_rel_rms": 0.00941393,
+          "cache_max_abs": 4.523418,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 11,
+          "tag": "step",
+          "encoded_max_abs": 0.040342,
+          "encoded_rel_rms": 0.00802999,
+          "cache_max_abs": 4.250925,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 12,
+          "tag": "step",
+          "encoded_max_abs": 0.024704,
+          "encoded_rel_rms": 0.00831109,
+          "cache_max_abs": 4.968868,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 13,
+          "tag": "step",
+          "encoded_max_abs": 0.017267,
+          "encoded_rel_rms": 0.00569424,
+          "cache_max_abs": 4.978954,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 14,
+          "tag": "step",
+          "encoded_max_abs": 0.048323,
+          "encoded_rel_rms": 0.01015505,
+          "cache_max_abs": 3.706146,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 15,
+          "tag": "step",
+          "encoded_max_abs": 0.023458,
+          "encoded_rel_rms": 0.00881804,
+          "cache_max_abs": 7.066986,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 16,
+          "tag": "step",
+          "encoded_max_abs": 0.021617,
+          "encoded_rel_rms": 0.00902713,
+          "cache_max_abs": 4.647854,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 17,
+          "tag": "step",
+          "encoded_max_abs": 0.032297,
+          "encoded_rel_rms": 0.00908546,
+          "cache_max_abs": 7.637749,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 18,
+          "tag": "step",
+          "encoded_max_abs": 0.040644,
+          "encoded_rel_rms": 0.01161094,
+          "cache_max_abs": 4.40834,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 19,
+          "tag": "step",
+          "encoded_max_abs": 0.039152,
+          "encoded_rel_rms": 0.0095989,
+          "cache_max_abs": 4.353106,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 20,
+          "tag": "step",
+          "encoded_max_abs": 0.111004,
+          "encoded_rel_rms": 0.02140883,
+          "cache_max_abs": 3.394556,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 21,
+          "tag": "step",
+          "encoded_max_abs": 0.03602,
+          "encoded_rel_rms": 0.01038685,
+          "cache_max_abs": 6.808903,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 22,
+          "tag": "step",
+          "encoded_max_abs": 0.06557,
+          "encoded_rel_rms": 0.01221026,
+          "cache_max_abs": 4.470211,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 23,
+          "tag": "step",
+          "encoded_max_abs": 0.045725,
+          "encoded_rel_rms": 0.01331344,
+          "cache_max_abs": 4.890362,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 24,
+          "tag": "step",
+          "encoded_max_abs": 0.027923,
+          "encoded_rel_rms": 0.00786407,
+          "cache_max_abs": 5.365309,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 25,
+          "tag": "step",
+          "encoded_max_abs": 0.03742,
+          "encoded_rel_rms": 0.0110367,
+          "cache_max_abs": 4.625587,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 26,
+          "tag": "step",
+          "encoded_max_abs": 0.075335,
+          "encoded_rel_rms": 0.0150427,
+          "cache_max_abs": 4.026863,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 27,
+          "tag": "step",
+          "encoded_max_abs": 0.045939,
+          "encoded_rel_rms": 0.00837486,
+          "cache_max_abs": 4.451334,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 28,
+          "tag": "step",
+          "encoded_max_abs": 0.034893,
+          "encoded_rel_rms": 0.01220903,
+          "cache_max_abs": 5.61742,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 29,
+          "tag": "step",
+          "encoded_max_abs": 0.03203,
+          "encoded_rel_rms": 0.01048021,
+          "cache_max_abs": 4.163742,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 30,
+          "tag": "step",
+          "encoded_max_abs": 0.02518,
+          "encoded_rel_rms": 0.00754668,
+          "cache_max_abs": 5.408852,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 31,
+          "tag": "step",
+          "encoded_max_abs": 0.058746,
+          "encoded_rel_rms": 0.01254498,
+          "cache_max_abs": 5.579857,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 32,
+          "tag": "step",
+          "encoded_max_abs": 0.036941,
+          "encoded_rel_rms": 0.00823821,
+          "cache_max_abs": 5.330135,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 33,
+          "tag": "step",
+          "encoded_max_abs": 0.034335,
+          "encoded_rel_rms": 0.01011427,
+          "cache_max_abs": 6.7328,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 34,
+          "tag": "step",
+          "encoded_max_abs": 0.035497,
+          "encoded_rel_rms": 0.00980344,
+          "cache_max_abs": 5.102219,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 35,
+          "tag": "step",
+          "encoded_max_abs": 0.029969,
+          "encoded_rel_rms": 0.00854402,
+          "cache_max_abs": 6.727734,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 36,
+          "tag": "step",
+          "encoded_max_abs": 0.037383,
+          "encoded_rel_rms": 0.01031271,
+          "cache_max_abs": 5.835678,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 37,
+          "tag": "step",
+          "encoded_max_abs": 0.045651,
+          "encoded_rel_rms": 0.01072255,
+          "cache_max_abs": 5.681889,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 38,
+          "tag": "step",
+          "encoded_max_abs": 0.03065,
+          "encoded_rel_rms": 0.00944944,
+          "cache_max_abs": 5.968735,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 39,
+          "tag": "step",
+          "encoded_max_abs": 0.030585,
+          "encoded_rel_rms": 0.00733752,
+          "cache_max_abs": 4.186569,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 40,
+          "tag": "step",
+          "encoded_max_abs": 0.022235,
+          "encoded_rel_rms": 0.00552844,
+          "cache_max_abs": 4.420544,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 41,
+          "tag": "step",
+          "encoded_max_abs": 0.016515,
+          "encoded_rel_rms": 0.00981029,
+          "cache_max_abs": 2.630138,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 42,
+          "tag": "step",
+          "encoded_max_abs": 0.027525,
+          "encoded_rel_rms": 0.00702156,
+          "cache_max_abs": 3.61412,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 43,
+          "tag": "step",
+          "encoded_max_abs": 0.038535,
+          "encoded_rel_rms": 0.01388094,
+          "cache_max_abs": 2.742319,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 44,
+          "tag": "step",
+          "encoded_max_abs": 0.037763,
+          "encoded_rel_rms": 0.01328014,
+          "cache_max_abs": 3.006603,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 45,
+          "tag": "step",
+          "encoded_max_abs": 0.023281,
+          "encoded_rel_rms": 0.01024863,
+          "cache_max_abs": 3.593094,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 46,
+          "tag": "step",
+          "encoded_max_abs": 0.018971,
+          "encoded_rel_rms": 0.00619422,
+          "cache_max_abs": 4.671822,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 47,
+          "tag": "step",
+          "encoded_max_abs": 0.020495,
+          "encoded_rel_rms": 0.00619271,
+          "cache_max_abs": 4.679611,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 48,
+          "tag": "step",
+          "encoded_max_abs": 0.032585,
+          "encoded_rel_rms": 0.00890633,
+          "cache_max_abs": 4.906807,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 49,
+          "tag": "step",
+          "encoded_max_abs": 0.0338,
+          "encoded_rel_rms": 0.00599301,
+          "cache_max_abs": 4.880493,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 50,
+          "tag": "step",
+          "encoded_max_abs": 0.029371,
+          "encoded_rel_rms": 0.00613465,
+          "cache_max_abs": 2.862968,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 51,
+          "tag": "step",
+          "encoded_max_abs": 0.033235,
+          "encoded_rel_rms": 0.01385728,
+          "cache_max_abs": 5.350025,
+          "len_match": true,
+          "cache_len": [
+            56
+          ],
+          "torch_cache_len": [
+            56
+          ]
+        },
+        {
+          "step": 52,
+          "tag": "flush-cpu",
+          "note": "keep_all_outputs=True"
+        }
+      ],
+      "token_identity_pct": 100.0,
+      "ref_cer": null
+    }
+  ],
+  "shape_log": [
+    {
+      "clip": "fleurs/data/th_th/audio/test/9383511766013567224.wav",
+      "step": 0,
+      "tag": "first",
+      "chunk": [
+        1,
+        128,
+        49
+      ],
+      "len": [
+        49
+      ],
+      "keep_all": false,
+      "drop": 0
+    },
+    {
+      "clip": "fleurs/data/th_th/audio/test/9383511766013567224.wav",
+      "step": 1,
+      "tag": "step",
+      "chunk": [
+        1,
+        128,
+        65
+      ],
+      "len": [
+        65
+      ],
+      "keep_all": false,
+      "drop": 2
+    },
+    {
+      "clip": "fleurs/data/th_th/audio/test/9383511766013567224.wav",
+      "step": 2,
+      "tag": "step",
+      "chunk": [
+        1,
+        128,
+        65
+      ],
+      "len": [
+        65
+      ],
+      "keep_all": false,
+      "drop": 2
+    },
+    {
+      "clip": "fleurs/data/th_th/audio/test/14092782195947690542.wav",
+      "step": 0,
+      "tag": "first",
+      "chunk": [
+        1,
+        128,
+        49
+      ],
+      "len": [
+        49
+      ],
+      "keep_all": false,
+      "drop": 0
+    },
+    {
+      "clip": "fleurs/data/th_th/audio/test/14092782195947690542.wav",
+      "step": 1,
+      "tag": "step",
+      "chunk": [
+        1,
+        128,
+        65
+      ],
+      "len": [
+        65
+      ],
+      "keep_all": false,
+      "drop": 2
+    },
+    {
+      "clip": "fleurs/data/th_th/audio/test/14092782195947690542.wav",
+      "step": 2,
+      "tag": "step",
+      "chunk": [
+        1,
+        128,
+        65
+      ],
+      "len": [
+        65
+      ],
+      "keep_all": false,
+      "drop": 2
+    },
+    {
+      "clip": "fixtures/tvspeech_audio/9.wav",
+      "step": 0,
+      "tag": "first",
+      "chunk": [
+        1,
+        128,
+        49
+      ],
+      "len": [
+        49
+      ],
+      "keep_all": false,
+      "drop": 0
+    },
+    {
+      "clip": "fixtures/tvspeech_audio/9.wav",
+      "step": 1,
+      "tag": "step",
+      "chunk": [
+        1,
+        128,
+        65
+      ],
+      "len": [
+        65
+      ],
+      "keep_all": false,
+      "drop": 2
+    },
+    {
+      "clip": "fixtures/tvspeech_audio/9.wav",
+      "step": 2,
+      "tag": "step",
+      "chunk": [
+        1,
+        128,
+        65
+      ],
+      "len": [
+        65
+      ],
+      "keep_all": false,
+      "drop": 2
+    }
+  ]
+}

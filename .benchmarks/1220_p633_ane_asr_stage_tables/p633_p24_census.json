@@ -1,0 +1,193 @@
+{
+  "first": {
+    "tag": "first",
+    "n_ops": 3803,
+    "placed": 1621,
+    "pref_counts": {
+      "unplaced": 2182,
+      "NeuralEngineComputeDevice": 1585,
+      "CPUComputeDevice": 36
+    },
+    "op_counts_by_type": {
+      "const": 2182,
+      "ios17.cast": 16,
+      "ios17.transpose": 172,
+      "ios17.expand_dims": 18,
+      "ios17.less": 5,
+      "tile": 9,
+      "ios17.mul": 106,
+      "pad": 27,
+      "ios17.conv": 29,
+      "ios17.add": 180,
+      "ios17.sub": 3,
+      "ios17.floor_div": 3,
+      "ios16.relu": 4,
+      "ios17.reshape": 145,
+      "ios17.linear": 243,
+      "ios17.greater_equal": 1,
+      "ios17.logical_and": 3,
+      "ios17.logical_not": 2,
+      "ios17.slice_by_index": 146,
+      "ios17.layer_norm": 144,
+      "ios16.silu": 72,
+      "ios17.concat": 73,
+      "ios17.matmul": 72,
+      "select": 72,
+      "ios16.softmax": 24,
+      "split": 24,
+      "ios16.sigmoid": 24,
+      "stack": 2,
+      "ios17.clip": 2
+    },
+    "placed_ops_ane_pct": 97.78,
+    "cost_weighted_ane_pct": 100.0,
+    "n_cost_rows": 1621,
+    "note": "plan loaded at CPU_AND_NE via the SYNC load_from_path (the async on-device loader returned None costs at ct 9 \u2014 superseded instrument finding); cost = MLComputePlanCost.weight"
+  },
+  "step": {
+    "tag": "step",
+    "n_ops": 3817,
+    "placed": 1626,
+    "pref_counts": {
+      "unplaced": 2191,
+      "NeuralEngineComputeDevice": 1590,
+      "CPUComputeDevice": 36
+    },
+    "op_counts_by_type": {
+      "const": 2191,
+      "ios17.cast": 18,
+      "ios17.transpose": 172,
+      "ios17.expand_dims": 18,
+      "ios17.less": 5,
+      "tile": 9,
+      "ios17.mul": 106,
+      "pad": 27,
+      "ios17.conv": 29,
+      "ios17.add": 180,
+      "ios17.sub": 4,
+      "ios17.floor_div": 3,
+      "ios16.relu": 4,
+      "ios17.reshape": 145,
+      "ios17.linear": 243,
+      "ios17.slice_by_index": 147,
+      "ios17.clip": 3,
+      "ios17.greater_equal": 1,
+      "ios17.logical_and": 3,
+      "ios17.logical_not": 2,
+      "ios17.layer_norm": 144,
+      "ios16.silu": 72,
+      "ios17.concat": 73,
+      "ios17.matmul": 72,
+      "select": 72,
+      "ios16.softmax": 24,
+      "split": 24,
+      "ios16.sigmoid": 24,
+      "stack": 2
+    },
+    "placed_ops_ane_pct": 97.79,
+    "cost_weighted_ane_pct": 100.0,
+    "n_cost_rows": 1626,
+    "note": "plan loaded at CPU_AND_NE via the SYNC load_from_path (the async on-device loader returned None costs at ct 9 \u2014 superseded instrument finding); cost = MLComputePlanCost.weight"
+  },
+  "dec_step": {
+    "tag": "dec_step",
+    "n_ops": 42,
+    "placed": 13,
+    "pref_counts": {
+      "unplaced": 29,
+      "CPUComputeDevice": 13
+    },
+    "op_counts_by_type": {
+      "const": 29,
+      "ios17.cast": 3,
+      "split": 2,
+      "ios17.squeeze": 4,
+      "ios17.lstm": 2,
+      "stack": 2
+    },
+    "placed_ops_ane_pct": 0.0,
+    "cost_weighted_ane_pct": 0.0,
+    "n_cost_rows": 13,
+    "note": "plan loaded at CPU_AND_NE via the SYNC load_from_path (the async on-device loader returned None costs at ct 9 \u2014 superseded instrument finding); cost = MLComputePlanCost.weight"
+  },
+  "joint_b1": {
+    "tag": "joint_b1",
+    "n_ops": 15,
+    "placed": 7,
+    "pref_counts": {
+      "unplaced": 8,
+      "NeuralEngineComputeDevice": 7
+    },
+    "op_counts_by_type": {
+      "const": 8,
+      "ios17.cast": 2,
+      "ios17.linear": 3,
+      "ios17.add": 1,
+      "ios16.relu": 1
+    },
+    "placed_ops_ane_pct": 100.0,
+    "cost_weighted_ane_pct": 100.0,
+    "n_cost_rows": 7,
+    "note": "plan loaded at CPU_AND_NE via the SYNC load_from_path (the async on-device loader returned None costs at ct 9 \u2014 superseded instrument finding); cost = MLComputePlanCost.weight"
+  },
+  "joint_b28": {
+    "tag": "joint_b28",
+    "n_ops": 15,
+    "placed": 7,
+    "pref_counts": {
+      "unplaced": 8,
+      "NeuralEngineComputeDevice": 7
+    },
+    "op_counts_by_type": {
+      "const": 8,
+      "ios17.cast": 2,
+      "ios17.linear": 3,
+      "ios17.add": 1,
+      "ios16.relu": 1
+    },
+    "placed_ops_ane_pct": 100.0,
+    "cost_weighted_ane_pct": 100.0,
+    "n_cost_rows": 7,
+    "note": "plan loaded at CPU_AND_NE via the SYNC load_from_path (the async on-device loader returned None costs at ct 9 \u2014 superseded instrument finding); cost = MLComputePlanCost.weight"
+  },
+  "joint_b56": {
+    "tag": "joint_b56",
+    "n_ops": 15,
+    "placed": 7,
+    "pref_counts": {
+      "unplaced": 8,
+      "NeuralEngineComputeDevice": 7
+    },
+    "op_counts_by_type": {
+      "const": 8,
+      "ios17.cast": 2,
+      "ios17.linear": 3,
+      "ios17.add": 1,
+      "ios16.relu": 1
+    },
+    "placed_ops_ane_pct": 100.0,
+    "cost_weighted_ane_pct": 100.0,
+    "n_cost_rows": 7,
+    "note": "plan loaded at CPU_AND_NE via the SYNC load_from_path (the async on-device loader returned None costs at ct 9 \u2014 superseded instrument finding); cost = MLComputePlanCost.weight"
+  },
+  "joint_b112": {
+    "tag": "joint_b112",
+    "n_ops": 15,
+    "placed": 7,
+    "pref_counts": {
+      "unplaced": 8,
+      "NeuralEngineComputeDevice": 7
+    },
+    "op_counts_by_type": {
+      "const": 8,
+      "ios17.cast": 2,
+      "ios17.linear": 3,
+      "ios17.add": 1,
+      "ios16.relu": 1
+    },
+    "placed_ops_ane_pct": 100.0,
+    "cost_weighted_ane_pct": 100.0,
+    "n_cost_rows": 7,
+    "note": "plan loaded at CPU_AND_NE via the SYNC load_from_path (the async on-device loader returned None costs at ct 9 \u2014 superseded instrument finding); cost = MLComputePlanCost.weight"
+  }
+}

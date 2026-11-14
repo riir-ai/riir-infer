@@ -1,8 +1,8 @@
 # Plan 633 — the ANE audio lane's first real workload: OpenThai2.0-ASR CPU-SIMD vs ANE bench + roofline preflight calibration
 
-**Claimed:** zed-cd62a5ed@amo, 1794676478, expires 2026-11-16T17:14:38Z
+**Claimed:** zed-8d516799@amo, 1794687493, expires 2026-11-17T13:24:53Z
 
-(renewal 2 — wake continuation: P1.3/P2.4/P2.6-stage-1 DONE + P2.2 closed (G4 100 % cost-weighted) + P2.3/P2.5 fp16 fleurs rows in (G1 fails +1.46, G2 ratio 0.57 — honest negative, the palettized arm is the next measured lever); tvspeech cell queued amo-exclusive 01a1dbac-de7e, p8 conversion authored not run; epoch in unix seconds per the claim-lease checker's 9-10-digit grammar)
+(renewal 3 — wake continuation: **P4.1 stage record LANDED — bench 1220** (`.benchmarks/1220_p633_ane_asr_stage_record.md` + `1220_p633_ane_asr_stage_tables/` — 16 row files + 7 harness scripts preserved against the P4.4 teardown; digests re-verified full-width, numbering gates green); every gate verdict now explicit — G1 FAIL +1.46 fp16/fleurs, G2 FAIL 0.57×, G3 UNMEASURED, G4 PASS 100 % cost-weighted, G5 PASS ≥28 tiers + marginal per-step miss, Posture A holds / Posture B refutes the working-set collapse; tvspeech n=100 cell queued amo-exclusive `50421460` (the summary's `01a1dbac-de7e` id is stale — superseded on resubmit), held behind sibling POISONED ×16 job `4e769f80` (owner mailed); p8 harness authored-not-run; P0 ✓ P1 ✓ P2.1 ✓ P2.2 ✓ P2.4 ✓ P2.6 stage-1 ✓ P4.1 stage ✓)
 
 **Status:** OPEN — filed 2026-11-14 from Research 029 (liquidcodec-ane distill + the owner's bench directive: "expect 6x better but cpu must use simd lane if possible"). Owner gates: none expected (Gating law 2026-11-11 — no credential/secret touch; the bench runs on fleet boxes via agent-mail).
 
@@ -77,7 +77,7 @@
 
 ## Phase 4 — record + corpus + hygiene
 
-- [ ] P4.1 — bench record in `.benchmarks/` (RTFx + CER + placement + RAM + PROVENANCE per cell; every gate verdict explicit; any FAIL = the posture demoted in the same commit — ungoat law).
+- [x] P4.1 — **STAGE record LANDED 2026-11-15** (zed-8d516799@amo): `.benchmarks/1220_p633_ane_asr_stage_record.md` — RTFx + CER + placement + PROVENANCE per cell, every gate verdict explicit (G1 FAIL fp16/fleurs +1.46 · G2 FAIL 0.57× · G3 UNMEASURED · G4 PASS 100 % cost-weighted · G5 PASS ≥28 tiers + marginal per-step miss · Posture A holds · Posture B refutes the FluidAudio working-set attribution), ungate law applied (zero promotion; P3 stays unopened at 0.57×); raw rows + harnesses preserved in `.benchmarks/1220_p633_ane_asr_stage_tables/` against the P4.4 teardown; full-width digests re-verified (bias nemo 6094a83e…5815, raw 61f39dea…f5cb, base 210214ed…36a74, onnx.data a1392013…f18b / 39176685…96a5, fixture blake3s 3ea9d3b0…06da / 1e1ae2f8…85db); numbering + dual-allocation gates green (highwater 1220). Remaining: append the tvspeech n=100 + p8 rows when their cells land (amend G1/G2/G3 in the same commit).
 - [ ] P4.2 — corpus batch (riir-refine Plan 376 / nominal Batch 362): fixtures authored from the measured cells; pre-entry quote re-verification against re-pinned sources.
 - [ ] P4.3 — docs: Research 029 verdict rows updated (live-state); `.research/.highwater`/`.plans/.highwater` bumps ride the allocation commits; `py ../katgpt-rs/scripts/numbering_gate.py .` green before push.
 - [ ] P4.4 — `rm -rf .raw/asr-env` + model caches when the record lands (the `.raw/` law).

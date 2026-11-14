@@ -1,0 +1,269 @@
+{
+  "clips": [
+    {
+      "clip": "fleurs/data/th_th/audio/test/9383511766013567224.wav",
+      "family": "fleurs-th",
+      "audio_s": 13.08,
+      "ref_chunks": 24,
+      "ref_tokens": 36,
+      "ane_tokens": 36,
+      "joint_calls": 201,
+      "token_identity_pct": 100.0,
+      "exact_match": true
+    },
+    {
+      "clip": "fleurs/data/th_th/audio/test/14092782195947690542.wav",
+      "family": "fleurs-th",
+      "audio_s": 21.48,
+      "ref_chunks": 39,
+      "ref_tokens": 69,
+      "ane_tokens": 69,
+      "joint_calls": 339,
+      "token_identity_pct": 100.0,
+      "exact_match": true
+    },
+    {
+      "clip": "fixtures/tvspeech_audio/9.wav",
+      "family": "tvspeech",
+      "audio_s": 29.248,
+      "ref_chunks": 53,
+      "ref_tokens": 85,
+      "ane_tokens": 85,
+      "joint_calls": 452,
+      "token_identity_pct": 100.0,
+      "exact_match": true
+    }
+  ],
+  "drift_first_clip": [
+    {
+      "step": 0,
+      "tag": "first",
+      "frames": 7,
+      "g_max_abs": 0.000676,
+      "g_ref_scale": 0.269659,
+      "logit_max_abs": 16.817,
+      "logit_ref_scale": 120.8344,
+      "argmax_agree": "4/4"
+    },
+    {
+      "step": 1,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.000676,
+      "g_ref_scale": 0.269659,
+      "logit_max_abs": 32.8556,
+      "logit_ref_scale": 185.7509,
+      "argmax_agree": "4/4"
+    },
+    {
+      "step": 2,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.000676,
+      "g_ref_scale": 0.269659,
+      "logit_max_abs": 9.8116,
+      "logit_ref_scale": 46.6898,
+      "argmax_agree": "4/4"
+    },
+    {
+      "step": 3,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.0039,
+      "g_ref_scale": 0.733604,
+      "logit_max_abs": 34.4151,
+      "logit_ref_scale": 118.9818,
+      "argmax_agree": "7/7"
+    },
+    {
+      "step": 4,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.001817,
+      "g_ref_scale": 0.458712,
+      "logit_max_abs": 31.0395,
+      "logit_ref_scale": 95.4144,
+      "argmax_agree": "6/6"
+    },
+    {
+      "step": 5,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.002436,
+      "g_ref_scale": 0.472574,
+      "logit_max_abs": 19.4794,
+      "logit_ref_scale": 98.8577,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 6,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.002436,
+      "g_ref_scale": 0.364661,
+      "logit_max_abs": 23.7707,
+      "logit_ref_scale": 93.7224,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 7,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.002937,
+      "g_ref_scale": 0.709258,
+      "logit_max_abs": 33.2495,
+      "logit_ref_scale": 98.9928,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 8,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.003909,
+      "g_ref_scale": 0.511275,
+      "logit_max_abs": 23.1938,
+      "logit_ref_scale": 91.6989,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 9,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.005185,
+      "g_ref_scale": 0.511275,
+      "logit_max_abs": 42.4932,
+      "logit_ref_scale": 132.9389,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 10,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.005185,
+      "g_ref_scale": 0.346378,
+      "logit_max_abs": 26.0767,
+      "logit_ref_scale": 98.1879,
+      "argmax_agree": "4/4"
+    },
+    {
+      "step": 11,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.005185,
+      "g_ref_scale": 0.469048,
+      "logit_max_abs": 31.0004,
+      "logit_ref_scale": 127.3081,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 12,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.001585,
+      "g_ref_scale": 0.469048,
+      "logit_max_abs": 29.484,
+      "logit_ref_scale": 101.9237,
+      "argmax_agree": "6/6"
+    },
+    {
+      "step": 13,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.003334,
+      "g_ref_scale": 0.504813,
+      "logit_max_abs": 34.9229,
+      "logit_ref_scale": 119.1102,
+      "argmax_agree": "6/6"
+    },
+    {
+      "step": 14,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.002608,
+      "g_ref_scale": 0.315135,
+      "logit_max_abs": 26.1166,
+      "logit_ref_scale": 99.1087,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 15,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.001425,
+      "g_ref_scale": 0.412395,
+      "logit_max_abs": 34.1291,
+      "logit_ref_scale": 126.4053,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 16,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.00105,
+      "g_ref_scale": 0.412395,
+      "logit_max_abs": 35.374,
+      "logit_ref_scale": 133.7916,
+      "argmax_agree": "4/4"
+    },
+    {
+      "step": 17,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.002513,
+      "g_ref_scale": 0.772288,
+      "logit_max_abs": 33.3299,
+      "logit_ref_scale": 91.2882,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 18,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.001515,
+      "g_ref_scale": 0.208888,
+      "logit_max_abs": 22.6815,
+      "logit_ref_scale": 66.3526,
+      "argmax_agree": "4/4"
+    },
+    {
+      "step": 19,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.003023,
+      "g_ref_scale": 0.749247,
+      "logit_max_abs": 21.4868,
+      "logit_ref_scale": 73.954,
+      "argmax_agree": "4/4"
+    },
+    {
+      "step": 20,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.002227,
+      "g_ref_scale": 0.379449,
+      "logit_max_abs": 25.3358,
+      "logit_ref_scale": 99.9257,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 21,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.003514,
+      "g_ref_scale": 0.868902,
+      "logit_max_abs": 18.5153,
+      "logit_ref_scale": 56.9237,
+      "argmax_agree": "5/5"
+    },
+    {
+      "step": 22,
+      "tag": "step",
+      "frames": 7,
+      "g_max_abs": 0.0071,
+      "g_ref_scale": 0.954964,
+      "logit_max_abs": 34.3659,
+      "logit_ref_scale": 96.294,
+      "argmax_agree": "6/6"
+    }
+  ]
+}

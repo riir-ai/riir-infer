@@ -1,0 +1,18 @@
+{
+  "decoder_class": "RNNTDecoder",
+  "pred_hidden": 640,
+  "pred_rnn_layers": 2,
+  "joint_class": "RNNTJoint",
+  "joint_hidden": 640,
+  "joint_net": [
+    "ReLU",
+    "Dropout",
+    "Linear"
+  ],
+  "vocab": 14989,
+  "enc_hidden": null,
+  "pred_hidden_joint": 640,
+  "project_encoder": "<bound method RNNTJoint.project_encoder of RNNTJoint(\n  (pred): Linear(in_features=640, out_features=640, bias=True)\n  (enc): Linear(in_features=1024, out_features=640, bias=True)\n  (joint_net): Sequential(\n    (0): ReLU(inplace=True)\n    (1): Dropout(p=0.2, inplace=False)\n    (2): Linear(in_features=640, out_features=14989, bias=True)\n  )\n  (_loss): RNNTLoss(\n    (_loss): RNNTLossNumba()\n  )\n  (_wer): WER()\n)>",
+  "project_decoder": "None",
+  "prompt_kernel": "Sequential(\n  (0): Linear(in_features=1152, out_features=2048, bias=True)\n  (1): ReLU()\n  (2): Linear(in_features=2048, out_features=1024, bias=True)\n)"
+}
