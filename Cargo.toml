@@ -1277,14 +1277,18 @@ katgpt-transformer = { path = "../katgpt-rs/crates/katgpt-transformer", default-
 #                    over the published pre.2 source; the crate's own suite
 #                    passes 95/95. No release carries it yet (0.11.0 final
 #                    predates it) — drop this row on the bump past it.
-#   cubecl-wgpu    — riir-ai's fork (Plan 536 / Issues 660, 663, 714, 761),
+#   cubecl-wgpu    — riir-ai's fork (Plan 536 / Issues 660, 663, 714, 761, 1217),
 #                    canonical home moved here by Issue 1141: the raw Metal
 #                    handle accessors, the bind-group cache, fallible non-vk
 #                    buffer creation, and the DEFAULT-ON uniform-content cache
 #                    (Bench 762/771: +20-23% M3 decode; kill-switch
-#                    RIIR_UNIFORM_CACHE=0). Without this row every Metal build
-#                    in THIS workspace (riir-infer-dist included) ran upstream
-#                    cubecl-wgpu — the Issue 1139 posture gap.
+#                    RIIR_UNIFORM_CACHE=0). 1217 makes the two poll-site caps
+#                    env-tunable (CUBECL_WGPU_MAX_TOTAL_TASKS 512 /
+#                    CUBECL_WGPU_MAX_PENDING_WRITES 64, defaults = the upstream
+#                    hard-coded values — unset byte-identical). Without this row
+#                    every Metal build in THIS workspace (riir-infer-dist
+#                    included) ran upstream cubecl-wgpu — the Issue 1139
+#                    posture gap.
 
 [patch.crates-io]
 # katgpt-rs Issue 968 residue: `block` 0.1.6 is TERMINAL upstream (last

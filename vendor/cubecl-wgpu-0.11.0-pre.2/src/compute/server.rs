@@ -95,6 +95,9 @@ impl<C: WgpuCompiler> WgpuServer<C> {
         device: wgpu::Device,
         queue: wgpu::Queue,
         tasks_max: usize,
+        // Issue 1217: the two poll-site caps, threaded from RuntimeOptions.
+        total_tasks_max: usize,
+        pending_writes_max: usize,
         backend: wgpu::Backend,
         timing_method: TimingMethod,
         utilities: ServerUtilities<Self>,
@@ -109,6 +112,8 @@ impl<C: WgpuCompiler> WgpuServer<C> {
             timing_method,
             backend,
             tasks_max,
+            total_tasks_max,
+            pending_writes_max,
             utilities.logger.clone(),
             compilation_options.supports_vulkan_compiler,
         );
@@ -320,10 +325,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
                     let stream_ids: alloc::vec::Vec<StreamId> =
                         self.scheduler.stream_ids().collect();
                     for id in stream_ids {
-                        self.scheduler
-                            .stream(&id)
-                            .mem_manage
-                            .memory_cleanup(true);
+                        self.scheduler.stream(&id).mem_manage.memory_cleanup(true);
                     }
                     match self.scheduler.stream(&stream_id).empty(size) {
                         Ok(val) => {
@@ -360,9 +362,15 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         };
         // Same blast-radius class: `bind`'s internal failure previously
         // unwrapped and killed the server thread. Surface it through the sink.
-        let bind_result = self.scheduler.stream(&stream_id).mem_manage.bind(reserved, memory);
+        let bind_result = self
+            .scheduler
+            .stream(&stream_id)
+            .mem_manage
+            .bind(reserved, memory);
         if let Err(err) = bind_result {
-            self.scheduler.stream(&stream_id).error(ServerError::Io(err));
+            self.scheduler
+                .stream(&stream_id)
+                .error(ServerError::Io(err));
         }
     }
 
@@ -461,7 +469,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         let (pipeline, compiler_info) = match {
             let t_pipe = std::time::Instant::now();
             let r = self.pipeline(kernel, &args, mode);
-            super::stream::PIPELINE_NANOS.fetch_add(t_pipe.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+            super::stream::PIPELINE_NANOS.fetch_add(
+                t_pipe.elapsed().as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
             r
         } {
             Ok(val) => val,
@@ -492,7 +503,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         let resources = match {
             let t_prep = std::time::Instant::now();
             let r = self.prepare_bindings(args, compiler_info);
-            super::stream::PREPARE_NANOS.fetch_add(t_prep.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+            super::stream::PREPARE_NANOS.fetch_add(
+                t_prep.elapsed().as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
             r
         } {
             Ok(val) => val,
@@ -513,7 +527,10 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         {
             let t_reg = std::time::Instant::now();
             self.scheduler.register(stream_id, task, &self.streams_pool);
-            super::stream::REGISTER_NANOS.fetch_add(t_reg.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+            super::stream::REGISTER_NANOS.fetch_add(
+                t_reg.elapsed().as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
         }
         super::stream::LAUNCH_NANOS.fetch_add(
             t_launch.elapsed().as_nanos() as u64,
@@ -578,10 +595,7 @@ impl<C: WgpuCompiler> ComputeServer for WgpuServer<C> {
         // pages observed FULLY free, so live allocations are never touched.
         let stream_ids: alloc::vec::Vec<StreamId> = self.scheduler.stream_ids().collect();
         for id in stream_ids {
-            self.scheduler
-                .stream(&id)
-                .mem_manage
-                .memory_cleanup(true);
+            self.scheduler.stream(&id).mem_manage.memory_cleanup(true);
         }
     }
 

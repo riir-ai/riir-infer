@@ -1082,3 +1082,22 @@ required-features = ["q8kv_fold_cell"]
 name = "flashstates_multisession_g1"
 path = "tests/flashstates_multisession_g1.rs"
 required-features = ["flashstates_multi"]
+
+# Issues 1181/1217 — the T1 encode-share probe + the Issue-761 counter
+# decomposition window. Whole-file #![cfg(all(...))] + this row = the
+# reader-protection pair (the R1 pattern; the row names the minimal
+# unconditional feature set — counter_probe stays optional in-file, the
+# cell's partial #[cfg] compiles it out; target_os/debug_assertions stay
+# in the cfg, unexpressable here).
+[[test]]
+name = "issue1181_encode_share_probe"
+path = "tests/issue1181_encode_share_probe.rs"
+required-features = [
+    "cubecl_runtime",
+    "ternary_gemv",
+    "ternary_gemm_batched",
+    "ternary_deltanet_chunked_prefill",
+    "ternary_attention_batched_prefill",
+    "deltanet_recurrence_rowpar",
+    "params_handle_cache",
+]

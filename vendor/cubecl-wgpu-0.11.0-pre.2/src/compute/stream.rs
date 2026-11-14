@@ -80,12 +80,15 @@ pub fn set_bind_group_cache_enabled(enabled: bool) {
 // `register_pipeline`. Read via [`register_pipeline_profile`] or the
 // individual statics. Reset via [`reset_register_pipeline_profile`].
 pub static PROF_ENTRIES_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub static PROF_BINDGROUP_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_BINDGROUP_NANOS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 pub static PROF_PASS_GET_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub static PROF_SET_PIPELINE_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_SET_PIPELINE_NANOS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 pub static PROF_SET_BG_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static PROF_SET_IMM_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-pub static PROF_TRANSITIONS_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static PROF_TRANSITIONS_NANOS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 pub static PROF_DISPATCH_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static PROF_DISPATCH_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -122,12 +125,17 @@ pub fn reset_register_pipeline_profile() {
 //
 //   `SubmissionLoad::regulate`      — poll(Wait) on the previous submission
 //                                      index once ≥512 tasks are in flight
-//                                      (MAX_TOTAL_TASKS).
+//                                      (total_tasks_max; upstream hard-coded,
+//                                      now env-tunable via
+//                                      CUBECL_WGPU_MAX_TOTAL_TASKS — issue 1217).
 //   `write_to_buffer` write flush    — poll(Wait) once 64 uniform writes are
-//                                      pending (MAX_PENDING_WRITES); on
-//                                      Metal/WGSL every dispatch with scalar
-//                                      args writes a uniform buffer
-//                                      (`create_uniform` in `into_resources`).
+//                                      pending (pending_writes_max; upstream
+//                                      hard-coded, now env-tunable via
+//                                      CUBECL_WGPU_MAX_PENDING_WRITES — issue
+//                                      1217); on Metal/WGSL every dispatch
+//                                      with scalar args writes a uniform
+//                                      buffer (`create_uniform` in
+//                                      `into_resources`).
 //
 // Together with wall time these counters answer, for any measured region,
 // whether the CPU dispatch encoding is the binding cost (ENQUEUE_* dominates)
@@ -217,6 +225,12 @@ pub struct WgpuStream {
     timings: Timings,
     tasks_count: usize,
     tasks_max: usize,
+    /// Issue 1217: in-flight submission-task cap for `SubmissionLoad::regulate`
+    /// (upstream hard-coded 512). Env: `CUBECL_WGPU_MAX_TOTAL_TASKS`.
+    total_tasks_max: usize,
+    /// Issue 1217: pending-write threshold for the write-flush poll(Wait)
+    /// (upstream hard-coded 64). Env: `CUBECL_WGPU_MAX_PENDING_WRITES`.
+    pending_writes_max: usize,
     queue: wgpu::Queue,
     encoder: wgpu::CommandEncoder,
     poll: WgpuPoll,
@@ -260,6 +274,8 @@ impl WgpuStream {
         timing_method: TimingMethod,
         timing_budget: Arc<TimestampQuerySetBudget>,
         tasks_max: usize,
+        total_tasks_max: usize,
+        pending_writes_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
     ) -> Self {
@@ -312,6 +328,8 @@ impl WgpuStream {
             queue,
             tasks_count: 0,
             tasks_max,
+            total_tasks_max,
+            pending_writes_max,
             poll,
             submission_load: SubmissionLoad::default(),
             pending_write_count: 0,
@@ -342,7 +360,10 @@ impl WgpuStream {
                     })
                     .ok();
                 self.write_to_buffer(&buffer, &data);
-                ENQUEUE_WRITE_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+                ENQUEUE_WRITE_NANOS.fetch_add(
+                    t0.elapsed().as_nanos() as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 ENQUEUE_WRITE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             ScheduleTask::Execute {
@@ -361,7 +382,10 @@ impl WgpuStream {
                     .append(&mut shared_inputs.bindings);
                 let (resources, custom_handles, addresses) = resources.into_resources(self);
                 self.register_pipeline(pipeline, &resources, &custom_handles, addresses, &count);
-                ENQUEUE_EXEC_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+                ENQUEUE_EXEC_NANOS.fetch_add(
+                    t0.elapsed().as_nanos() as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 ENQUEUE_EXEC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
         }
@@ -454,9 +478,7 @@ impl WgpuStream {
                 if let Some(err) = cubecl_environment::future::block_on(scope_validation.pop()) {
                     let reason = format!("staging buffer map_async failed: {err}");
                     let backtrace = BackTrace::capture();
-                    return Box::pin(async {
-                        Err(ServerError::Generic { reason, backtrace })
-                    });
+                    return Box::pin(async { Err(ServerError::Generic { reason, backtrace }) });
                 }
 
                 callbacks.push(Some(receiver));
@@ -466,7 +488,10 @@ impl WgpuStream {
         }
 
         let poll = self.poll.start_polling();
-        READ_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+        READ_NANOS.fetch_add(
+            t0.elapsed().as_nanos() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         READ_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         Box::pin(async move {
@@ -723,9 +748,10 @@ impl WgpuStream {
         // and staging buffers get recycled before the GPU copy completes, silently
         // corrupting early tensors.
         // See: https://github.com/tracel-ai/cubecl/issues/1120
-        const MAX_PENDING_WRITES: usize = 64;
-
-        if self.pending_write_count >= MAX_PENDING_WRITES {
+        // Issue 1217: the 64 was upstream hard-coded; now `pending_writes_max`
+        // (RuntimeOptions, env `CUBECL_WGPU_MAX_PENDING_WRITES`, default 64 —
+        // unset keeps the incumbent byte-identically).
+        if self.pending_write_count >= self.pending_writes_max {
             // Issue 761 profiling: this branch submits + POLL-WAITS for the GPU
             // to complete everything up to the just-submitted index — a hard
             // host block on GPU progress whenever uniform writes outpace
@@ -751,7 +777,10 @@ impl WgpuStream {
                 log::warn!("wgpu: write flush poll failed ({e})");
             }
 
-            WRITE_POLL_NANOS.fetch_add(t_poll.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+            WRITE_POLL_NANOS.fetch_add(
+                t_poll.elapsed().as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
             WRITE_POLL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.pending_write_count = 0;
         }
@@ -777,7 +806,10 @@ impl WgpuStream {
         // separately — it is GPU-wait, not encode cost.
         let t_flush = std::time::Instant::now();
         let result = self.flush_inner(mode);
-        FLUSH_NANOS.fetch_add(t_flush.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+        FLUSH_NANOS.fetch_add(
+            t_flush.elapsed().as_nanos() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         FLUSH_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         result
     }
@@ -815,7 +847,7 @@ impl WgpuStream {
         }
 
         self.submission_load
-            .regulate(&self.device, self.tasks_count, index);
+            .regulate(&self.device, self.tasks_count, index, self.total_tasks_max);
 
         // Cleanup allocations and deallocations.
         self.mem_manage.memory_cleanup(false);
@@ -887,9 +919,12 @@ impl WgpuStream {
         // Accumulated into global atomics, readable from benches.
         // Controlled by REGISTER_PIPELINE_PROFILE_ENABLED (default: false to
         // avoid the ~0.3 ms/token Instant::now() overhead in production).
-        let profile =
-            REGISTER_PIPELINE_PROFILE_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
-        let prof_t0 = if profile { Some(std::time::Instant::now()) } else { None };
+        let profile = REGISTER_PIPELINE_PROFILE_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+        let prof_t0 = if profile {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
 
         let entries = resources
             .iter()
@@ -902,7 +937,11 @@ impl WgpuStream {
 
         let prof_entries = prof_t0.map_or(std::time::Duration::ZERO, |t| t.elapsed());
 
-        let prof_t1 = if profile { Some(std::time::Instant::now()) } else { None };
+        let prof_t1 = if profile {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         // Issue 660 stepping stone: resolve (create or fetch cached) the bind
         // group BEFORE borrowing `compute_pass`. Splitting the borrow this way
         // satisfies the borrow checker — `get_or_create_bind_group` needs
@@ -915,7 +954,11 @@ impl WgpuStream {
         };
         let prof_bindgroup = prof_t1.map_or(std::time::Duration::ZERO, |t| t.elapsed());
 
-        let prof_t2 = if profile { Some(std::time::Instant::now()) } else { None };
+        let prof_t2 = if profile {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         // Start a new compute pass if needed. The forget_lifetime allows
         // to store this with a 'static lifetime, but the compute pass must
         // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
@@ -942,23 +985,39 @@ impl WgpuStream {
 
         self.tasks_count += 1;
 
-        let prof_t3 = if profile { Some(std::time::Instant::now()) } else { None };
+        let prof_t3 = if profile {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         pass.set_pipeline(&pipeline);
         let prof_set_pipeline = prof_t3.map_or(std::time::Duration::ZERO, |t| t.elapsed());
 
-        let prof_t4 = if profile { Some(std::time::Instant::now()) } else { None };
+        let prof_t4 = if profile {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         if let Some(bind_group) = &cached_bind_group {
             pass.set_bind_group(0, bind_group, &[]);
         }
         let prof_set_bg = prof_t4.map_or(std::time::Duration::ZERO, |t| t.elapsed());
 
-        let prof_t5 = if profile { Some(std::time::Instant::now()) } else { None };
+        let prof_t5 = if profile {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         if let Some(addresses) = addresses {
             pass.set_immediates(0, bytemuck::cast_slice(&addresses));
         }
         let prof_set_imm = prof_t5.map_or(std::time::Duration::ZERO, |t| t.elapsed());
 
-        let prof_t6 = if profile { Some(std::time::Instant::now()) } else { None };
+        let prof_t6 = if profile {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         if !custom_resources.is_empty() {
             let buffer_transitions =
                 custom_resources
@@ -971,7 +1030,11 @@ impl WgpuStream {
         }
         let prof_transitions = prof_t6.map_or(std::time::Duration::ZERO, |t| t.elapsed());
 
-        let prof_t7 = if profile { Some(std::time::Instant::now()) } else { None };
+        let prof_t7 = if profile {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         match dispatch.clone() {
             CubeCount::Static(x, y, z) => {
                 pass.dispatch_workgroups(x, y, z);
@@ -985,15 +1048,39 @@ impl WgpuStream {
 
         // Accumulate profiling (only if enabled).
         if profile {
-        PROF_ENTRIES_NANOS.fetch_add(prof_entries.as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        PROF_BINDGROUP_NANOS.fetch_add(prof_bindgroup.as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        PROF_PASS_GET_NANOS.fetch_add(prof_pass_get.as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        PROF_SET_PIPELINE_NANOS.fetch_add(prof_set_pipeline.as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        PROF_SET_BG_NANOS.fetch_add(prof_set_bg.as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        PROF_SET_IMM_NANOS.fetch_add(prof_set_imm.as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        PROF_TRANSITIONS_NANOS.fetch_add(prof_transitions.as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        PROF_DISPATCH_NANOS.fetch_add(prof_dispatch.as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        PROF_DISPATCH_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            PROF_ENTRIES_NANOS.fetch_add(
+                prof_entries.as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            PROF_BINDGROUP_NANOS.fetch_add(
+                prof_bindgroup.as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            PROF_PASS_GET_NANOS.fetch_add(
+                prof_pass_get.as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            PROF_SET_PIPELINE_NANOS.fetch_add(
+                prof_set_pipeline.as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            PROF_SET_BG_NANOS.fetch_add(
+                prof_set_bg.as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            PROF_SET_IMM_NANOS.fetch_add(
+                prof_set_imm.as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            PROF_TRANSITIONS_NANOS.fetch_add(
+                prof_transitions.as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            PROF_DISPATCH_NANOS.fetch_add(
+                prof_dispatch.as_nanos() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            PROF_DISPATCH_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
 
         self.flush_if_needed();
@@ -1051,8 +1138,7 @@ impl WgpuStream {
         entries: &[wgpu::BindGroupEntry<'_>],
     ) -> wgpu::BindGroup {
         let key = Self::bind_group_hash(&pipeline, entries);
-        let cache_enabled =
-            BIND_GROUP_CACHE_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+        let cache_enabled = BIND_GROUP_CACHE_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
 
         // Issue 660 A/B toggle: when disabled, skip the cache entirely
         // (always create fresh). This allows head-to-head benchmarking.
@@ -1073,13 +1159,11 @@ impl WgpuStream {
         }
 
         let group_layout = pipeline.get_bind_group_layout(0);
-        let bind_group = self
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &group_layout,
-                entries,
-            });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &group_layout,
+            entries,
+        });
 
         if cache_enabled {
             self.bind_group_cache.insert(key, bind_group.clone());
@@ -1132,6 +1216,7 @@ mod __submission_load {
             device: &wgpu::Device,
             tasks_count: usize,
             mut index: wgpu::SubmissionIndex,
+            total_tasks_max: usize,
         ) {
             match self {
                 SubmissionLoad::Init {
@@ -1146,9 +1231,12 @@ mod __submission_load {
                     // - Too little and GPU utilization is really bad.
                     //
                     // TODO: Could be smarter and dynamic based on stats.
-                    const MAX_TOTAL_TASKS: usize = 512;
+                    // Issue 1217: the 512 was upstream hard-coded; now the
+                    // `total_tasks_max` argument (RuntimeOptions, env
+                    // `CUBECL_WGPU_MAX_TOTAL_TASKS`, default 512 — unset keeps
+                    // the incumbent byte-identically).
 
-                    if *tasks_count_submitted >= MAX_TOTAL_TASKS {
+                    if *tasks_count_submitted >= total_tasks_max {
                         core::mem::swap(last_index, &mut index);
                         // Issue 761 profiling: this poll(Wait) blocks the host
                         // until the GPU reaches the PREVIOUS submission index —
@@ -1162,7 +1250,10 @@ mod __submission_load {
                                 "wgpu: requested wait timed out before the submission was completed during sync. ({e})"
                             )
                         }
-                        super::REGULATE_NANOS.fetch_add(t_wait.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+                        super::REGULATE_NANOS.fetch_add(
+                            t_wait.elapsed().as_nanos() as u64,
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
                         super::REGULATE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         *tasks_count_submitted = 0;
                     }
@@ -1189,6 +1280,7 @@ mod __submission_load_wasm {
             _device: &wgpu::Device,
             _tasks_count: usize,
             _index: wgpu::SubmissionIndex,
+            _total_tasks_max: usize,
         ) {
             // Nothing to do.
         }

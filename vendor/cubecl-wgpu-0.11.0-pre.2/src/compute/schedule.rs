@@ -87,6 +87,9 @@ pub struct WgpuStreamFactory {
     /// Per-device budget of live timestamp query sets, shared by every stream it creates.
     timing_budget: Arc<TimestampQuerySetBudget>,
     tasks_max: usize,
+    /// Issue 1217: the two poll-site caps, threaded from `RuntimeOptions`.
+    total_tasks_max: usize,
+    pending_writes_max: usize,
     logger: Arc<ServerLogger>,
     count: u64,
     use_vulkan_compiler: bool,
@@ -129,6 +132,8 @@ impl StreamFactory for WgpuStreamFactory {
             self.timing_method,
             self.timing_budget.clone(),
             self.tasks_max,
+            self.total_tasks_max,
+            self.pending_writes_max,
             self.logger.clone(),
             self.use_vulkan_compiler,
         )
@@ -146,6 +151,9 @@ impl ScheduledWgpuBackend {
         timing_method: TimingMethod,
         backend: wgpu::Backend,
         tasks_max: usize,
+        // Issue 1217: the two poll-site caps, threaded from RuntimeOptions.
+        total_tasks_max: usize,
+        pending_writes_max: usize,
         logger: Arc<ServerLogger>,
         use_vulkan_compiler: bool,
     ) -> Self {
@@ -164,6 +172,8 @@ impl ScheduledWgpuBackend {
                 timing_method,
                 timing_budget,
                 tasks_max,
+                total_tasks_max,
+                pending_writes_max,
                 logger,
                 count: 0,
                 use_vulkan_compiler,

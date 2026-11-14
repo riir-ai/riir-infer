@@ -190,6 +190,15 @@ fn enumerate_all_adapters(instance: wgpu::Instance, backend: wgpu::Backend) -> V
 pub struct RuntimeOptions {
     /// Control the amount of compute tasks to be aggregated into a single GPU command.
     pub tasks_max: usize,
+    /// Issue 1217: in-flight submission-task cap paced by `SubmissionLoad::regulate` —
+    /// once this many tasks are submitted since the last regulate, the host
+    /// poll(Wait)s until the previous submission index completes. Env:
+    /// `CUBECL_WGPU_MAX_TOTAL_TASKS` (default 512, the upstream hard-coded value).
+    pub total_tasks_max: usize,
+    /// Issue 1217: pending-`write_buffer` threshold that triggers a write-flush
+    /// submit + poll(Wait) (staging-pool exhaustion guard). Env:
+    /// `CUBECL_WGPU_MAX_PENDING_WRITES` (default 64, the upstream hard-coded value).
+    pub pending_writes_max: usize,
     /// Configures the memory management.
     pub memory_config: MemoryConfiguration,
 }
@@ -200,6 +209,10 @@ impl Default for RuntimeOptions {
         const DEFAULT_MAX_TASKS: usize = 32;
         #[cfg(not(test))]
         const DEFAULT_MAX_TASKS: usize = 32;
+        // Issue 1217: upstream hard-coded the two poll-site caps; defaults keep
+        // byte-identical behavior, the envs are experiment/override axes only.
+        const DEFAULT_TOTAL_TASKS: usize = 512;
+        const DEFAULT_PENDING_WRITES: usize = 64;
 
         let tasks_max = match std::env::var("CUBECL_WGPU_MAX_TASKS") {
             Ok(value) => value
@@ -208,8 +221,24 @@ impl Default for RuntimeOptions {
             Err(_) => DEFAULT_MAX_TASKS,
         };
 
+        let total_tasks_max = match std::env::var("CUBECL_WGPU_MAX_TOTAL_TASKS") {
+            Ok(value) => value
+                .parse::<usize>()
+                .expect("CUBECL_WGPU_MAX_TOTAL_TASKS should be a non-negative integer."),
+            Err(_) => DEFAULT_TOTAL_TASKS,
+        };
+
+        let pending_writes_max = match std::env::var("CUBECL_WGPU_MAX_PENDING_WRITES") {
+            Ok(value) => value
+                .parse::<usize>()
+                .expect("CUBECL_WGPU_MAX_PENDING_WRITES should be a non-negative integer."),
+            Err(_) => DEFAULT_PENDING_WRITES,
+        };
+
         Self {
             tasks_max,
+            total_tasks_max,
+            pending_writes_max,
             memory_config: MemoryConfiguration::default(),
         }
     }
@@ -405,6 +434,8 @@ pub(crate) fn create_server<C: WgpuCompiler>(
         setup.device.clone(),
         setup.queue,
         options.tasks_max,
+        options.total_tasks_max,
+        options.pending_writes_max,
         setup.backend,
         time_measurement,
         ServerUtilities::new(device_props, logger, setup.backend, allocator),
