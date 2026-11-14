@@ -45,3 +45,5 @@
 - [ ] P4.2 — corpus batch (riir-refine Plan 376 / nominal Batch 362): fixtures authored from the measured cells; pre-entry quote re-verification against re-pinned sources.
 - [ ] P4.3 — docs: Research 029 verdict rows updated (live-state); `.research/.highwater`/`.plans/.highwater` bumps ride the allocation commits; `py ../katgpt-rs/scripts/numbering_gate.py .` green before push.
 - [ ] P4.4 — `rm -rf .raw/asr-env` + model caches when the record lands (the `.raw/` law).
+
+**CLAIMED (2026-11-14 ~07:0x, runner routing):** zed-cd62a5ed@amo took the bench via the fresh *@amo contract (01a1da8c-fc7d) - the correct hardware routing (every cell names amo/m3 hosts; P1.2 is MLAS NEON/ARM; the 4090 cannot run any comparison cell). Claim stamps expected on pickup; receipts to the runner at the P0/P1 boundaries + the final verdict.
