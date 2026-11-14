@@ -61,7 +61,7 @@ fn pct(sorted: &[f64], p: f64) -> f64 {
     sorted[idx]
 }
 
-fn median(v: &mut Vec<f64>) -> f64 {
+fn median(v: &mut [f64]) -> f64 {
     v.sort_by(|a, b| a.total_cmp(b));
     v[v.len() / 2]
 }
@@ -152,7 +152,10 @@ fn walk_resident_instrumented(
     }
     let wall = t0.elapsed().as_secs_f64() * 1000.0;
     let delta = TernaryDeltanetGpuForward::resident_launch_count() - before;
-    assert_eq!(delta, WALK_RES as u64, "resident reach: {delta} != {WALK_RES}");
+    assert_eq!(
+        delta, WALK_RES as u64,
+        "resident reach: {delta} != {WALK_RES}"
+    );
     (enqueues, harvests, wall, picks)
 }
 
@@ -216,7 +219,8 @@ fn issue1181_encode_share_probe() {
     let (_, _, _, inc_picks) = walk_incumbent_instrumented(&mut fwd, &weights, seed);
     let (_, _, _, res_picks) = walk_resident_instrumented(&mut fwd, seed);
     assert_eq!(
-        inc_picks, res_picks[..WALK_INC],
+        inc_picks,
+        res_picks[..WALK_INC],
         "lane walks diverged — the timing cells would be measuring different work"
     );
 
@@ -242,8 +246,8 @@ fn issue1181_encode_share_probe() {
         res_wall.push((w2 + w3) / 2.0);
         // Host busy share of the resident arm: every µs the host spent
         // inside enqueue + harvest over the pair's wall.
-        let busy: f64 = e1.iter().chain(e2.iter()).sum::<f64>()
-            + h1.iter().chain(h2.iter()).sum::<f64>();
+        let busy: f64 =
+            e1.iter().chain(e2.iter()).sum::<f64>() + h1.iter().chain(h2.iter()).sum::<f64>();
         host_busy_share.push(busy / (w2 + w3) / 1000.0);
         eprintln!(
             "[i1181] pair {pair}: incumbent {:.2} ms/tok · resident {:.2} ms/tok · host busy share {:.1}%",
