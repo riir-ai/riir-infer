@@ -1,0 +1,103 @@
+# Research 029 — liquidcodec-ane (Liquid-Codec decoder on ANE) + the OpenThai2.0-ASR streaming lane: distill, fusion, and the CPU-vs-ANE bench design
+
+> **Sources:**
+> - GitHub `shershah1024/liquidcodec-ane` @ `177f90246605f60d10df0372396acc3f5222d597` (shallow clone, read + quote-verified, **removed after this note** per the `.raw/` law) — licence **LFM Open License v1.0** (weights; §5 commercial-use limit: annual revenue < USD 10M — satisfied, disclosed) + third-party sample audio CC-BY-4.0.
+> - HF `iapp/OpenThai2.0-ASR-Streaming` (model card read live 2026-11-14) — 0.64B Thai streaming ASR, **OpenMDW-1.1**, released 2026-11-10. ONNX twin at `iapp/OpenThai2.0-ASR-Streaming-ONNX` (fp + int8).
+> - Prior-art (live reads 2026-11-14): HF `FluidInference/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b-CoreML` (M5 Pro ship matrix; **access-gated**, numbers cited never restaged) · HF `beshkenadze/nemotron-3.5-asr-streaming-0.6b-coreml-ane-stream` @ README `3dabd79` (the stateless functional conversion).
+> **Date:** 2026-11-14
+> **Status:** RECORD — integration distill, verdict **Gain** (lane + corpus; see §6). Plan filed: `.plans/633_ane_audio_lane_openthai_asr_bench.md`. Corpus half of the verdict lives in riir-refine (Research 409 / Plan 376 / nominal Batch 362).
+> **Filed from:** owner directive — "we have some ANE lane, let's novel, fusion it" + "can we bench OpenThai2.0-ASR-Streaming and then try ane version and bench against? expect 6x better but cpu must use simd lane if possible".
+> **Related Research:** this repo 001 (FluidInference — the audio-lane integration precedent), 005 (Phonon-2/Neutrino-1 — the ASR-lane candidate that named the EN/TH locale gap), 012 (clef — the ANE host pattern + multi-function buckets); katgpt-rs 147 (Parakeet/RNNT decoder dispatch); riir-reflex 003 (openthai — the LLM lane; **name collision noted**, the ASR lane is a different model family and takes the `asr` name inside `riir-infer-audio`).
+> **Classification:** Public — every source is open-licence, every number cited is from a public card/README; no serving-posture or economy content.
+
+---
+
+## TL;DR
+
+`liquidcodec-ane` is a Core ML/ANE conversion of **Liquid AI's Liquid-Codec speech-codec decoder** (24 kHz, 12 codebooks @ 12.5 fps) with a **measured ~6× ANE-vs-CPU** win and a four-line ANE-ification checklist (fold projections; linears as 1×1 convs; per-norm power-of-2 prescale so fp16 x² cannot overflow; fixed-shape **stateless** chunking with a validity mask, proven chunked ≡ full by a receptive-field bound 117 < 120 plus a failing negative control; STFT tail stays CPU fp32). **OpenThai2.0-ASR-Streaming** is a 4-day-old Thai fine-tune of NVIDIA's Nemotron-3.5 streaming ASR (0.64B: 609M cache-aware FastConformer encoder + 4.5M language-prompt layer + RNN-T decoder/joint; `att_context` [56,0/3/6/13] = 80/320/560/1120 ms; OpenMDW-1.1) — the **Thai locale candidate our ASR-lane survey said was missing** (Research 005: Phonon-2 is English-only against our EN/TH product scope). The base model already has two independent public ANE conversions — FluidAudio's full-pipeline mixed-precision ship (130–150 RTFx on M5 Pro, with a **measured ANE working-set tier-collapse law for big-vocab joints**) and beshkenadze's stateless functional encoder (~19 ms/chunk on M1 Max ≈ 58× RT, with the `.all`-routes-to-GPU placement trap documented) — but **the OpenThai fine-tune has zero ANE conversions**, and its **14,988-token joint is bigger than the 13,087 vocab FluidAudio measured collapsing at short tiers**. That is exactly what our own `katgpt_core::ane_roofline` working-set gate can predict *before* any conversion. Verdict: **Gain** — the audio lane (post-Issue-015-close) takes its first real workload; the plan (633) runs the roofline-preflight prediction cell, the CPU-SIMD vs ANE bench matrix on the M5 Ultra fleet boxes, and records the placement calibration corpus.
+
+---
+
+## 1. What liquidcodec-ane ships (at the pinned sha)
+
+| Piece | What it is |
+|---|---|
+| `models/lc_dec_ane.mlmodelc` (fp16, 72 MB) / `lc_dec_ane_int8.mlmodelc` (36 MB) | The decoder's LFM stack (8 layers: 5 short convs + 3 sliding-window attentions) as Core ML programs; **all 464 ops on ANE** (compute plan); fixed shape: 40 codec frames in (20 left context + 20 new = 1.6 s), validity mask in, 512-d hidden states @ 75 Hz out |
+| `models/lc_tail_f32.bin` | Output projection (512→1282) + the CPU tail: linear → exp/polar → inverse STFT (n_fft 1280, hop 320, Hann) → overlap-add. **Stays CPU fp32 for precision** |
+| `convert/lc_ane.py` | The re-implementation + conversion, with a `check` mode against Liquid's PyTorch model (hidden-state match 1.4e-5; chunked-vs-full 3.2e-5; **negative control** — chunks without left context — differs by 3.2, proving the check can fail) |
+| `examples/swift/` | Standalone Swift decoder CLI: codes [12, T] → 24 kHz wav |
+| `samples/` | 7 real recordings (7 languages) original vs ANE-int8 decode, per-clip SNR published |
+
+**Measured numbers (their M3 Air table, quiet box, same 10 clips / 60.2 s):** PyTorch fp32 CPU (4 threads) 53× RT · fp16 CPU 93× · int8 CPU 95× · **fp16 ANE 320×** · **int8 ANE 316× (recommended, 36 MB)** — the ~6× is ANE-vs-PyTorch-CPU; **int8 buys size, not speed, on ANE** (316 vs 320). fp16 SNR vs PyTorch fp32 38.9 dB; int8 27.6 dB judged unchanged by ear (n=6). **Post-training int4 FAILED**: 9.8 dB and **386 of 464 ops left the ANE for CPU**; 4/6-bit k-means palettes gave 4.4/16.6 dB. First call per process compiles for ANE (~3–5 s once).
+
+## 2. The ANE-ification checklist (the transferable content, verbatim-quoted)
+
+From `convert/lc_ane.py` L5–6 at the pin:
+
+> "Changes from the original: projections folded into one 48->512 linear; 1x1 convs instead of linears; fixed-shape, stateless chunking with a validity mask; per-norm power-of-2 prescale so fp16 x^2 cannot overflow; the STFT head runs outside the package (CPU, fp32)."
+
+Per-norm prescale (L40): *"x * rsqrt(mean(x^2)+eps) * w over dim `dim`, with a prescale s so fp16 x^2 cannot overflow"* — L237: *"prescale each norm so the scaled max |x| is <= 32 (x^2 mean stays far below fp16 max)"* (the residual stream reaches ~2,300, so x² would blow past fp16's 65,504 max).
+
+Stateless chunking (L14): *"The decoder is causal and its receptive field is 5*6 + 3*29 = 117 frames < 120, so chunked output"* equals full-sequence output — the admission gate is the receptive-field bound, the mask zeroes conv inputs before sequence start and masks attention keys, and the negative control proves the equivalence check itself can fail.
+
+Corpus grade for these: **YES B−** (suggestion-only, NotBenchable-by-domain — the win metric lives in CoreML/ANE runtime). Full ranked table + dedup greps + queue slot: riir-refine Research 409 / nominal Batch 362.
+
+## 3. OpenThai2.0-ASR-Streaming — the model, and what already exists around its base
+
+**The model (HF card):** cache-aware streaming FastConformer encoder (609M — 24 layers, 1,024 wide, 128 log-mel bands) + language-prompt layer (4.5M, `th-TH` / `th-mix` prompts) + RNN-T decoder (16.2M, 2-layer LSTM 640) + joint (10.7M); 14,988-piece tokenizer (13,087 NVIDIA multilingual + 1,901 Thai); weights fp32 `.nemo` (2.56 GB ×2 variants) + ONNX export (fp + int8); four latency tiers via `att_context_size` [56,0]/[56,3]/[56,6]/[56,13]. Published accuracy @560 ms: FLEURS-th test **8.47 % CER** (vs Typhoon ASR 0.6B 11.28). **CPU on Apple silicon: M3 Max 1 thread ≈ 3× RT** (7.6 s clip in 2.3 s; *more threads are slower on macOS* — 4 threads 6.4 s, 16 threads 20.7 s); 8-thread server CPU ≈ 4× RT; H100 ≈ 257× RT. Their server uses CPU only on a Mac — "does not use the Apple GPU (MPS)". Long-file decode must be cut at pauses (one-stream decode drops words after near-silence — 23.5 % CER with 1 s gaps vs 13.2 % none).
+
+**Prior art on the BASE model — two independent ANE conversions exist:**
+
+| | FluidInference `…Multilingual-0.6b-CoreML` | beshkenadze `…coreml-ane-stream` |
+|---|---|---|
+| Scope | Full pipeline: preprocessor + encoder + decoder + joint (+ B1 decoder⊕joint fusion), 4 chunk tiers × 2 vocab bundles | **Encoder only** (~95 % of compute); prompt MLP + RNN-T decode stay in MLX on GPU |
+| Numbers (published) | M5 Pro: 130–150 RTFx Latin @ 2 s tier; zh/ja/multilingual 84–90 @ 2 s, **collapsing to ≈ 21–23 RTFx @ 560 ms** — "the 13087-vocab joint matmul only fits the ANE working-set efficiently at the 2 s tier" | M1 Max: **~19 ms/chunk** (112 mel ≈ 1.1 s audio → ~58× RT); int8-palettized 561 MB, "+28 % faster on the ANE" with word-for-word identical transcript; **6-bit degraded the transcript** (so 8-bit shipped) |
+| Placement law | `.cpuAndNeuralEngine` routing; mixed precision "LAYERPOS [42,13]" (first/last 3 Conformer layers INT8, middle 18 6-bit palettized, WER-neutral claim) | **100 % ANE cost-weighted**; int32 mask/cache-length ops drop to CPU as "one negligible island"; ⚠ **`.all` routes the whole graph to GPU (≈2 % ANE)** — CPU+ANE, never `.all` |
+| Streaming state | per-tier bundles; encoder shared, language via `prompt_id` | **Stateless functional**: NeMo's `cache_aware_stream_step` converted with the three streaming caches as explicit inputs **and** outputs (no `MLState`); Swift threads them across chunks; claims "transcript-identical to NeMo's native variable-chunk streaming" |
+| Access | **Discord-gated repo** — cite numbers, never restage artifacts | Open (README @ `3dabd79`); conversion script in their tree |
+
+**The gap this lane fills:** the OpenThai fine-tune (4 days old) has **zero** ANE conversions. Everything needed to make one is published: the architecture is unchanged from the base, both conversion recipes exist, the tokenizer delta is known (14,988 vs 13,087), and the prompt layer is a known placement question (FluidAudio bakes `prompt_id`; beshkenadze keeps the prompt MLP host-side — the clef-lane host-gather pattern).
+
+## 4. Internal census (what we already own — no duplication)
+
+- **`katgpt_core::ane_roofline`** (public substrate, default-on): `AneFamily::detect()` M1→M5, `AnePeaks::{m1..m5}` calibrated peaks, family gate, **working-set gate** (tile-and-stream detection), dispatch/compute/memory cost model, `ane_fused_estimate` (Plan 439 / GTSim-distilled fused-chain model). The Plan-439 bench examples already build CoreML specs in Rust (`coreml_proto`) and measured fused-vs-unfused ANE dispatch — the roofline has been validated against small measured cells but never against a **full-model placement census**.
+- **`crates/riir-infer-ane`** (the shared host, from the clef lane): digest-pinned bundle fetch, content-addressed `.mlmodelc` compile cache, `load_model_precompiled` + `predict_f32_multi` (landed by the silero PoC).
+- **`crates/riir-infer-audio`**: exists (the silero-vad lane PoC, Issue 015, **closed** 2026-10-26 — defer lifted, "laya-on-M5-Ultra placement check DONE — 100 % ANE, 0 transitions"). ASR is this crate's next lane behind opt-in `asr-ane` (clef-ane posture: default build compiles empty, off-macOS cfg'd out).
+- **Fleet silicon**: amo/bmo are **M5 Ultra 96 GB** (owner-confirmed) — the `AnePeaks::m5` calibration target (`working_set_bytes = 4_720_000`) and the heavy-lane hosts; m3 (M3 Max) is the optional cross-check that matches the model card's own published M3 Max posture. Timing cells route `--exclusive` (quiet-rig law).
+- **reflex "openthai"** = the OpenThai-SystemOne **LLM** decision lane (riir-reflex Research 003 / Plan 617 lineage). **Not** this model. The ASR lane stays in riir-infer (substrate) per the Research-001 routing; reflex gets nothing until an owner wants a product voice lane.
+
+## 5. Fusion — what paper × our substrate produces that neither alone has
+
+1. **The ANE-fit preflight (the novel instrument — claim scoped honestly).** Two layers, only the first of which is existing substrate: **(i) bound-class + latency per op** — run `ane_roofline` over the candidate's op census: `ane_estimate` returns `runtime_ms` + `AneBound` (`Dispatch`/`Compute`/`Memory`/`WorkingSet`; `WorkingSet` = "still legal but tiles and streams from DRAM", and the only *residency* gate in the module today is `min_family`). **(ii) a placement-legality table — NEW work, scoped as P0.1**, not a claim about existing substrate: the public ground-truth placement events are dtype/op-legality/compute-unit effects the roofline does not model (int4 → 386/464 ops fall off the ANE; the int32 mask island on CPU; `.all` routes the graph to GPU). P0.1 builds that small table (dtype × op-class × compute-unit → predicted residency) and calibrates it against the three public placement sets. **The concrete numeric prediction** (pre-registered, falsifiable; full two-posture form in Plan 633 P0.2 — denominator = the roofline's own `runtime_ms` for the call shape, never `compute_ms` alone, since for this shape `runtime_ms ≈ 0.34 ms` already models DRAM streaming and dispatch alone is ~50× `compute_ms`): the per-step posture predicts per-call FLATNESS across tiers (the call shape is tier-invariant; a flat curve is the named outcome that favours dispatch amortization over a per-call working-set cliff); the batched posture predicts the monotone excess (≥ 3× `runtime_ms` at short tiers → ≤ 1.5× by `[56,13]`), falsified by < 1.5× everywhere or ≥ 3× flat. FluidInference's "only fits the ANE working-set at the 2 s tier" is recorded as THEIR attribution (a hypothesis the cell could refute — per-step dispatch amortization is the equally-live alternative the same cells discriminate).
+2. **Host-owns-state as one law across three proofs.** liquidcodec-ane (validity-mask windows, receptive-field bound), beshkenadze (caches in/out, no `MLState`), our clef host (host-side gather) — the ANE graph is stateless and the host owns state. The plan A/Bs the two streaming shapes (stateless fixed-window vs explicit-cache threading) **on the same OpenThai checkpoint** — a head-to-head nobody has published on one model.
+3. **Prompt-as-input.** OpenThai's trained language-prompt layer (4.5M) rides the clef pattern: prompt states computed once host-side and fed as inputs, never re-encoded per chunk — vs FluidAudio's baked `prompt_id` vs beshkenadze's prompt-MLP-on-GPU. The conversion decision is a measured cell, not a choice by taste.
+4. **The checklist becomes scored, not folklore.** Each checklist line maps to a roofline quantity: prescale choice ← fp16 overflow bound from activation stats; linear-as-1×1-conv ← family gate; chunk size ← working-set gate + dispatch amortization; CPU-tail ← the precision axis our `Dtype` model already carries.
+
+**The joint arithmetic (corrected after reviewer check):** the card's joint network is 10.7 M parameters total, so the vocab matmul CANNOT be 1024 × 14,988 (= 15.3 M — more than the whole joint). The decomposition that matches the card: `1024·640 (encoder proj) + 640·640 (decoder/joint hidden) + 640·14,989 (vocab) ≈ 10.66 M` — i.e. the RNNT joint projects the 1,024-d encoder state to a 640-d joint hidden before the vocab matmul. **The 640 hidden width is inferred from the parameter counts; P0.1 confirms it from the ONNX graph** (the same check pins the vocab matmul at **640 × 14,989 ≈ 19.2 MB fp16** — still ~4× the M5 working set, so the prediction stands on the corrected number).
+
+## 6. Verdict + MOAT gate
+
+**Gain — integration distill.** One-line reason: the strongest open Thai streaming ASR, ANE-class hardware already in the fleet, a published conversion recipe to replay, and an unowned measured question (big-vocab joint vs working set) that only we would ask with a roofline in hand — adoptable on substrate we already own; not a new mechanism class, so no GOAT promotion claim; everything stays opt-in.
+
+| Surface | Repo | What lands | Visibility |
+|---|---|---|---|
+| Roofline preflight + ASR lane + bench | `riir-infer` | Plan 633 (Phases 0–4) — `riir-infer-audio` feature `asr-ane` | public |
+| Corpus rules (ANE conversion/host placement) | `riir-refine` | Research 409 / Plan 376 / nominal Batch 362 | public |
+| reflex/instinct/rethink | — | nothing; ASR is not a decision suite; a future voice lane is an owner call | — |
+
+Tier check: riir-infer row ("quant formats, kernels, **encoders**, loaders") — in scope, zero new dep classes (the python conversion env lives in `.raw/`, never a cargo dep). Priority ladder: #3 (inference-perf league). Public/private: every file public-safe; FluidAudio's gated artifacts are cited, never restaged.
+
+## 7. The bench design (owner's ask #2, pre-registered — full task detail in Plan 633)
+
+- **Postures (amo/bmo M5 Ultra primary; m3 M3 Max optional cross-check):** (1) NeMo PyTorch fp32 1-thread — the liquidcodec-comparable reference row; (2) ONNX fp / int8 via onnxruntime CPU EP — **the CPU SIMD lane** (MLAS NEON; the owner's "cpu must use simd lane if possible" is this cell, with a deeper Rust-SIMD mel+decode tail as the conditional Phase 3); (3) ANE fp16 encoder (our conversion, beshkenadze functional shape); (4) **ANE decoder⊕joint (REQUIRED cell**, not stretch) + full pipeline; (5) **the same-recipe base-model joint (REQUIRED — G5's cell)**; (6) ANE 8-bit palettized — retention-gated; (7) stretch: B1 decoder⊕joint fusion (FluidAudio recipe shape).
+- **Test set:** two families, both pre-registered — FLEURS-th test (read speech; CC-BY-4.0, attributed; fixed seeded 100-clip slice + full 1,021-clip split) **and a 100-clip GigaSpeech2-th test slice (conversational)** — G1's per-family gate needs both, and FLEURS alone is read-speech-only; CER with the card's own normalization (Thai digits/spoken numbers equal, spaces removed); long files cut at pauses (the card's own limit).
+- **Gates (pre-registered before any run):** **G1 parity** — ANE CER delta ≤ +0.5 pt absolute vs the reference, per family (FLEURS = read, GigaSpeech2 slice = conversational), int8/palettized the same bar, FAIL = demote the posture (ungoat law). **G2 the owner's 6× bar, honest denominator** — ANE RTFx ≥ 6× the BEST CPU cell's RTFx (whatever wins between PyTorch fp32 and ONNX-SIMD — the gate names the honest denominator, riir-infer precedent `9b7434b6`); the losing CPU cell's ratio stays recorded as the liquidcodec-comparable row; same box/clips, warm-up excluded (the liquidcodec methodology), `bench_preflight` PROVENANCE quoted. **G3 transcript identity** — normalized exact-match rate ANE vs CPU fp32 ≥ 98 % (beshkenadze got word-for-word at 8-bit on the base). **G4 placement** — compute-plan census ≥ 95 % cost-weighted ANE ops (int32 island allowed, precedent beshkenadze). **G5 no-regression vs the same-recipe base joint on the same box** — the 14,988-vs-13,087 vocab delta is the isolated variable; FluidAudio's published numbers are never pooled (different silicon).
+- **The numeric prediction (pre-registered in Plan 633 P0.2; denominator = the roofline's own `runtime_ms` for the call shape):** per-step posture predicts per-call FLATNESS across tiers (tier-invariant shape; flatness favours dispatch amortization); the batched posture predicts the monotone excess (≥ 3× `runtime_ms` at short tiers → ≤ 1.5× by `[56,13]`), falsified by < 1.5× everywhere or ≥ 3× flat. For this shape `runtime_ms ≈ 0.34 ms` already models DRAM streaming of the 19.2 MB weights.
+- **Expectation honesty:** 6× is the *pass bar*; external evidence (FluidAudio 130 RTFx vs 3–4× RT CPU) suggests the ANE/CPU ratio may land far higher — but published numbers are different silicon and never pooled with ours.
+
+## 8. Licence + provenance
+
+- liquidcodec-ane @ `177f9024…`: LFM Open License v1.0 (weights; §5 commercial-use < USD 10M annual revenue — satisfied; the *converted artifacts* inherit it — we convert our own models, we do not ship theirs); NOTICE transcribes Liquid AI attribution + CC-BY-4.0 samples. Quotes in §1–2 re-verified at the pin; clone removed after this note.
+- OpenThai2.0-ASR-Streaming: OpenMDW-1.1 (commercial use permitted — the same licence FluidAudio's base-model port redistributes under, with NVIDIA attribution retained); FLEURS test audio CC-BY-4.0 (attribution required in any record); NeMo decode loop Apache-2.0 (their `serve/chinda_asr.py` adaptation disclosed on the card).
+- Prior-art quotes: FluidAudio card + beshkenadze README read live 2026-11-14 (URLs in the header); beshkenadze README pin `3dabd79`.
+- Internal-first: `Liquid-Codec|liquidcodec` grep over the workspace = **zero prior hits**; `FastConformer|RNNT` = Research 147 (decoder dispatch), riir-reflex 009 (d1-omni audio trunk), riir-train 471 (d1 recipe) — none an ASR-lane conversion. `.highwater` re-read at allocation: research 28→29, plans 632→633; `dual_allocation_gate` clean (0/0/0) both repos before writing.
