@@ -1,6 +1,6 @@
 # Issue 1215 — the riir-infer standing test-count gate (the EXECUTE half; test_gate.py)
 
-**Status:** OPEN — T1 LANDED (`b0e91d1`), T2/T3 open. This issue converts the count-floor-infra deferral (noted in plan 632 T2's adjudication) into the standing lane.
+**Status:** OPEN — T1 LANDED (`42cc99b`), T2/T3 open. This issue converts the count-floor-infra deferral (noted in plan 632 T2's adjudication) into the standing lane.
 
 **Claimed:** zed-41cd0608@amo, 1794597600, expires 2026-11-16T12:00:00Z
 
@@ -30,7 +30,7 @@ Slow row (--receipt): `int_ref_real_artifact` at `--release`, floor 2 + the rece
 
 ## Tasks
 
-- [x] T1 — the gate script + the int_ref rows + canary + receipt row; all four postures verified live tonight (canary fires, 3 standing rows green, receipt row green at release).
+- [x] T1 — the gate script + the int_ref rows + canary + receipt row; all four postures verified live tonight (canary fires, 3 standing rows green, receipt row green at release). LANDED `42cc99b`.
 - [ ] T2 — widen the rows: the repo's other suites need floors measured BEFORE joining (never registered floorless): `issue879_gdn_quant_certification` (`--features deltanet_ternary_inference`), `bonsai2_rotation_load` (`--features bonsai2_hadamard`), `issue046_gdn_spectral_class_spec` (`--features deltanet_inference`), the exl3 lane (`--features exl3`), `entropy_bounded_commit` (`-p riir-infer-gpu`). One row per suite, measured on a quiet box, box state in the commit.
 - [ ] T3 — CI wiring decision: the katgpt-rs precedent runs its gate weekly (schedule) + on push (main-only). riir-infer's CI is main-only/dispatch (spending posture); either wire the standing rows into a dispatch-only workflow or record the workstation-owned decision here (the gate refusing off-macOS for the Metal row keeps a runner honest).
 - [ ] T4 — the green-zero repair observed en route is its own mini-audit: grep the repo's Cargo.toml `[[test]]`/`[[bin]]` rows against the `mod`-gated surfaces they name (the class tonight: a feature-gated module whose suite needs BOTH the module feature and the row) — file any additional missing rows found.
