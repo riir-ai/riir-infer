@@ -1,6 +1,8 @@
 # Plan 633 — the ANE audio lane's first real workload: OpenThai2.0-ASR CPU-SIMD vs ANE bench + roofline preflight calibration
 
-**Claimed:** zed-cd62a5ed@amo, 1794676478931, expires 2026-11-16T17:14:38Z (renewal 2 — wake continuation; P1.3 clean re-run quiet-gated + the P2 conversion phase this window)
+**Claimed:** zed-cd62a5ed@amo, 1794676478, expires 2026-11-16T17:14:38Z
+
+(renewal 2 — wake continuation: P1.3 clean re-run quiet-gated + the P2 conversion phase this window; epoch in unix seconds per the claim-lease checker's 9-10-digit grammar)
 
 **Status:** OPEN — filed 2026-11-14 from Research 029 (liquidcodec-ane distill + the owner's bench directive: "expect 6x better but cpu must use simd lane if possible"). Owner gates: none expected (Gating law 2026-11-11 — no credential/secret touch; the bench runs on fleet boxes via agent-mail).
 
@@ -45,7 +47,17 @@
 
 - [x] P1.1 — DONE 2026-11-14 (quiet cells: fleurs RTFx 3.61 / CER 9.29; tvspeech 5.65 / 12.34 — the stage-2 table)
 - [x] P1.2 — DONE 2026-11-14 (quiet cells, piecewise dictation posture: fp RTFx 28.11/32.16 CER 21.08/20.82; int8 16.03/17.76 CER 22.76/21.79 — fp WINS, **the G2 denominator**; int8 CPU-negative finding + the export-CER finding recorded in the stage-2 notes)
-- [ ] P1.3 — threading sweep on M5 Ultra (1 vs 4 vs N threads) — the card's finding is M3 Max-specific; Ultra silicon may behave differently. Measured row, never a gate.
+- [ ] P1.3 — threading sweep on M5 Ultra (1 vs 4 vs N threads) — the card's finding is M3 Max-specific; Ultra silicon may behave differently. Measured row, never a gate. (quiet-gated — the s053 merge-gate job held the box through the wake window)
+
+**P2.1 stage-1 (zed-cd62a5ed@amo, 2026-11-15 ~01:0x, renewal 2) — the ANE encoder conversion LANDED and parity GATE GREEN:**
+
+- **Runtime facts (the shape authority — the plan's [1,128,121] sketch corrected):** this model's own streaming_cfg at att [56,6] is chunk_size [49,56], pre_encode_cache [0,9], drop_extra_pre_encoded 2, valid_out_len 7, last_channel_cache_size 56 — so the fixed shapes are **[1,128,49] first-chunk (drop=0) + [1,128,65] steady (9 pre-encode cache + 56 new, drop=2)**, attention width 63 both postures; [1,128,121] was beshkenadze's [56,13]-tier shape, never this tier. Cache formats [24,1,56,1024] (channel) / [24,1,1024,8] (time), cache_len int32 input (the internal [L,B]/[B,L] transpose is ONLY the ONNX forward_for_export path — the runtime mixin path is [L,B] both ways, chinda's exact shape).
+- **Two graphs** (`openthai_enc_first/step.mlpackage` + compiled .mlmodelc): the drop_extra_pre_encoded slice is a python-int constant per trace, so first/steady are separate graphs (the FluidAudio per-bundle precedent); the short final flush (keep_all_outputs=True, variable valid frames) stays torch/CPU — the CPU-tail law, one call per utterance.
+- **Prompt layer IN-graph** with the host-built one-hot [1,1,128] as an input (the host-gather cell; scatter hoisted to a broadcast — the mixin's fixed-index scatter is a constant at fixed index). The baked-const variant stays the P2.3 measured comparison.
+- **Parity (3 FLEURS clips, 12-39 steps each, real-buffer chunks, cache-threaded end to end): token identity 100% on all three** — ANE fp16 encoded frames max-abs ≤ 0.134 / rel-RMS ≤ 3.8% vs torch fp32, and the RNNT greedy decode never diverges (0 tok_diverge steps); encoded_len match everywhere, final cache_len saturates at 56. Rows: `.raw/asr/p633_p21_parity.json` (correctness rows — no timing claims; load-contaminated box).
+- **Placement census (P2.2 first read): placed-op ANE share 97.78% / 97.79%** (1585/1621, 1590/1626) + a 36-op CPU island (the int mask/length ops — beshkenadze's exact precedent) + the unplaced const/data remainder. **Instrument law measured: `MLComputePlan.load_from_path` defaults to the ALL plan and reports GPU preference for every placed op — the plan must be loaded AT the posture it runs at (`load_from_path_on_device(..., CPU_AND_NE)`, async at this ct).** Cost-weighted axis pending (get_estimated_cost returns None at ct 9) — G4's strict cost-weighted form corroborated by the P2.3 timing cells.
+- **Conversion-route findings (recorded for any future ANE lane):** coremltools 9 DROPPED the ONNX frontend (sources: auto/tensorflow/pytorch/milinternal only) — ONNX-first abandoned; the direct torch route works with THREE compat measures: (a) numpy downgraded 2.4.6→1.26.4 in the env (pandas 2.2.3 / sklearn 1.5.2 / scipy 1.13.1 / pyarrow 20 repinned with it — torch 2.15 declares NO numpy requirement; pandas 3.x + pyarrow 26 are numpy-2-only) — with numpy<2 the torch frontend converts clean, and my numpy-2 cast shim must NOT be applied (it trips a ct const-builder bug at numpy 1.26, measured both ways); (b) `torch.jit.trace` + **`torch.jit.freeze`** — torch 2.15's tracer keeps static conv-output sizes symbolic (torch.ones(1, max_audio_length, …) rank-mismatches in ct), freeze's constant folding turns them into graph consts; (c) this macOS's `coremlcompiler` emits a manifest-less .mlmodelc (model.mil+weights layout) that the NATIVE API reads and ct's loader does not — parity loads the .mlpackage, the .mlmodelc stays the host artifact. beshkenadze's conversion script is no longer retrievable (repo restructured to Neywa-Labs/mlx-audio-swift, tools/coreml-ane gone from the tree; their README confirms they hit the same aten::Int class and patched coremltools).
+- Diagnostics: `.raw/asr/p633_p21_facts.json` (shape authority) · `p633_p21_parity.json` · `p633_p21_census.json` · harness `.raw/asr/p633_p21.py` (modes: convert/compile/census/parity/all).
 
 ## Phase 2 — ANE conversion + the bench matrix
 
