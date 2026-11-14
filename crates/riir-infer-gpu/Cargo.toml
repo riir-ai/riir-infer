@@ -363,6 +363,12 @@ deltanet_recurrence_rowpar = []
 # prefill path composes; chunked prefill + batched prefill are the state-safe
 # prefill kernel set.
 qwen38_wgpu = ["cubecl_runtime", "ternary_gemv", "ternary_deltanet_chunked_prefill", "ternary_attention_batched_prefill", "deltanet_recurrence_rowpar", "deltanet_recurrence_parallel", "dep:cubecl-wgpu"]
+# Issue 1217 — exposes the vendored fork's Issue-761 always-on dispatch counters
+# (REGULATE/WRITE_POLL/FLUSH/…) to measurement cells WITHOUT dragging the dense
+# lane's feature closure (qwen38_wgpu implies deltanet_recurrence_parallel, a
+# different ternary arm — mixing it into a league-posture cell breaks posture
+# parity). Dep-only: zero behavior change, the statics are always-on fork-side.
+counter_probe = ["dep:cubecl-wgpu"]
 # Issue 1179 — the qwen3.8 specdec verify lane (the ABOVE-SERIAL half of the uzu
 # beat). T1 rides this feature: the head-only acceptance price cell (the uzu
 # DFlash speculator, CPU f32 draft + the keyed accept over the dense target).

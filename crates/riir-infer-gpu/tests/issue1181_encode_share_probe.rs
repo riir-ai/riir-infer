@@ -61,6 +61,56 @@ fn pct(sorted: &[f64], p: f64) -> f64 {
     sorted[idx]
 }
 
+// ── Issue 761 counter decomposition (opt-in `counter_probe`, issue 1217) ──
+//
+// The vendored fork's always-on dispatch stations, read across ONE resident
+// reset window: LAUNCH ⊇ ENQUEUE_EXEC ⊇ FLUSH ⊇ {REGULATE, WRITE_POLL}
+// (the nesting is documented fork-side). REGULATE = the MAX_TOTAL_TASKS=512
+// poll(Wait); WRITE_POLL = the MAX_PENDING_WRITES=64 uniform-write poll(Wait)
+// — the two hardcoded sites issue 1217 names as the pool-bound serialization.
+// This block turns the Bench-1218 inference (enqueue blocks ≈ one GPU token)
+// into a counter FACT: if REGULATE+WRITE_POLL dominate the resident wall, the
+// host is GPU-paced by exactly those two sites.
+#[cfg(feature = "counter_probe")]
+mod counters {
+    use cubecl_wgpu::{
+        ENQUEUE_EXEC_NANOS, ENQUEUE_WRITE_NANOS, FLUSH_COUNT, FLUSH_NANOS, LAUNCH_COUNT,
+        LAUNCH_NANOS, READ_NANOS, REGULATE_COUNT, REGULATE_NANOS, SUBMIT_COUNT, WRITE_POLL_COUNT,
+        WRITE_POLL_NANOS, reset_dispatch_profile,
+    };
+
+    pub fn reset() {
+        reset_dispatch_profile();
+    }
+
+    pub fn dump(wall_nanos: u64, label: &str) {
+        let l = |c: &std::sync::atomic::AtomicU64| c.load(std::sync::atomic::Ordering::Relaxed);
+        let pct = |n: u64| {
+            if wall_nanos == 0 {
+                0.0
+            } else {
+                100.0 * n as f64 / wall_nanos as f64
+            }
+        };
+        eprintln!(
+            "[i1181] counters {label}: wall={:.3}s · launch={:.1}% (n={}) · exec={:.1}% · write={:.1}% · flush={:.1}% (c={}) · REGULATE={:.1}% (c={}) · WRITE_POLL={:.1}% (c={}) · read={:.1}% · submit={}",
+            wall_nanos as f64 / 1e9,
+            pct(l(&LAUNCH_NANOS)),
+            l(&LAUNCH_COUNT),
+            pct(l(&ENQUEUE_EXEC_NANOS)),
+            pct(l(&ENQUEUE_WRITE_NANOS)),
+            pct(l(&FLUSH_NANOS)),
+            l(&FLUSH_COUNT),
+            pct(l(&REGULATE_NANOS)),
+            l(&REGULATE_COUNT),
+            pct(l(&WRITE_POLL_NANOS)),
+            l(&WRITE_POLL_COUNT),
+            pct(l(&READ_NANOS)),
+            l(&SUBMIT_COUNT),
+        );
+    }
+}
+
 fn median(v: &mut [f64]) -> f64 {
     v.sort_by(|a, b| a.total_cmp(b));
     v[v.len() / 2]
@@ -298,4 +348,19 @@ fn issue1181_encode_share_probe() {
         "DEMOTE — encode < 1.0 ms/token bar (the replay arm has no room)"
     };
     eprintln!("[i1181] VERDICT: {verdict}");
+
+    // Issue 1217's decisive read: ONE resident-only counter window. The
+    // reset covers nothing but the walk below — the decomposition attributes
+    // the whole resident wall to the fork's stations. If REGULATE +
+    // WRITE_POLL dominate, the 1-deep blocking is those two poll(Wait) sites
+    // (the hardcoded MAX_TOTAL_TASKS=512 / MAX_PENDING_WRITES=64 consts),
+    // not allocation.
+    #[cfg(feature = "counter_probe")]
+    {
+        counters::reset();
+        let c0 = Instant::now();
+        let _ = walk_resident_instrumented(&mut fwd, seed);
+        let wall_nanos = (c0.elapsed().as_secs_f64() * 1e9) as u64;
+        counters::dump(wall_nanos, "resident-only window");
+    }
 }
