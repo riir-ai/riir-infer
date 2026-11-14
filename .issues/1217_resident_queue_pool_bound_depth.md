@@ -1,7 +1,8 @@
 # Issue 1217 — resident decode queue runs ~1-deep: the fork's two hardcoded poll(Wait) caps (MAX_TOTAL_TASKS=512 / MAX_PENDING_WRITES=64) pace the host to the GPU
 
-**Status:** OPEN — filed 2026-11-14 from [Bench 1218](../.benchmarks/1218_i1181_t1_encode_share_demote_gate.md)'s second finding (the `issue1181_encode_share_probe` per-call instrumentation, amo, census posture, 27B folded); mechanism CORRECTED same session by the vendor source read (the two poll(Wait) caps, not allocation).
+**Status:** RESOLVED 2026-11-15 — the mechanism diagnosis held (cross-box counters: REGULATE=75.0%, WRITE_POLL=0.0%) and the cheap lever adjudicated: the caps lift engaged (enqueue blocking gone) but the wall bar FAILED — the lane is FENCE-BOUND, not cap-bound ([Bench 1218 §"arm B"](../.benchmarks/1218_i1181_t1_encode_share_demote_gate.md)). The caps envs stay an experiment axis; the residual is behind the harvest fence/flush sync — successor issue 1218 (the decomposition cell + the named lever).
 **Claimed:** amo-idle-i1181@amo, 1794671259, expires 2026-11-16T22:00:00Z
+**Lease closed:** amo-idle-i1181@amo (continued by zed-07a26ed5@amo, 1794679535), was expires 2026-11-16T22:00:00Z — the A/B cell ran (arm A cross-box `01a1dabb-de8f`, arm B `01a1db54-a511`), verdict NO-ADOPT recorded in Bench 1218 + `829b45a`; the fix candidate `dcb140f` stays as the experiment axis it was landed as.
 
 ## The measured fact
 
