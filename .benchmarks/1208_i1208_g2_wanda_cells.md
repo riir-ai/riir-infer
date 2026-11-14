@@ -46,7 +46,14 @@ free at decode). The deploy-posture choice lands with T4's cells.
 Two independent full runs (24 layers armed, 512 chat_probe tokens, cap 512):
 
 - corpus digest `72ecce464f55…bc8a` (BLAKE3 over the token stream)
-- sweep digest `80ed4edb4229…853c` — identical across runs
+- sweep digest `80ed4edb4202…853c` — identical across runs (the original
+  2026-11-12 line typed the truncated prefix as `80ed4edb4229…` — a
+  transcription typo caught by the 2026-11-14 cross-box run: the fresh
+  amo rerun printed the full `80ed4edb420294601b…853c` byte-identical
+  to bmo, and the blob digest below was already prefix+suffix-exact;
+  identical norms → identical saliency → identical blob, so a differing
+  sweep digest alongside a matching blob was never physically possible —
+  the rerun settles it)
 - blob digest `8bc1c712…795a` — identical across runs
 - file sha1: both `c582078d80a0…a33c` — byte-identical artifacts
 
