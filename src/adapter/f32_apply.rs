@@ -25,6 +25,7 @@
 
 use super::mask_codec::{DecodedMask, MaskCodecError};
 use crate::deltanet::weights::QwenDeltaNetWeights;
+use crate::llama_layer::LlamaTransformerWeights;
 
 /// The GGUF tensor name for layer `i`'s gate projection (the
 /// `qwen35_deltanet_gguf_names` convention — the mask section key).
@@ -93,6 +94,53 @@ pub fn apply_mask_at_load(
             )));
         };
         let data = layer.gate_proj.dense_data_mut();
+        if data.len() as u64 != section.bit_len {
+            return Err(MaskCodecError::SectionRange(format!(
+                "section {} covers {} bits, tensor holds {} weights",
+                section.tensor_name,
+                section.bit_len,
+                data.len()
+            )));
+        }
+        let zeroed = apply_mask_f32(data, &mask.bits, section.bit_offset as usize);
+        reports.push(MaskApplicationReport {
+            tensor_name: section.tensor_name.clone(),
+            weights_total: data.len(),
+            weights_zeroed: zeroed,
+        });
+    }
+    Ok(reports)
+}
+
+/// Apply-at-load over the llama-family weight struct (the `qwen2` lane
+/// — Issue 1208 T4's released-mask league cell). Same law as
+/// [`apply_mask_at_load`]: unknown sections skip silently, out-of-range
+/// layers and bit-length disagreements refuse loudly. The qwen2
+/// tensors are plain `Vec<f32>` (no `Proj` wrapper), so the section
+/// walk is direct.
+pub fn apply_mask_at_load_llama(
+    weights: &mut LlamaTransformerWeights,
+    mask: &DecodedMask,
+) -> Result<Vec<MaskApplicationReport>, MaskCodecError> {
+    let mut reports = Vec::new();
+    for section in &mask.manifest.sections {
+        let Some((layer_index, _)) = section
+            .tensor_name
+            .strip_prefix("blk.")
+            .and_then(|rest| rest.strip_suffix(".ffn_gate.weight"))
+            .and_then(|mid| mid.parse::<usize>().ok().map(|i| (i, mid)))
+        else {
+            continue;
+        };
+        let Some(layer) = weights.layers.get_mut(layer_index) else {
+            return Err(MaskCodecError::SectionRange(format!(
+                "section {} names layer {} beyond the model's {} layers",
+                section.tensor_name,
+                layer_index,
+                weights.layers.len()
+            )));
+        };
+        let data = layer.gate_proj.as_mut_slice();
         if data.len() as u64 != section.bit_len {
             return Err(MaskCodecError::SectionRange(format!(
                 "section {} covers {} bits, tensor holds {} weights",

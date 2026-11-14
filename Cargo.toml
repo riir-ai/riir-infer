@@ -543,6 +543,13 @@ required-features = ["deletion_mask"]
 name = "i1208_mask_apply"
 required-features = ["deletion_mask", "deltanet_inference"]
 
+# Issue 1208 T4 — the llama-lane (qwen2) forward-level G1 battery:
+# synthetic-weights three-way walk parity + the identity pin (no model
+# file needed; the real-model cell replays this at 7B scale).
+[[test]]
+name = "i1208_mask_apply_llama"
+required-features = ["deletion_mask"]
+
 # Issue 1208 T2 — the G2 measurement cells (load-wall share + the ≤1%
 # overlay decode bar on the 0.8B hybrid fixture). Reader protection row
 # (the green-zero law): a default build skips the bin loudly.
@@ -564,6 +571,23 @@ required-features = ["deletion_mask", "deltanet_inference"]
 name = "i1208_mask_audit"
 path = "src/bin/i1208_mask_audit.rs"
 required-features = ["deletion_mask", "deltanet_inference"]
+
+# Issue 1208 T4 — the upstream mask ingest: the Deletion Tuning
+# `packbits_zstd` directory -> a RIMSK artifact, census-verified.
+# Reader protection row (the green-zero law): a default build skips
+# the bin loudly.
+[[bin]]
+name = "i1208_hf_ingest"
+path = "src/bin/i1208_hf_ingest.rs"
+required-features = ["deletion_mask"]
+
+# Issue 1208 T4 — the released-mask league cell (G1 walk identity
+# between postures + the identity pin, G3 decode parity, the G2 gain
+# rows) over the qwen2 CPU llama-family lane. Reader protection row.
+[[bin]]
+name = "i1208_t4_league_cell"
+path = "src/bin/i1208_t4_league_cell.rs"
+required-features = ["deletion_mask"]
 
 # Issue 049 — GDN delta-roll journal gates: the G1 round-trip drift pin
 # (unwind vs fresh sequential replay, per decay regime), the conditioning
