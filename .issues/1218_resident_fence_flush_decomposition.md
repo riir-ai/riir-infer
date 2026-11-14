@@ -1,6 +1,7 @@
 # Issue 1218 — the resident wall's residual host sync after the caps lift: the fence/flush decomposition cell
 
 **Status:** open — filed 2026-11-15 from [Bench 1218 §"arm B"](../.benchmarks/1218_i1181_t1_encode_share_demote_gate.md)'s verdict (the 1217 caps A/B measured NEGATIVE on the wall bar with engagement proven).
+**Claimed:** zed-a0615aba@amo, 1794693900, expires 2026-11-16T21:30:00+07:00 — scope: T1 (the counters-decomposition cell at the raised-caps posture, queued bmo exclusive behind the i1189 T4 feeding cell + i177 duel smoke), then T2's lever naming from its row; T3 stays gated on T2's pre-registered bars.
 
 ## The measured facts this issue starts from
 
