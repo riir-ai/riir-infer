@@ -177,6 +177,12 @@ required-features = ["laya-riir-metal", "laya-riir-cubecl"]
 name = "metal_ops_smoke"
 required-features = ["laya-riir-metal"]
 
+# The ICB replay machinery's smoke fixture (issue 1181 T2 tranche 1) —
+# correctness + the degradation-cost A/B (1181: the B319 remedy build).
+[[test]]
+name = "icb_replay_smoke"
+required-features = ["laya-riir-metal"]
+
 # The packed-path chain-aliasing gate (same shape as metal_ops_smoke:
 # whole-file #![cfg]-gated macOS + metal; the row keeps a feature-less
 # selection skipping loudly instead of printing a green zero).

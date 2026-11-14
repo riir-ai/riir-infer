@@ -92,6 +92,7 @@ use super::super::{LayaError, Result};
 use super::backend::{AttnScratch, Backend};
 use super::weights::{RawQ4, RawQ8};
 
+pub mod icb_replay;
 mod mps;
 
 /// Shared storage with EXPLICIT tracked hazard tracking: the pipeline
