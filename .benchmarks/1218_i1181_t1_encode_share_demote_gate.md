@@ -66,3 +66,25 @@ Consequences, precisely scoped:
 **The counters row is the first DIRECT on-hardware decomposition of the Issue-1217 mechanism, and it REFINES it:** REGULATE occupies **75.0%** of the resident-only window and fires c=108 ≈ once per token (the window is wall 1.540 s ≈ 96 resident tokens at 16.05 ms/tok; n=108384 launches ≈ 1129/token — the 512-cap crossing predicts ~2 fires/token, measured 1.1, the flush counter c=216 carrying the other half — the exact fire/cReset interplay is the vendored stream's, not re-derived here) — while **WRITE_POLL = 0.0% (c=0): the 64-cap write-poll site never fired in this window**. The corrected mechanism's SECOND poll point is therefore not a measurable serializer on this posture (the uniform writes evidently coalesce below 64 in-flight per poll epoch); the ~1-deep pacing is the REGULATE cap alone. Issue 1217's A/B arm B (raised 16384 on BOTH caps) stays the deciding cell — the pre-registered bars read the wall + the REGULATE share, both of which this row now pins incumbent-side (18.03 → target ≥ 0.4 ms/tok improvement; REGULATE 75.0% → materially down). Arm B queued as bmo job `01a1db54-a511` (the original `712bc463` arms died on the probe's cwd-relative GGUF default — `cargo test` runs from the package dir, so `../../riir-train/...` misses; the re-run carries the absolute `BONSAI_GGUF`).
 
 Commits: this one (the row). Full job log: bmo `~/.agent-mail/jobs/logs/01a1dabb-de8f-77ae-bcde-21c9f5e35186.log`.
+
+## The Issue-1217 caps A/B — arm B LANDED, verdict NO-ADOPT (measured-negative on the wall bar), 2026-11-15
+
+**Date:** 2026-11-15 · **Box:** bmo (exclusive, load 1.7) · **Job:** `01a1db54-a511` (the `712bc463` re-run; both original arms had died on the probe's cwd-relative GGUF default — `cargo test` runs from the package dir, so the absolute `BONSAI_GGUF` is load-bearing)
+**Arms:** A = the incumbent decomposition above (same box, same binary, ~40 min earlier — the pre-registration names job f5e35186 as arm A). B = same probe, `CUBECL_WGPU_MAX_TOTAL_TASKS=16384 CUBECL_WGPU_MAX_PENDING_WRITES=16384`, absolute `BONSAI_GGUF`, same feature set (⚠ no `counter_probe` — the counters line did not print; bar 3 reads through the enqueue distribution instead, see below).
+**Engagement FIRST (proven):** the caps arm engaged — the enqueue distribution changed shape entirely: arm A's bimodal 12.5%-fast/87.5%-blocking (p50 14.40 ms ≈ one GPU token) became **unimodal pure-encode** (n=576: min 2277.0 / p10 2309.2 / p50 2369.2 / p90 2451.4 / max 2910.0 µs). Every blocking enqueue vanished.
+
+| figure | arm A (incumbent caps) | arm B (16384/16384) | bar |
+|---|---|---|---|
+| resident wall | 16.05 ms/tok (16.05–16.06) | **16.00 ms/tok** (15.99–16.00) | ≥ 0.4 improvement — **FAIL (0.05, ≤ noise)** |
+| resident enqueue p50 | 14400.4 µs (blocking) | 2369.2 µs (pure encode) | mechanism engaged ✓ |
+| **resident harvest p50 / 8-burst** | **25291.8 µs** | **108985.5 µs** | — the released wait lands HERE |
+| host busy share | 100.0% | 100.0% | conserved |
+| incumbent wall (control) | 18.03 | 17.96 | consistent |
+| G1 walk-identity | ok | ok | PASS |
+| encode (lane-open corroboration) | p10 2486.2 | p10 2309.2 | ≥ 1 ms both |
+
+**The wait is CONSERVED, not removed:** per 8-token burst, arm A's host wait ≈ 7 × 14.4 (blocking enqueues) + 25.3 (harvest) ≈ 128 ms ≈ 8 × 16.05; arm B's ≈ 8 × 2.3 (encode) + 109.0 (harvest) ≈ 127 ms ≈ 8 × 16.00. Lifting the caps moved the poll(Wait) out of `enqueue` — and the harvest fence (the plan-626 resident lane's drain-every-8-tokens design) absorbed every microsecond of it. **The resident lane is FENCE-BOUND, not cap-bound**: the ~0.9 ms/token between the resident wall and the Issue-1168 P2 deep-queue floor (15.32) is behind the harvest cadence, which the caps cannot touch.
+
+**Verdict per the pre-registered bars (issue 1217):** G1 PASS both arms; wall improvement **0.05 ms/tok < 0.4 — ADOPT bar FAILS**; REGULATE/WRITE_POLL counters unprinted this run (bar 3 unmeasured directly — moot, bar 2 decides). **The env-configurable-caps lever records MEASURED-NEGATIVE on its adopt bar: the caps envs stay an experiment axis, no default change** (the smaller-but-positive clause applies: 0.05 ms/tok re-tiers the lever's claim and the 1181 T2 break-even re-prices — the sequence is now caps (done, ~0 wall) → **harvest-fence cadence (the named next lever, plan 626's own design: harvest every K>8 tokens or a completion-counter instead of the full drain)** → only then host encode sits on the critical path and the ICB replay's premise becomes testable).
+
+Commits: this one (the arm-B row). Full job log: bmo `~/.agent-mail/jobs/logs/01a1db54-a511-7650-94bc-e8bb39e23928.log`; arm-B console tee: bmo `riir-infer/.benchmarks/i1217_caps_ab/armB_16384.log`.
