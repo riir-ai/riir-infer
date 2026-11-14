@@ -2,7 +2,7 @@
 
 **Status:** T1–T5 ALL CLOSED 2026-11-05 — G1 EXACT, G2 adjudicated + the league two-cell re-cell (riir-ai issue 1165 T2, replicated), the promotion verdict AGREE (riir-ai issue 1165 T3, scoped greedy-on-Metal, five conditions) with condition (4) EXECUTED 2026-11-05 (stop-identity truncation-exact both cases + TTFT/burst recorded). The owner default flip + the league scored bout are the named post-closure acts (owner-gated / post-flip).
 **Lease closed:** (handed over unexpired to zed-5ae93349@amo — their T3/T3a/T4 implementation WIP (+683 lines: argmax_f32_last twin, resident ring + begin/enqueue/harvest, indirect dequant kernel, 2 G1 test files) was already mid-flight in this shared tree; session zed-dd837b96, 1793688133, expiry was 2026-11-05T06:42Z)
-**Claimed:** zed-amo@amo (amo), 1793872000, expires 2026-11-07T10:00:00+00:00
+**Claimed:** zed-amo@amo (amo), 1794688151, expires 2026-11-16T20:30:00+00:00 — the post-flip league scored bout (the plan's named post-closure act, riir-ai issue 1165's "natural next lane"): the routed decode rows (bonsai-m5ultra-decode-ctx512/ctx2048) + the tg128 row (incumbent-lane parity; the resident e2e AB rides the same window) through scripts/perf_rematch.sh at the Bench-1161 protocol (verified-idle, opp canary same-window, walk pins ×3). Bout fail (<0.98× hold floor) = revert the `351f5f62` default + reopen riir-ai 1165.
 
 ## Premise (measured, Issue 1168)
 
