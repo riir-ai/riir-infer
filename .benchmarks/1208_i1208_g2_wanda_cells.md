@@ -50,9 +50,16 @@ Two independent full runs (24 layers armed, 512 chat_probe tokens, cap 512):
 - blob digest `8bc1c712…795a` — identical across runs
 - file sha1: both `c582078d80a0…a33c` — byte-identical artifacts
 
-27 s/sweep (512 tokens, 24 layers). The cross-box digest comparison awaits a
-second box (bmo/4090); the artifact is reproducible from (checkpoint, corpus)
-so no blob needs archiving.
+27 s/sweep (512 tokens, 24 layers). The cross-box digest comparison
+**PASSED 2026-11-14** (bmo, exclusive job `01a1d96d`, 25 s/sweep — session
+zed-1df3fef0@amo): corpus digest `72ecce464f551867ee6e9a545c4afb80fb49f601aa
+45c2116cc580335fffbc8a`, sweep digest `80ed4edb420294601b24b2635b2834b07870b
+84be0e82cb9ba4794e1a326853c`, blob digest `8bc1c712a0ebd80f43bc4ba6646e53bb
+c547311ddc876f355a2f6388ed78795a` — ALL THREE byte-identical to the amo
+record above (amo arm64 → bmo arm64; the artifact is reproducible from
+(checkpoint, corpus) on any box, no blob needs archiving). The T5 cross-box
+falsifier is CLOSED; the sweep determinism is now cross-box proven, not
+same-box only.
 
 ## Warmed re-run (the instrument fixed in the same window)
 
