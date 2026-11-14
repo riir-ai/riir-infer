@@ -1,6 +1,7 @@
 # Issue 1217 — resident decode queue runs ~1-deep: the fork's two hardcoded poll(Wait) caps (MAX_TOTAL_TASKS=512 / MAX_PENDING_WRITES=64) pace the host to the GPU
 
-**Status:** OPEN — filed 2026-11-14 from [Bench 1218](../.benchmarks/1218_i1181_t1_encode_share_demote_gate.md)'s second finding (the `issue1181_encode_share_probe` per-call instrumentation, amo, census posture, 27B folded). Unclaimed — filed as the follow-up lever lane, cross-linked from issue 1181 T2's break-even; claim with a lease before working.
+**Status:** OPEN — filed 2026-11-14 from [Bench 1218](../.benchmarks/1218_i1181_t1_encode_share_demote_gate.md)'s second finding (the `issue1181_encode_share_probe` per-call instrumentation, amo, census posture, 27B folded); mechanism CORRECTED same session by the vendor source read (the two poll(Wait) caps, not allocation).
+**Claimed:** amo-idle-i1181@amo, 1794671259, expires 2026-11-16T22:00:00Z
 
 ## The measured fact
 
