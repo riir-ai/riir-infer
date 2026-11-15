@@ -844,7 +844,8 @@ fn main() -> Result<()> {
                 threads: args.threads,
             },
         );
-        cost.sweep_secs += ts.elapsed().as_secs_f64();
+        let sweep_wall = ts.elapsed().as_secs_f64();
+        cost.sweep_secs += sweep_wall;
         sums_k.note_doc(parity);
         sums_j.note_doc(parity);
         sums_k.add_doc(parity, &pk);
@@ -854,16 +855,15 @@ fn main() -> Result<()> {
         cost.suffix_passes += (points.len() * j_dirs) as u64;
         docs_done += 1;
         let this_run = docs_done - start_docs;
-        if this_run.is_multiple_of(5) || docs_done == args.docs {
-            let el = t_fit.elapsed().as_secs_f64();
-            println!(
-                "# [{}/{}] {:.1}s/doc avg this run, eta {:.1} h",
-                docs_done,
-                args.docs,
-                el / this_run as f64,
-                el / this_run as f64 * (args.docs - docs_done) as f64 / 3600.0
-            );
-        }
+        let el = t_fit.elapsed().as_secs_f64();
+        println!(
+            "# [{}/{}] {:.1}s/doc avg this run (last sweep wall {:.0}s), eta {:.1} h",
+            docs_done,
+            args.docs,
+            el / this_run as f64,
+            sweep_wall,
+            el / this_run as f64 * (args.docs - docs_done) as f64 / 3600.0
+        );
         if docs_done.is_multiple_of(ckpt_every) || docs_done == args.docs {
             save_checkpoint(&args.out, &sums_k, &sums_j, docs_done)?;
         }
@@ -871,14 +871,22 @@ fn main() -> Result<()> {
 
     // ── sampled bit-exact direct check (doc 0, single-threaded) ──
     if args.check_direct {
+        // Evenly spaced samples on BOTH sides: the K basis and the J
+        // direction set (full-coverage single-threaded checks cost hours —
+        // the sample covers the threading's slice boundaries and the
+        // injection paths; the fit itself is slot-disjoint by
+        // construction).
+        let j_step = j_dirs / args.check_samples.max(1);
+        let j_ids: Vec<usize> = (0..args.check_samples)
+            .map(|i| i * j_step)
+            .filter(|i| *i < j_dirs)
+            .collect();
         println!(
-            "# check-direct: single-threaded re-run of doc 0 over {} sampled dirs (K) and all {} J dirs",
-            args.check_samples, j_dirs
+            "# check-direct: single-threaded re-run of doc 0 over {} sampled dirs per side (K basis / J set)",
+            j_ids.len()
         );
         let mut cap = StackCapture::new(geo);
         stack_forward(&docs[0], &w, &mut cap);
-        // Evenly spaced sample of the basis for K; ALL J directions (they
-        // are already the restricted set).
         let k_step = d / args.check_samples.max(1);
         let k_ids: Vec<usize> = (0..args.check_samples).map(|i| i * k_step).collect();
         let mut dense_k = ColAccum::new(d, points.len());
@@ -906,7 +914,7 @@ fn main() -> Result<()> {
             }
         }
         for (pi, p) in points.iter().enumerate() {
-            for k in 0..j_dirs {
+            for &k in &j_ids {
                 r_dir_set.inject(&mut dv, k, d, geo.t_len, args.seed_lo, seed_hi);
                 stack_suffix_jvp(&cap, &w, &mut scratch, *p, &dv, &mut dhn);
                 dense_j.add_doc_column_window(pi, k, &dhn, args.seed_lo, seed_hi, true);
@@ -939,7 +947,7 @@ fn main() -> Result<()> {
                     );
                 }
             }
-            for k in 0..j_dirs {
+            for &k in &j_ids {
                 for j in 0..d {
                     let a = want_j[pi][k * d + j];
                     let b = pj[(pi * j_dirs + k) * d + j] as f32;
@@ -951,8 +959,9 @@ fn main() -> Result<()> {
             }
         }
         println!(
-            "# check-direct: OK (K sampled ×{} + J full, bit-exact across {} points)",
-            args.check_samples,
+            "# check-direct: OK (K ×{} + J ×{} sampled, bit-exact across {} points)",
+            k_ids.len(),
+            j_ids.len(),
             points.len()
         );
     }
