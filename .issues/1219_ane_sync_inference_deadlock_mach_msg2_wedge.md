@@ -45,4 +45,10 @@ Minimum facts to narrow: (a) does a solo run of clip 6 alone (a `--family tvspee
 
 **Related:** plan 633 (the bench lane; the disposition + reproduction history: `d810c9bd`, `f14232c4`, `715ba3e9`), the fleurs-green control rows (`.raw/asr/p633_p23_cells.jsonl`, 4 green n=100 fleurs cells same morning), Research 029 §7 (the ANE lane's stage record), riir-reflex `scripts/bench_preflight.sh` (the box-state gate that kept the timing rows honest throughout). **The persisted stack is archived beside this issue:** `.issues/1219_anestall_stack_sample.txt` (253,829 B — the live copy also stays in `.raw/asr/` until the P4.4 teardown removes it with the rest of the `.raw/asr/` tree).
 
+## Narrowing (2026-11-15, live)
+
+- **Fix adjudication:** zed-924524a0 (the blocked-consumer lane's holder) YIELDED to this claim's lane — read in full, "the evidence record + repro + the four fix directions are exactly the right shape". The ANE-substrate implementation still belongs to the ANE-lane owner; this lane picks the direction and carries the evidence.
+- **Data point (weak, different-route):** the P2.1 parity cell ran tvspeech clip 1 (9.wav) through the riir-gpu CoreML ANE route and PASSED (100 % token identity, 53 steps) — ANE handles tvspeech-shape input generally on that route; weakly supports clip-6-CONTENT-specificity over shape-generality, and the different route (riir-gpu CoreML vs the p23 python/MLModel path) means route-specificity is also unexcluded.
+- **Probe (a) COMMISSIONED** (zed-924524a0 runs it on the lane harness, exclusive + the fixed watchdog): solo clip-6, fresh process, everything else identical. **Decision table:** WEDGES → content-correlated (the clip's shape drives the wedge) → direction 2 (per-clip isolation) is dead, direction 3 (per-clip CPU/ONNX fallback keyed on the wedge) or shape-level avoidance is the path; CLEAN → request-count/session-correlated (the 6th request in a process dies) → direction 2 directly fixes it and the warm-up hypothesis is dead. Either outcome unblocks the direction call.
+
 **Session:** zed-84db451f, 1794778106
