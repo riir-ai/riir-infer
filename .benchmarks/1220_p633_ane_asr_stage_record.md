@@ -53,7 +53,7 @@
 | P2.5-pipe | tvspeech | **PENDING** | — | — | — | — | — (queued 50421460) |
 
 | P2.5-pipe | tvspeech | **100 — LANDED 2026-11-15 ~18:00Z** (job `01a1ded4`, quiet AC load=1.66) | 41.89 | **30.41** | 19.56 | **+7.22** | **0.671×** |
-| — route disclosure | tvspeech | the direction-3 kill-list armed: clip 44.wav (the i1219 wedge clip, digest-kill-listed) routed **onnx-fp** (CPU lane), the other 99 ANE | — | — | — | — | — |
+| — route disclosure | tvspeech | the direction-3 kill-list armed: clip 44.wav (the i1219 wedge clip, digest-kill-listed) routed **onnx-fp** (CPU lane, wall 3.43 s — no wedge), the other 99 ANE — the per-clip ROUTE lines preserved in [`p633_tvspeech_n100_routes.txt`](1220_p633_ane_asr_stage_tables/p633_tvspeech_n100_routes.txt) (100 rows: 99 ane + 1 onnx-fp) | — | — | — | — | — |
 
 Attribution (fleurs): decode tail 21 % of wall (enc 32.6 s of 41.8–42.5 s); of a real 13.08 s clip: encode 257.1 ms (enc-only RTFx 50.9), decode tail 90.7 ms = 6.93 ms per audio-second over 201 joint calls; **the CPU LSTM island ≈ 30 ms of the 90.7 (a third of the tail), priced ~0.15 ms/call** (A-pair 0.4095 − joint-alone ~0.26). The named levers, in measured-value order: the p8 palettized arm (instrumented, `p633_p25.py`), the P2.4a manual gate-decomposed LSTM (parked — matmul+sigmoid+tanh+mul are ANE-legal primitives), the host-side cache/copy gap.
 
