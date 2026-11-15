@@ -259,6 +259,29 @@ impl<'a> MlpConsts<'a> {
     }
 }
 
+/// The half rule's elementwise core: tangent `(dg, du)` → `dact` in place,
+/// `dact = ½(s⊙du + u⊙sp⊙dg)`. Shared by the MLP map (which then matmuls
+/// `W_down`) and the GDN silu-gate (whose follow-on projection is a separate
+/// op — [`crate::lens::gdn`]).
+#[inline]
+pub fn half_rule_jvp(c: &MlpConsts, dg: &[f32], du: &[f32], dact: &mut [f32]) {
+    let n = c.s.len();
+    for i in 0..n {
+        dact[i] = 0.5 * (c.s[i] * du[i] + c.u[i] * c.sp[i] * dg[i]);
+    }
+}
+
+/// The elementwise core's adjoint: `dact` → `(dg, du)` in place.
+#[inline]
+pub fn half_rule_vjp(c: &MlpConsts, dact: &[f32], dg: &mut [f32], du: &mut [f32]) {
+    let n = c.s.len();
+    for i in 0..n {
+        let d = dact[i];
+        dg[i] = 0.5 * c.u[i] * c.sp[i] * d;
+        du[i] = 0.5 * c.s[i] * d;
+    }
+}
+
 /// MLP `jvp` under the half rule: tangent `(dg, du)` → `dY = W_down · dact`,
 /// `dact = ½(s⊙du + u⊙sp⊙dg)`.
 ///
@@ -289,9 +312,7 @@ pub fn mlp_half_rule_jvp(
         "mlp jvp: w_down shape mismatch"
     );
     debug_assert_eq!(dy.len(), n_embd, "mlp jvp: dy length mismatch");
-    for i in 0..hidden {
-        dact_scratch[i] = 0.5 * (c.s[i] * du[i] + c.u[i] * c.sp[i] * dg[i]);
-    }
+    half_rule_jvp(c, dg, du, dact_scratch);
     crate::types::matmul(dy, w_down, dact_scratch, n_embd, hidden);
 }
 
@@ -323,11 +344,7 @@ pub fn mlp_half_rule_vjp(
     );
     debug_assert_eq!(dy.len(), n_embd, "mlp vjp: dy length mismatch");
     matvec_t(dact_scratch, w_down, dy, n_embd, hidden);
-    for i in 0..hidden {
-        let d = dact_scratch[i];
-        dg[i] = 0.5 * c.u[i] * c.sp[i] * d;
-        du[i] = 0.5 * c.s[i] * d;
-    }
+    half_rule_vjp(c, dact_scratch, dg, du);
 }
 
 // ---------------------------------------------------------------------------
