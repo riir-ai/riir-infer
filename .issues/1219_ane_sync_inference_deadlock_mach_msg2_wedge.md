@@ -18,7 +18,7 @@ The plan-633 tvspeech n=100 cell (NeMo OpenThai2.0-ASR fp16 encoder on ANE via c
 
 `MLModel predictionFromFeatures` → `MLE5Engine _predictionFromFeatures:stream:` → Espresso `E5RT::ExecutionStreamImpl::ExecuteStreamSync` → `AneInferenceOperationImplUsingAnefAPIs::EvaluateANERequest` → `[_ANEClient doEvaluateDirectWithModel:…]` → `ANEServicesProgramProcessRequestDirect` → `ANE::ANEServicesDevice::ANE_ProgramSendRequest` → `IOConnectCallAsyncMethod` → **`mach_msg2_internal`** — **2247/2700 samples** of the main thread sit at the kernel IPC send, waiting on an async IOKit reply from the ANE driver that never arrives. Weight distribution in the sample: the entire main-thread call chain is `IOKit send`-blocked; ~45 worker threads idle in `__psynch_cvwait`. This is a **kernel-service-side non-answer** (the ANE driver accepted or dropped the async program request and never called back), not a userspace spin: CPU held ~56-62 % is the sampling + Python overhead, the wedge frame itself is a blocking mach message.
 
-Provenance: process was quiet-box exclusive (PROVENANCE AC, load 5.16 at preflight pass, powermode 0 auto); the two reproductions ran 2 h apart under different poison regimes, same clip.
+Provenance: process was quiet-box exclusive (PROVENANCE AC, load 5.16 at preflight pass, powermode 0 auto); the two reproductions ran 2 h apart under DIFFERENT load regimes — attempt 1 wedged under light poisoning (×1, hours before its wedge), attempt 3 under a 22-event cargo/rustc build storm + Zed + mediaanalysisd (04:39-04:42Z, the notify's full list) — the wedge is LOAD-INDEPENDENT, pinning the trigger on the clip-6 request itself, not box state.
 
 ## Repro recipe (for the ANE-lane owner)
 
