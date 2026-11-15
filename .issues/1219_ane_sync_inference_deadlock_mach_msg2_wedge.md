@@ -43,6 +43,6 @@ Minimum facts to narrow: (a) does a solo run of clip 6 alone (a `--family tvspee
 - No fix implementation from the filing lane (the ANE substrate belongs to the ANE-lane owner; the 633 plan's remaining tvspeech cell is BLOCKED on this defect and recorded as such).
 - The plan-633 tvspeech cell does NOT wait on this fix silently: its next requeue would carry fix direction 1 or 2 as the lane-bandage if the owner wants the cell completed before the deadlock is root-caused.
 
-**Related:** plan 633 (the bench lane; the disposition + reproduction history: `d810c9bd`, `f14232c4`), the fleurs-green control rows (`.raw/asr/p633_p23_cells.jsonl`, 4 green n=100 fleurs cells same morning), Research 029 §7 (the ANE lane's stage record), riir-reflex `scripts/bench_preflight.sh` (the box-state gate that kept the timing rows honest throughout).
+**Related:** plan 633 (the bench lane; the disposition + reproduction history: `d810c9bd`, `f14232c4`, `715ba3e9`), the fleurs-green control rows (`.raw/asr/p633_p23_cells.jsonl`, 4 green n=100 fleurs cells same morning), Research 029 §7 (the ANE lane's stage record), riir-reflex `scripts/bench_preflight.sh` (the box-state gate that kept the timing rows honest throughout). **The persisted stack is archived beside this issue:** `.issues/1219_anestall_stack_sample.txt` (253,829 B — the live copy also stays in `.raw/asr/` until the P4.4 teardown removes it with the rest of the `.raw/asr/` tree).
 
 **Session:** zed-84db451f, 1794778106
