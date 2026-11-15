@@ -1,6 +1,8 @@
 # Issue 1222: lens GPU-class full-basis fit (katgpt-rs 999 T3 follow-up)
 
-**Status:** open — unclaimed.
+**Status:** open — claimed (GPU-class full-basis fit lane).
+
+**Claimed:** zed-a081f5f1@amo, 1794829271, expires 2026-11-17T22:21Z
 
 ## Context
 
@@ -59,4 +61,3 @@ The full-basis fit restored, GPU-class. Options in cost order:
 - PoC source: `stdlogits/neuron-lens` @ `849bfe1678e28becceb1e3864afe5fc8297d02e4`
   (their transport.py runs d_model basis sweeps in dim_batch blocks on GPU).
 
-**Claimed:** —
