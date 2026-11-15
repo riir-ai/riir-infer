@@ -15,10 +15,12 @@
 //!   The final-norm's LN-rule diagonal is folded into the suffix, so `J_P`
 //!   maps straight into the space `lm_head` reads.
 //! - **Reads** — S: `score(v) = ⟨h, K·(W_E[v] − mean(W_E))⟩`, computed as
-//!   ONE `d×d` transpose-matvec (`tmp = Kᵀh`) + ONE vocab-side matvec
-//!   (`wte·tmp`) minus a constant — one matvec per direction over the
-//!   vocabulary (G4). R: `Δlogits = W_U·(J·v)`; the softmax read adds the
-//!   doc's base `hn` before the head.
+//!   ONE `d×d` matvec over the stored `Kᵀ` block (`tmp = K_block·h`, the
+//!   input covector) + ONE vocab-side matvec (`wte·tmp`) minus a constant —
+//!   one matvec per direction over the vocabulary (G4). R:
+//!   `Δlogits = W_U·(J·v)` with `J·v` the adjoint matvec over the stored
+//!   `Jᵀ` block (`[write dir][final dim]`); the softmax read adds the doc's
+//!   base `hn` before the head.
 //! - **Gates G1–G4** — the pre-registered bars (Issue 999 T4): G1 S-lens
 //!   top-10 hit rate ≥ 25% with a <1% mismatched-pole control (UNSEEN when
 //!   no poles — a scope finding, never a refutation); G2 R-read vs measured
@@ -225,10 +227,13 @@ impl SlicedAccum {
     }
 }
 
-/// The fitted lens: per fit point, the S matrix `K` (`[d_P][d_E]` — the
-/// prefix pair-sum, meaned over docs) and the R matrix `J` (`[d_hn][d_P]` —
-/// the suffix pair-sum, final-norm diagonal included), row-major, plus the
-/// weight-derived embedding mean.
+/// The fitted lens: per fit point, the S block `K` (`[seeded input dir][d_P]`
+/// row-major — `Kᵀ` of the lens definition `K_P = mean_t Σ_{s≤t} ∂h_P(t)/∂e(s)`,
+/// the prefix pair-sum meaned over docs) and the R block `J`
+/// (`[write dir][d_hn]` — `Jᵀ` of `J_P = mean_t Σ_{t'≥t} ∂h_hn(t')/∂h_P(t)`,
+/// the suffix pair-sum, final-norm diagonal included), plus the
+/// weight-derived embedding mean. The reads consume these stores directly
+/// (orientation pinned by the `*_orientation_pinned` tests).
 pub struct LensFit {
     pub d: usize,
     pub points: Vec<FitPoint>,
@@ -371,9 +376,18 @@ pub fn mean_embedding(wte: &[f32], vocab: usize, d: usize) -> Vec<f32> {
 /// S read: scores over the whole vocabulary for pole direction `h_dir` at
 /// fit point `point_idx`.
 ///
-/// `score(v) = ⟨tmp, W_E[v]⟩ − ⟨tmp, mean(W_E)⟩` with `tmp = Kᵀ·h` — one
-/// `d×d` transpose-matvec + one vocab-side matvec, both into caller
-/// buffers. `tmp` is `[d]`, `scores` is `[vocab]`.
+/// `h_dir` is a `[d]` direction in the point's residual space. The stored
+/// `fit.k[point_idx]` block is the production layout the T3 fit writes —
+/// `[seeded input dir][point dim]` row-major, i.e. `Kᵀ` of the lens
+/// definition `K_P = mean_t Σ_{s≤t} ∂h_P(t)/∂e(s)` — so the input covector
+/// is the PLAIN row-major matvec `tmp = K_block · h_dir` (the reference
+/// estimator's `c @ K_mid`). `score(v) = ⟨tmp, W_E[v]⟩ − ⟨tmp, mean(W_E)⟩`
+/// — one `d×d` matvec + one vocab-side matvec, both into caller buffers.
+/// `tmp` is `[d]`, `scores` is `[vocab]`.
+///
+/// Orientation is pinned by `s_read_orientation_pinned` (a non-symmetric
+/// fixture — the identity fixture that shipped this read originally could
+/// not distinguish `K` from `Kᵀ`).
 pub fn s_scores_into(
     wte: &[f32],
     vocab: usize,
@@ -388,7 +402,8 @@ pub fn s_scores_into(
     debug_assert_eq!(tmp.len(), d, "s_scores: tmp shape");
     debug_assert_eq!(scores.len(), vocab, "s_scores: scores shape");
     debug_assert_eq!(wte.len(), vocab * d, "s_scores: wte shape");
-    matvec_t(tmp, &fit.k[point_idx], h_dir, d, d);
+    debug_assert_eq!(fit.k[point_idx].len(), d * d, "s_scores: k block shape");
+    matmul(tmp, &fit.k[point_idx], h_dir, d, d);
     matmul(scores, wte, tmp, vocab, d);
     let center: f64 = fit
         .mean_emb
@@ -404,7 +419,14 @@ pub fn s_scores_into(
 
 /// R read: the predicted logit DELTA over the vocabulary for a write `v_dir`
 /// at fit point `point_idx` — `Δlogits = W_U·(J·v)` (the G2 correlation
-/// quantity). `tmp` is `[d]`, `delta` is `[vocab]`.
+/// quantity). `v_dir` is a `[dirs]` coefficient vector over the fit's write
+/// directions; the stored `fit.j[point_idx]` block is the production layout
+/// the T3 fit writes — `[write dir][final dim]` row-major, i.e. `Jᵀ` of the
+/// lens definition `J_P = mean_t Σ_{t'≥t} ∂h_hn(t')/∂h_P(t)` — so the
+/// summed final-response is the adjoint matvec `tmp[j] = Σ_k block[k][j]·v[k]`
+/// (one `matvec_t`), then one vocab-side matvec. `tmp` is `[d]`, `delta` is
+/// `[vocab]`. For the restricted T3 fit (`dirs < d`) pass `v_dir` over the
+/// fitted directions only; [`r_read_delta_dir_into`] is the `v = e_k` sugar.
 pub fn r_read_delta_into(
     lm_head: &[f32],
     vocab: usize,
@@ -415,11 +437,42 @@ pub fn r_read_delta_into(
     delta: &mut [f32],
 ) {
     let d = fit.d;
-    debug_assert_eq!(v_dir.len(), d, "r_read: v shape");
+    let dirs = fit.j[point_idx].len() / d;
+    debug_assert_eq!(dirs * d, fit.j[point_idx].len(), "r_read: j block shape");
+    debug_assert_eq!(v_dir.len(), dirs, "r_read: v shape");
     debug_assert_eq!(tmp.len(), d, "r_read: tmp shape");
     debug_assert_eq!(delta.len(), vocab, "r_read: delta shape");
     debug_assert_eq!(lm_head.len(), vocab * d, "r_read: head shape");
-    matmul(tmp, &fit.j[point_idx], v_dir, d, d);
+    matvec_t(tmp, &fit.j[point_idx], v_dir, dirs, d);
+    matmul(delta, lm_head, tmp, vocab, d);
+}
+
+/// R read, restricted-fit row form: `dir_idx` selects the fitted write
+/// direction's row of `fit.j[point_idx]` (`[write dir][final dim]` — the
+/// row IS that direction's summed final response), and the predicted logit
+/// delta is the one `lm_head` matvec. The T4 G2 cell's read for the T3
+/// fit's 64-direction restricted J.
+pub fn r_read_delta_dir_into(
+    lm_head: &[f32],
+    vocab: usize,
+    fit: &LensFit,
+    point_idx: usize,
+    dir_idx: usize,
+    tmp: &mut [f32],
+    delta: &mut [f32],
+) {
+    let d = fit.d;
+    let dirs = fit.j[point_idx].len() / d;
+    debug_assert_eq!(
+        dirs * d,
+        fit.j[point_idx].len(),
+        "r_read_dir: j block shape"
+    );
+    debug_assert!(dir_idx < dirs, "r_read_dir: dir index");
+    debug_assert_eq!(tmp.len(), d, "r_read_dir: tmp shape");
+    debug_assert_eq!(delta.len(), vocab, "r_read_dir: delta shape");
+    debug_assert_eq!(lm_head.len(), vocab * d, "r_read_dir: head shape");
+    tmp.copy_from_slice(&fit.j[point_idx][dir_idx * d..(dir_idx + 1) * d]);
     matmul(delta, lm_head, tmp, vocab, d);
 }
 
@@ -439,8 +492,16 @@ pub fn r_read_logits_into(
     logits: &mut [f32],
 ) {
     let d = fit.d;
+    let dirs = fit.j[point_idx].len() / d;
+    debug_assert_eq!(
+        dirs * d,
+        fit.j[point_idx].len(),
+        "r_read_logits: j block shape"
+    );
     debug_assert_eq!(base_hn.len(), d, "r_read_logits: base shape");
-    matmul(tmp, &fit.j[point_idx], v_dir, d, d);
+    debug_assert_eq!(v_dir.len(), dirs, "r_read_logits: v shape");
+    debug_assert_eq!(logits.len(), vocab, "r_read_logits: logits shape");
+    matvec_t(tmp, &fit.j[point_idx], v_dir, dirs, d);
     for (t, &b) in tmp.iter_mut().zip(base_hn) {
         *t += b;
     }
@@ -1022,6 +1083,76 @@ mod tests {
         assert_eq!(r_allocs, 0, "r_read allocated {r_allocs} times");
     }
 
+    /// Orientation pin (non-symmetric fixture — the identity fixture that
+    /// shipped the reads could not distinguish `K` from `Kᵀ`): the stored
+    /// block is the production `[input dir][point dim]` layout, so the S
+    /// read's covector is the PLAIN row-major matvec, matching the
+    /// reference estimator's `c @ K_mid`.
+    #[test]
+    fn s_read_orientation_pinned() {
+        // K_true (rows = point dims) = [[1, 1], [0, 1]]; stored B = Kᵀ
+        // (rows = input dirs) = [[1, 0], [1, 1]].
+        let d = 2usize;
+        let vocab = 3usize;
+        let mut wte = vec![0.0f32; vocab * d];
+        wte[0 * d..0 * d + d].copy_from_slice(&[1.0, 0.0]);
+        wte[1 * d..1 * d + d].copy_from_slice(&[0.0, 1.0]);
+        wte[2 * d..2 * d + d].copy_from_slice(&[1.0, 1.0]); // the covector-aligned token
+        let k_block = vec![vec![1.0, 0.0, 1.0, 1.0]]; // B row-major [input][point]
+        let fit = LensFit {
+            d,
+            points: vec![FitPoint::Mid(0)],
+            k: k_block,
+            j: vec![vec![0.0; d * d]],
+            mean_emb: mean_embedding(&wte, vocab, d),
+            n_docs: 1,
+        };
+        let h = [1.0f32, 0.0]; // pole along point dim 0
+        let mut tmp = vec![0.0f32; d];
+        let mut scores = vec![0.0f32; vocab];
+        s_scores_into(&wte, vocab, &fit, 0, &h, &mut tmp, &mut scores);
+        // Covector = Kᵀ·h = K_true[0][·] = (1, 1): token 2 must win.
+        assert_eq!(tmp, [1.0, 1.0], "s covector");
+        assert_eq!(
+            top_k_indices(&scores, &RareMask::allow_all(vocab), 1),
+            vec![2]
+        );
+    }
+
+    /// Orientation pin, R side: the stored block is `[write dir][final dim]`,
+    /// so `Δhn[j] = Σ_k block[k][j]·v[k]` — the adjoint matvec — and the
+    /// row-form read extracts the direction's row directly.
+    #[test]
+    fn r_read_orientation_pinned() {
+        // J_true (rows = final dims) = [[2, 0], [1, 3]]; stored C = Jᵀ
+        // (rows = write dirs) = [[2, 1], [0, 3]]. Write along point dir 1:
+        // Δhn = J_true[·][1] = (0, 3).
+        let d = 2usize;
+        let vocab = 2usize;
+        let head = vec![1.0f32, 0.0, 0.0, 1.0]; // identity head
+        let j_block = vec![vec![2.0, 1.0, 0.0, 3.0]]; // C row-major [dir][final]
+        let fit = LensFit {
+            d,
+            points: vec![FitPoint::Out(0)],
+            k: vec![vec![0.0; d * d]],
+            j: j_block,
+            mean_emb: vec![0.0; d],
+            n_docs: 1,
+        };
+        let mut tmp = vec![0.0f32; d];
+        let mut delta = vec![0.0f32; vocab];
+        // Coefficient form: v = e_1 over the fitted dirs.
+        r_read_delta_into(&head, vocab, &fit, 0, &[0.0, 1.0], &mut tmp, &mut delta);
+        assert_eq!(tmp, [0.0, 3.0], "r adjoint matvec");
+        assert_eq!(delta, [0.0, 3.0], "r delta");
+        // Row form: the same answer, by row extraction.
+        let mut tmp2 = vec![0.0f32; d];
+        let mut delta2 = vec![0.0f32; vocab];
+        r_read_delta_dir_into(&head, vocab, &fit, 0, 1, &mut tmp2, &mut delta2);
+        assert_eq!(tmp2, [0.0, 3.0], "r row form");
+        assert_eq!(delta2, delta, "row form agrees");
+    }
+
     /// The seed-window accumulator: rows outside `[lo, hi)` never join the
     /// S-side sum; the divisor is the window length (the T3 protocol's
     /// `seed positions [16, T−1)` form), not `t_len`.
@@ -1046,10 +1177,7 @@ mod tests {
         full.note_doc();
         full.add_doc_column(0, 0, &per_pos, t_len);
         let got = full.finalize();
-        let want: f64 = (0..t_len)
-            .map(|t| (t * 10 + 1) as f64)
-            .sum::<f64>()
-            / t_len as f64;
+        let want: f64 = (0..t_len).map(|t| (t * 10 + 1) as f64).sum::<f64>() / t_len as f64;
         assert_eq!(got[0][1] as f64, want, "legacy full window");
     }
 

@@ -364,10 +364,57 @@ impl StackCapture {
 
 /// Doc-level stack forward — the capture pass (module doc's op order).
 pub fn stack_forward(tokens: &[usize], w: &StackWeights, cap: &mut StackCapture) {
+    stack_forward_write(tokens, w, cap, None);
+}
+
+/// A steering write injected mid-forward (the T4 G2 measured arm).
+///
+/// `dir` (`[d]`) scaled by `alpha` is ADDED to the residual at `point`'s
+/// rows `[seed_lo, seed_hi)` — the T3 fit's J rows are the linearization of
+/// exactly this injection (the same window, the same unit direction), so a
+/// measured run with `alpha = 1` is the true nonlinear twin of the fitted
+/// row. The captured run carries the write from the injection point onward;
+/// rows before the seed window stay bit-identical (causality).
+pub struct StackWrite<'a> {
+    pub point: FitPoint,
+    pub dir: &'a [f32],
+    pub alpha: f32,
+    pub seed_lo: usize,
+    /// Exclusive.
+    pub seed_hi: usize,
+}
+
+/// Doc-level stack forward with an optional steering write ([`StackWrite`]).
+pub fn stack_forward_write(
+    tokens: &[usize],
+    w: &StackWeights,
+    cap: &mut StackCapture,
+    write: Option<&StackWrite>,
+) {
     let geo = &w.geo;
     let (t_len, d) = (geo.t_len, geo.n_embd);
     let hidden = geo.mlp_hidden;
     debug_assert_eq!(tokens.len(), t_len, "stack_forward: token count");
+    if let Some(sw) = write {
+        debug_assert_eq!(sw.dir.len(), d, "stack write: dir shape");
+        debug_assert!(sw.point.layer() < geo.n_layers, "stack write: point layer");
+        debug_assert!(
+            sw.seed_lo < sw.seed_hi && sw.seed_hi <= t_len,
+            "stack write: window"
+        );
+    }
+    #[inline(always)]
+    fn inject(sw: &StackWrite, want: FitPoint, buf: &mut [f32], t_len: usize, d: usize) {
+        if sw.point != want {
+            return;
+        }
+        for t in sw.seed_lo..sw.seed_hi.min(t_len) {
+            let row = &mut buf[t * d..(t + 1) * d];
+            for (r, &dv) in row.iter_mut().zip(sw.dir) {
+                *r += sw.alpha * dv;
+            }
+        }
+    }
     // Embedding gather (no scale — the forward's step 1).
     for (t, &tok) in tokens.iter().enumerate() {
         debug_assert!(tok < geo.vocab, "token id out of range");
@@ -422,6 +469,9 @@ pub fn stack_forward(tokens: &[usize], w: &StackWeights, cap: &mut StackCapture)
         for i in 0..t_len * d {
             lc.mid[i] = x[i] + y_sub[i];
         }
+        if let Some(sw) = write {
+            inject(sw, FitPoint::Mid(li), &mut lc.mid, t_len, d);
+        }
         x.copy_from_slice(&lc.mid);
         // Post-attention RMSNorm + SwiGLU MLP.
         for t in 0..t_len {
@@ -457,6 +507,9 @@ pub fn stack_forward(tokens: &[usize], w: &StackWeights, cap: &mut StackCapture)
         // out = mid + y_mlp (the fit point).
         for ((o, &m), &ym) in lc.out.iter_mut().zip(lc.mid.iter()).zip(y_mlp.iter()) {
             *o = m + ym;
+        }
+        if let Some(sw) = write {
+            inject(sw, FitPoint::Out(li), &mut lc.out, t_len, d);
         }
         x.copy_from_slice(&lc.out);
     }
@@ -1067,6 +1120,106 @@ mod tests {
         rope_freq: &'a RopeFreqTable,
     ) -> StackWeights<'a> {
         StackWeights::from_model(weights, config, rope_freq.as_slice(), T)
+    }
+
+    /// A `StackWrite` with `alpha = 0` must leave every capture byte
+    /// identical to the plain forward — the write lane is additive-only.
+    #[test]
+    fn stack_write_alpha_zero_is_bit_identical() {
+        for types in [vec![DeltaNet], vec![Attention], vec![DeltaNet, Attention]] {
+            let (config, weights) = tiny_model(0x99E1, types);
+            let rope_freq = RopeFreqTable::new(config.rope_theta, config.head_dim);
+            let sw = stack_of(&config, &weights, &rope_freq);
+            let geo = sw.geo.clone();
+            let d = geo.n_embd;
+            let dir = vec![0.0f32; d];
+            let mut base = StackCapture::new(&geo);
+            stack_forward(&TOKENS, &sw, &mut base);
+            for point in [FitPoint::Mid(0), FitPoint::Out(0)] {
+                let mut wcap = StackCapture::new(&geo);
+                stack_forward_write(
+                    &TOKENS,
+                    &sw,
+                    &mut wcap,
+                    Some(&StackWrite {
+                        point,
+                        dir: &dir,
+                        alpha: 0.0,
+                        seed_lo: 2,
+                        seed_hi: 4,
+                    }),
+                );
+                assert_eq!(base.hn, wcap.hn, "{point:?}: alpha=0 must be identity");
+                assert_eq!(base.embedded, wcap.embedded);
+                for (lb, lw) in base.layers.iter().zip(&wcap.layers) {
+                    assert_eq!(lb.mid, lw.mid, "{point:?}: mid diverged");
+                    assert_eq!(lb.out, lw.out, "{point:?}: out diverged");
+                }
+            }
+        }
+    }
+
+    /// The write is causal and point-local: captures BEFORE the write point
+    /// are bit-identical, positions BEFORE the seed window are bit-identical
+    /// at the injection (exact `+alpha·dir` rows), and a LATER layer's mixer
+    /// carries the write to positions after the window.
+    #[test]
+    fn stack_write_is_causal_and_local() {
+        let (config, weights) = tiny_model(0x99E2, vec![DeltaNet, Attention]);
+        let rope_freq = RopeFreqTable::new(config.rope_theta, config.head_dim);
+        let sw = stack_of(&config, &weights, &rope_freq);
+        let geo = sw.geo.clone();
+        let d = geo.n_embd;
+        let dir: Vec<f32> = (0..d)
+            .map(|i| if i % 2 == 0 { 0.5 } else { -0.25 })
+            .collect();
+        let mut base = StackCapture::new(&geo);
+        stack_forward(&TOKENS, &sw, &mut base);
+        let mut wcap = StackCapture::new(&geo);
+        stack_forward_write(
+            &TOKENS,
+            &sw,
+            &mut wcap,
+            Some(&StackWrite {
+                point: FitPoint::Mid(0),
+                dir: &dir,
+                alpha: 1.0,
+                seed_lo: 2,
+                seed_hi: 4,
+            }),
+        );
+        // Layer 0 mid: rows below the window identical, window rows moved by
+        // exactly the write (mid = x + y_sub, the injection is the last op).
+        for t in 0..2 {
+            assert_eq!(
+                base.layers[0].mid[t * d..(t + 1) * d],
+                wcap.layers[0].mid[t * d..(t + 1) * d],
+                "row {t} below the window must be identical"
+            );
+        }
+        for t in 2..4 {
+            for (i, &dv) in dir.iter().enumerate() {
+                let want = base.layers[0].mid[t * d + i] + dv;
+                assert_eq!(wcap.layers[0].mid[t * d + i], want, "row {t} dim {i}");
+            }
+        }
+        // hn: rows below the window identical, rows in/after the window move
+        // (the later layer's attention carries the write forward).
+        for t in 0..2 {
+            assert_eq!(
+                base.hn[t * d..(t + 1) * d],
+                wcap.hn[t * d..(t + 1) * d],
+                "hn row {t} must be identical"
+            );
+        }
+        assert!(
+            (0..d).any(|i| base.hn[2 * d + i] != wcap.hn[2 * d + i]),
+            "hn row 2 (in window) must move"
+        );
+        assert!(
+            (0..d).any(|i| base.hn[5 * d + i] != wcap.hn[5 * d + i]),
+            "hn row 5 (after window) must move via the later mixer"
+        );
     }
 
     /// The capture forward must reproduce the SERVING decode loop's logits

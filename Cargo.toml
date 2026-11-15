@@ -1167,6 +1167,15 @@ name = "lens_fit_t3"
 path = "examples/lens_fit_t3.rs"
 required-features = ["lens"]
 
+# katgpt-rs Issue 999 T4 — the real G1/G2 gates over the T3 fit (pole
+# mining on a held-out corpus slice + measured steering with the fitted J
+# directions; the gate fns are the library's, the cell feeds them real
+# data). Compiled only at the lens posture.
+[[example]]
+name = "lens_gates_t4"
+path = "examples/lens_gates_t4.rs"
+required-features = ["lens"]
+
 # Issue 022 T5.0 ⚠-finding follow-up — re-derive the kill-rule verdict from
 # the artifact's own stored S under the current rule (T5.5's citation gate).
 [[example]]
