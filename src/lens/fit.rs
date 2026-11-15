@@ -92,6 +92,40 @@ impl ColAccum {
         self.n_docs
     }
 
+    /// Add one doc's column over the T3 seed window: the pair-sum rows
+    /// `[lo, hi)` (the seed positions t of `mean_t`) are summed and meaned
+    /// over the window (`÷ (hi − lo)`). `sum_all_rows = true` sums ALL
+    /// `t_len` rows instead (the R side's response `Σ_{t'≥t}` runs to the
+    /// last position — rows below the window are zero by causality) while
+    /// keeping the seed-window divisor. The S side passes `false` (rows =
+    /// the seeds themselves). The issue-999 T3 protocol is `[16, T−1)`.
+    pub fn add_doc_column_window(
+        &mut self,
+        point: usize,
+        dir: usize,
+        per_pos: &[f32],
+        lo: usize,
+        hi: usize,
+        sum_all_rows: bool,
+    ) {
+        let d = self.d;
+        debug_assert_eq!(per_pos.len() % d, 0, "ColAccum: per_pos shape");
+        debug_assert!(point < self.points, "ColAccum: point index");
+        debug_assert!(dir < d, "ColAccum: dir index");
+        debug_assert!(lo < hi, "ColAccum: empty seed window");
+        debug_assert!(hi <= per_pos.len() / d, "ColAccum: window past T");
+        let inv_w = 1.0 / (hi - lo) as f64;
+        let base = (point * d + dir) * d;
+        let rows = if sum_all_rows { per_pos.len() / d } else { hi };
+        for j in 0..d {
+            let mut acc = 0.0f64;
+            for t in lo..rows {
+                acc += per_pos[t * d + j] as f64;
+            }
+            self.sum[base + j] += acc * inv_w;
+        }
+    }
+
     /// Finalize the per-point means (`sum / n_docs`); refuses an empty
     /// accumulator loud (a green zero is never a fit).
     pub fn finalize(&self) -> Vec<Vec<f32>> {
@@ -105,6 +139,86 @@ impl ColAccum {
             .map(|p| {
                 (0..d * d)
                     .map(|i| (self.sum[p * d * d + i] * inv) as f32)
+                    .collect()
+            })
+            .collect()
+    }
+}
+
+/// Direction-sliced column accumulator for threaded sweeps: covers the
+/// direction range `[dir_lo, dir_lo + dirs)` of every point. Each doc's
+/// sweep pass lands in exactly one slice's slot, so a merge is the slot
+/// concatenation (same divisor everywhere). Allocation is
+/// `points · dirs · d` — a `dir_len`-th of the dense accumulator per
+/// worker.
+pub struct SlicedAccum {
+    sum: Vec<f64>,
+    d: usize,
+    points: usize,
+    dir_lo: usize,
+    dir_len: usize,
+}
+
+impl SlicedAccum {
+    pub fn new(d: usize, points: usize, dir_lo: usize, dir_len: usize) -> Self {
+        Self {
+            sum: vec![0.0; points * dir_len * d],
+            d,
+            points,
+            dir_lo,
+            dir_len,
+        }
+    }
+
+    /// Same row semantics as [`ColAccum::add_doc_column_window`].
+    pub fn add_doc_column_window(
+        &mut self,
+        point: usize,
+        dir: usize,
+        per_pos: &[f32],
+        lo: usize,
+        hi: usize,
+        sum_all_rows: bool,
+    ) {
+        debug_assert!(
+            dir >= self.dir_lo && dir < self.dir_lo + self.dir_len,
+            "SlicedAccum: dir outside slice"
+        );
+        let d = self.d;
+        let local = dir - self.dir_lo;
+        let inv_w = 1.0 / (hi - lo) as f64;
+        let base = (point * self.dir_len + local) * d;
+        let rows = if sum_all_rows { per_pos.len() / d } else { hi };
+        for j in 0..d {
+            let mut acc = 0.0f64;
+            for t in lo..rows {
+                acc += per_pos[t * d + j] as f64;
+            }
+            self.sum[base + j] += acc * inv_w;
+        }
+    }
+
+    /// Raw per-point f64 sums `[points][dir_len·d]` (no divisor, no cast —
+    /// the threaded-merge form; `finalize` is the single-slice f32 view).
+    pub fn sums(&self) -> Vec<Vec<f64>> {
+        let d = self.d;
+        (0..self.points)
+            .map(|p| self.sum[p * self.dir_len * d..(p + 1) * self.dir_len * d].to_vec())
+            .collect()
+    }
+
+    /// Finalized slice `[points][dir_len·d]` (columns in dir order).
+    pub fn finalize(&self, n_docs: u64) -> Vec<Vec<f32>> {
+        assert!(
+            n_docs > 0,
+            "SlicedAccum::finalize on zero docs — no fit was performed"
+        );
+        let d = self.d;
+        let inv = 1.0 / n_docs as f64;
+        (0..self.points)
+            .map(|p| {
+                (0..self.dir_len * d)
+                    .map(|i| (self.sum[p * self.dir_len * d + i] * inv) as f32)
                     .collect()
             })
             .collect()
@@ -906,5 +1020,96 @@ mod tests {
         COUNTING.with(|c| c.set(false));
         assert_eq!(s_allocs, 0, "s_scores allocated {s_allocs} times");
         assert_eq!(r_allocs, 0, "r_read allocated {r_allocs} times");
+    }
+
+    /// The seed-window accumulator: rows outside `[lo, hi)` never join the
+    /// S-side sum; the divisor is the window length (the T3 protocol's
+    /// `seed positions [16, T−1)` form), not `t_len`.
+    #[test]
+    fn windowed_accumulator_means_the_seed_rows_only() {
+        let d = 3usize;
+        let t_len = 5usize;
+        let mut acc = ColAccum::new(d, 1);
+        // Column j of position t carries the value t·10 + j.
+        let per_pos: Vec<f32> = (0..t_len * d)
+            .map(|i| ((i / d) * 10 + (i % d)) as f32)
+            .collect();
+        acc.note_doc();
+        acc.add_doc_column_window(0, 0, &per_pos, 2, 4, false);
+        let got = acc.finalize();
+        // Rows 2 and 3: (20+j + 30+j)/2 = 25+j.
+        for j in 0..d {
+            assert_eq!(got[0][j], (25 + j) as f32, "window col {j}");
+        }
+        // The legacy full-window form still means over ALL rows ÷ t_len.
+        let mut full = ColAccum::new(d, 1);
+        full.note_doc();
+        full.add_doc_column(0, 0, &per_pos, t_len);
+        let got = full.finalize();
+        let want: f64 = (0..t_len)
+            .map(|t| (t * 10 + 1) as f64)
+            .sum::<f64>()
+            / t_len as f64;
+        assert_eq!(got[0][1] as f64, want, "legacy full window");
+    }
+
+    /// The R-side window form: response rows from the window start onward
+    /// join the sum (rows below it are causally zero — the injection sits in
+    /// the window), but the divisor is the seed count.
+    #[test]
+    fn windowed_accumulator_all_rows_uses_seed_divisor() {
+        let d = 2usize;
+        let t_len = 4usize;
+        let mut acc = ColAccum::new(d, 1);
+        let per_pos: Vec<f32> = (0..t_len * d).map(|i| (i as f32) + 1.0).collect();
+        acc.note_doc();
+        acc.add_doc_column_window(0, 0, &per_pos, 1, 3, true);
+        let got = acc.finalize();
+        // Rows 1..4 = 3+4+5+6+7+8 = 33; divisor = the seed count 2 → 16.5.
+        assert_eq!(got[0][0] + got[0][1], 16.5, "all-rows seed-mean");
+    }
+
+    /// Sliced accumulators merge by slot concatenation: two slices over
+    /// disjoint direction ranges reproduce the dense accumulator exactly.
+    #[test]
+    fn sliced_accumulators_concat_to_the_dense_fit() {
+        let d = 4usize;
+        let points = 2usize;
+        let t_len = 3usize;
+        let docs: Vec<Vec<f32>> = (0..2)
+            .map(|doc| {
+                (0..t_len * d)
+                    .map(|i| ((i * (doc + 3)) % 7) as f32 - 2.0)
+                    .collect()
+            })
+            .collect();
+        let mut dense = ColAccum::new(d, points);
+        let mut s0 = SlicedAccum::new(d, points, 0, 2);
+        let mut s1 = SlicedAccum::new(d, points, 2, 2);
+        for (di, per_pos) in docs.iter().enumerate() {
+            dense.note_doc();
+            for p in 0..points {
+                for dir in 0..d {
+                    dense.add_doc_column_window(p, dir, per_pos, 1, 3, false);
+                    if dir < 2 {
+                        s0.add_doc_column_window(p, dir, per_pos, 1, 3, false);
+                    } else {
+                        s1.add_doc_column_window(p, dir, per_pos, 1, 3, false);
+                    }
+                }
+            }
+            let _ = di;
+        }
+        let want = dense.finalize();
+        let got: Vec<Vec<f32>> = (0..points)
+            .map(|p| {
+                let mut row = s0.finalize(2)[p].clone();
+                row.extend_from_slice(&s1.finalize(2)[p]);
+                row
+            })
+            .collect();
+        for (p, (a, b)) in want.iter().zip(&got).enumerate() {
+            assert_eq!(a, b, "point {p}: slice concat diverged");
+        }
     }
 }

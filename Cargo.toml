@@ -1160,6 +1160,13 @@ name = "closed_form_write_cell"
 path = "examples/closed_form_write_cell.rs"
 required-features = ["closed_form_write"]
 
+# katgpt-rs Issue 999 T3 — the real-corpus R/S lens fit (offline, compute-bound;
+# never a serving path). Compiled only at the lens posture.
+[[example]]
+name = "lens_fit_t3"
+path = "examples/lens_fit_t3.rs"
+required-features = ["lens"]
+
 # Issue 022 T5.0 ⚠-finding follow-up — re-derive the kill-rule verdict from
 # the artifact's own stored S under the current rule (T5.5's citation gate).
 [[example]]
