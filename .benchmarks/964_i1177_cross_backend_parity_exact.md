@@ -3,7 +3,7 @@
 **Status:** RECORD — Item 1's G1 **PASSES at the primary (exact) pin**; the pre-registered near-tie band was never exercised (no divergence to adjudicate). Issue 1177 closes: both residues landed.
 **Date:** 2026-11-09 (Metal leg 12:2x +07; CUDA leg 17:0x +07 — job `01a1bed7-47f8-7df0-b54d-cac7fd8e199a`)
 **Session:** zed-15be441a@amo, epoch 1794201411
-**Issue:** [`.issues/1177_dense_lane_residues_cross_backend_parity_and_decode_gemv.md`](../.issues/1177_dense_lane_residues_cross_backend_parity_and_decode_gemv.md) (Item 1 — the band pre-registration lives there, written BEFORE any run)
+**Issue:** `.issues/1177_dense_lane_residues_cross_backend_parity_and_decode_gemv.md` (Item 1 — the band pre-registration lives there, written BEFORE any run)
 **Walk:** the prose family (the harness default prompt, 45 chars → 10 tokens), 48 greedy tokens, ctx 2048 on BOTH sides (the 4090's 24 GB cannot hold f32 KV at the Metal-default ctx 24576 beside the weights; ctx is allocation-only), harness loop verbatim on both sides (the s==0 re-feed at pos = ids.len()).
 
 ## The model pin (A1/A8)

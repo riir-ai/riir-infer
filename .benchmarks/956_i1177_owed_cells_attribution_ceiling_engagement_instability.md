@@ -1,7 +1,7 @@
 # Bench 956 — Issue 1177 item 2 owed cells: the 6× attribution, the measured ceiling, the GEMV engagement trace, and the packed ctx-2048 instability adjudication
 
 **Date:** 2026-11-08, amo (M5 Ultra 96 GB), session zed-754da340@amo
-**Posture:** release `qwen38_wgpu,production` build at `bbbe744`+ (the engagement instrument + probe example landed in the same commit), HEAD above `463e2ce`/`678bb9d`; model `/Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf` (the Bench-1167 pin, 16.81 GB). Box: AC power, load 2.5–3.0 (light), exclusive GPU (co-tenant guard passed before every cell), `pmset powermode` n/a. Cells: `qwen38_wgpu_bench --decode 32 --decode-ctx 2048`, 2 fresh processes per dense arm (leg 1 carries `--walk-tokens 64`), 5 fresh processes for the packed instability leg. Claude verdict round 1 (REVISE, session 10bde1fe) demanded exactly these four cells before any verdict; they are now LANDED — see [`.issues/1177`](../.issues/1177_dense_lane_residues_cross_backend_parity_and_decode_gemv.md).
+**Posture:** release `qwen38_wgpu,production` build at `bbbe744`+ (the engagement instrument + probe example landed in the same commit), HEAD above `463e2ce`/`678bb9d`; model `/Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf` (the Bench-1167 pin, 16.81 GB). Box: AC power, load 2.5–3.0 (light), exclusive GPU (co-tenant guard passed before every cell), `pmset powermode` n/a. Cells: `qwen38_wgpu_bench --decode 32 --decode-ctx 2048`, 2 fresh processes per dense arm (leg 1 carries `--walk-tokens 64`), 5 fresh processes for the packed instability leg. Claude verdict round 1 (REVISE, session 10bde1fe) demanded exactly these four cells before any verdict; they are now LANDED — see `.issues/1177`.
 
 ## 1. The 6× attribution (code vs box)
 
