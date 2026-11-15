@@ -1,0 +1,36 @@
+{
+  "clips": [
+    {
+      "clip": "fleurs/data/th_th/audio/test/9383511766013567224.wav",
+      "audio_s": 13.08,
+      "ref_tokens": 36,
+      "ane_tokens": 37,
+      "token_identity_pct": 11.111,
+      "exact_match": false,
+      "enc_max_abs": 0.0811,
+      "enc_rel_rms_worst": 0.044912,
+      "first_diverge_idx": 4
+    },
+    {
+      "clip": "fleurs/data/th_th/audio/test/14092782195947690542.wav",
+      "audio_s": 21.48,
+      "ref_tokens": 69,
+      "ane_tokens": 69,
+      "token_identity_pct": 97.101,
+      "exact_match": false,
+      "enc_max_abs": 0.3053,
+      "enc_rel_rms_worst": 0.096739,
+      "first_diverge_idx": 66
+    },
+    {
+      "clip": "fixtures/tvspeech_audio/9.wav",
+      "audio_s": 29.248,
+      "ref_tokens": 85,
+      "ane_tokens": 85,
+      "token_identity_pct": 100.0,
+      "exact_match": true,
+      "enc_max_abs": 0.1581,
+      "enc_rel_rms_worst": 0.054901
+    }
+  ]
+}
