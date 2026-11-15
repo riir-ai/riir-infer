@@ -26,6 +26,11 @@
 //!     --out .closed_form_write_cell/
 //! # facts default to one inline fixture (France → Paris); --facts <json>
 //! # replaces the whole set (schema: FactsDoc below).
+//! # --paraphrases (plan-635 T3): swaps fact 0's train asks for the authored
+//! # 5-paraphrase calibration set and widens the G1 probe set with the same
+//! # asks (labels `paraphrase#k`, reported as recall-pre-para); flag-off is
+//! # byte-identical Recipe-1. Authored for the DEFAULT doc only — composing
+//! # it with --facts refuses loud.
 //! ```
 //!
 //! Timings printed per phase are wall-clock on a possibly-loaded box — a
@@ -95,6 +100,44 @@ fn default_facts_doc() -> FactsDoc {
         ],
         lookalike_asks: vec!["The capital of Italy is".into()],
     }
+}
+
+/// Plan-635 T3: the fixed 5-paraphrase calibration set for the default fact
+/// (same relation, different surface forms, one hyponym probe) — authored
+/// data committed HERE so the cell stays reproducible; never generated text.
+/// `--paraphrases` swaps fact 0's train asks for exactly this set and widens
+/// the G1 probe set with the same asks; flag-off stays byte-identical
+/// Recipe-1 (the disjointness is test-pinned). Entry 4 is the hyponym probe:
+/// the relation routes through CITY (a hyponym of the capital-city frame).
+const PARAPHRASE_TRAIN_ASKS: [&str; 5] = [
+    "France's capital, the city of the Eiffel Tower, is",
+    "In western Europe, the capital of France is",
+    "The city where France's government sits, its capital, is",
+    "The largest French city, the country's capital, is",
+    "The capital of the French Republic is",
+];
+
+/// The probe-label prefix shared by the probe builder and the recall-pre-para
+/// report's selector — one const so the two sites cannot drift.
+const PARAPHRASE_LABEL_PREFIX: &str = "paraphrase#";
+
+/// The calibration ask STRINGS per fact under the flag — pure (tokenization
+/// happens later in `main`), so the identity tests need no tokenizer.
+/// Flag-off returns exactly the doc's own asks (the Recipe-1 posture);
+/// flag-on returns the authored set for fact 0 (the default doc is
+/// single-fact under the flag — `main` refuses a `--facts` composition).
+fn train_ask_strings(doc: &FactsDoc, paraphrases: bool) -> Vec<Vec<&str>> {
+    doc.facts
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            if paraphrases && i == 0 {
+                PARAPHRASE_TRAIN_ASKS.to_vec()
+            } else {
+                f.train_asks.iter().map(String::as_str).collect()
+            }
+        })
+        .collect()
 }
 
 // ── probes ──────────────────────────────────────────────────────────────
@@ -322,6 +365,7 @@ struct Args {
     rank: Option<usize>,
     rounds: Option<usize>,
     max_new: usize,
+    paraphrases: bool,
 }
 
 impl Args {
@@ -334,6 +378,7 @@ impl Args {
             rank: None,
             rounds: None,
             max_new: 12,
+            paraphrases: false,
         };
         let mut it = std::env::args().skip(1);
         while let Some(flag) = it.next() {
@@ -346,8 +391,9 @@ impl Args {
                 "--rank" => a.rank = Some(val()?.parse().context("--rank parse")?),
                 "--rounds" => a.rounds = Some(val()?.parse().context("--rounds parse")?),
                 "--max-new" => a.max_new = val()?.parse().context("--max-new parse")?,
+                "--paraphrases" => a.paraphrases = true,
                 other => bail!(
-                    "unknown flag {other} (flags: --gguf --out --facts --layers --rank --rounds --max-new)"
+                    "unknown flag {other} (flags: --gguf --out --facts --layers --rank --rounds --max-new --paraphrases)"
                 ),
             }
         }
@@ -369,6 +415,11 @@ fn parse_layers(s: &str) -> Result<Vec<usize>> {
 
 fn main() -> Result<()> {
     let args = Args::parse()?;
+    if args.paraphrases && args.facts.is_some() {
+        bail!(
+            "--paraphrases is authored for the DEFAULT fact doc (France → Paris) — pass no --facts"
+        );
+    }
 
     let t_load = Instant::now();
     let (config, mut weights) = load_qwen_deltanet_weights_gguf(&args.gguf)
@@ -403,11 +454,18 @@ fn main() -> Result<()> {
             .collect::<Vec<u32>>()
     };
     let answer_content: Vec<Vec<u32>> = doc.facts.iter().map(|f| enc(&f.answer)).collect();
+    if args.paraphrases {
+        println!(
+            "# paraphrase calibration: {} authored train asks (plan-635 T3; flag-off = Recipe-1)",
+            PARAPHRASE_TRAIN_ASKS.len()
+        );
+    }
     let facts: Vec<FactSpec> = doc
         .facts
         .iter()
-        .map(|f| FactSpec {
-            train_asks: f.train_asks.iter().map(|s| enc(s)).collect(),
+        .zip(train_ask_strings(&doc, args.paraphrases))
+        .map(|(f, asks)| FactSpec {
+            train_asks: asks.iter().map(|s| enc(s)).collect(),
             answer: {
                 let mut a = enc(&f.answer);
                 a.push(eos);
@@ -443,6 +501,18 @@ fn main() -> Result<()> {
             ask: enc(l),
             answer: Vec::new(),
         });
+    }
+    // Plan-635 T3: the same 5 paraphrases join the probe set — the G1 floor's
+    // subject widens to them; the held-out wording stays scored separately
+    // and never enters the solve (disjointness test-pinned).
+    if args.paraphrases {
+        for (k, p) in PARAPHRASE_TRAIN_ASKS.iter().enumerate() {
+            probes.push(Probe {
+                label: format!("{PARAPHRASE_LABEL_PREFIX}{k}"),
+                ask: enc(p),
+                answer: answer_content[0].clone(),
+            });
+        }
     }
     for (k, c) in controls.iter().enumerate() {
         probes.push(Probe {
@@ -555,6 +625,20 @@ fn main() -> Result<()> {
             "# recall-pre[f{i}]: {ans:?} in armed generations: {n_hit}/{}",
             hits.len()
         );
+        // Plan-635 T3: the widened floor's subject — the 5-paraphrase probe
+        // set — reported alongside (the floor adjudication stays T4's).
+        if args.paraphrases {
+            let hits: Vec<bool> = armed
+                .iter()
+                .filter(|r| r.label.starts_with(PARAPHRASE_LABEL_PREFIX))
+                .map(|r| r.gen_text.contains(ans))
+                .collect();
+            let n = hits.iter().filter(|h| **h).count();
+            println!(
+                "# recall-pre-para[f{i}]: {ans:?} in armed generations: {n}/{}",
+                hits.len()
+            );
+        }
     }
 
     // ── phase D: demote identity ──
@@ -696,4 +780,92 @@ fn main() -> Result<()> {
 
     println!("# ==== RESULT: PASS — D + F identities green, sidecar sealed ====");
     Ok(())
+}
+
+// ── tests (plan-635 T3 demote-identity battery; runs via
+//    `cargo test --example closed_form_write_cell --features closed_form_write`)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Flag-off law: the default doc IS Recipe-1's calibration set verbatim
+    /// — the two train asks, one held-out wording — and no paraphrase string
+    /// leaks into the flag-off train set (the flag can never silently widen
+    /// the flag-off posture).
+    #[test]
+    fn flag_off_calibration_is_recipe1_verbatim() {
+        let doc = default_facts_doc();
+        assert_eq!(doc.facts.len(), 1);
+        let f = &doc.facts[0];
+        assert_eq!(
+            f.train_asks,
+            vec![
+                "The capital of France is".to_string(),
+                "The capital city of France is called".to_string(),
+            ]
+        );
+        assert_eq!(f.heldout_asks, vec!["France's capital city is".to_string()]);
+        let sets = train_ask_strings(&doc, false);
+        assert_eq!(sets.len(), 1);
+        assert_eq!(
+            sets[0],
+            vec![
+                "The capital of France is",
+                "The capital city of France is called",
+            ]
+        );
+        for p in PARAPHRASE_TRAIN_ASKS.iter() {
+            assert!(
+                !sets[0].contains(p),
+                "paraphrase {p:?} leaked into flag-off"
+            );
+        }
+    }
+
+    /// Flag-on law: fact 0's train asks are exactly the authored five, in
+    /// order; the held-out wording stays OUT (it is the G1 read-out, never a
+    /// calibration input).
+    #[test]
+    fn flag_on_train_set_is_the_authored_five() {
+        let doc = default_facts_doc();
+        let sets = train_ask_strings(&doc, true);
+        assert_eq!(sets.len(), 1);
+        assert_eq!(sets[0], PARAPHRASE_TRAIN_ASKS.to_vec());
+        assert!(!sets[0].contains(&"France's capital city is"));
+    }
+
+    /// The paraphrase set's shape: exactly five, unique, same-relation
+    /// surface forms that end in the teacher-forceable pre-answer frame and
+    /// keep the fact's subject.
+    #[test]
+    fn paraphrase_set_shape() {
+        assert_eq!(PARAPHRASE_TRAIN_ASKS.len(), 5);
+        let uniq: std::collections::HashSet<_> = PARAPHRASE_TRAIN_ASKS.iter().copied().collect();
+        assert_eq!(uniq.len(), 5, "duplicate paraphrase wording");
+        for p in PARAPHRASE_TRAIN_ASKS.iter() {
+            assert!(
+                p.contains("France") || p.contains("French"),
+                "paraphrase {p:?} lost the subject"
+            );
+            assert!(
+                p.trim_end().ends_with("is"),
+                "paraphrase {p:?} lost the pre-answer frame"
+            );
+        }
+    }
+
+    /// The probe builder and the recall report share ONE label prefix — the
+    /// selector cannot drift from the labels it counts.
+    #[test]
+    fn paraphrase_label_prefix_is_the_shared_selector() {
+        let labels: Vec<String> = (0..PARAPHRASE_TRAIN_ASKS.len())
+            .map(|k| format!("{PARAPHRASE_LABEL_PREFIX}{k}"))
+            .collect();
+        assert_eq!(labels.len(), 5);
+        assert!(
+            labels
+                .iter()
+                .all(|l| l.starts_with(PARAPHRASE_LABEL_PREFIX))
+        );
+    }
 }

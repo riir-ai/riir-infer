@@ -117,6 +117,15 @@ ROWS = [
         308,
         1200,
     ),
+    (
+        "i1189 T3 paraphrase calibration identity (example tests)",
+        "riir-infer-core",
+        "closed_form_write",
+        "--example closed_form_write_cell",
+        "",
+        4,
+        1200,
+    ),
 ]
 
 # The slow receipt row (--receipt only). Floor 2: G3 PPL + the receipt.
