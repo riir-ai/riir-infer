@@ -431,13 +431,15 @@ pub fn gate_half_rule_vjp(c: &GateConsts, dy: &[f32], dg: &mut [f32], dz: &mut [
 // Causal depthwise conv1d — linear; exact adjoint
 // ---------------------------------------------------------------------------
 
-/// Causal depthwise conv1d `jvp`: `dy[t,c] = Σ_k K[c,k] · dx[t−k, c]`
-/// (`x[t−k] = 0` for `t < k`; output length == input length).
+/// Causal depthwise conv1d `jvp` — the SERVING KERNEL's tap order:
+/// `dy[t,c] = Σ_k K[c, kw−1−k] · dx[t−k, c]` (`x[t−k] = 0` for `t < k`;
+/// output length == input length).
 ///
-/// `kernel` is `[channels, kernel_w]` row-major. This is the left-padded
-/// causal convention; the T2d fit pins bit-parity against the GDN forward's
-/// exact loop before composing (T2c), the same way `rope_jvp` pins against
-/// [`crate::rope`].
+/// `kernel` is `[channels, kernel_w]` row-major. The newest token pairs with
+/// the LAST tap (`causal_conv1d_update` slides the state left and appends
+/// the new `x` at `state[off + ks−1]`, then dots the whole window with the
+/// weights in stored order) — the T2d parity pin caught the flipped
+/// convention against that kernel; this map follows the KERNEL.
 pub fn conv1d_causal_jvp(
     kernel: &[f32],
     kernel_w: usize,
@@ -461,15 +463,15 @@ pub fn conv1d_causal_jvp(
             let mut acc = 0.0f32;
             let k_max = kernel_w.min(t + 1);
             for k in 0..k_max {
-                acc += kernel[c * kernel_w + k] * dx[(t - k) * channels + c];
+                acc += kernel[c * kernel_w + (kernel_w - 1 - k)] * dx[(t - k) * channels + c];
             }
             dy[t * channels + c] = acc;
         }
     }
 }
 
-/// Conv1d `vjp` — the exact adjoint of [`conv1d_causal_jvp`]:
-/// `dx[t,c] = Σ_k K[c,k] · dy[t+k, c]` (for `t + k < T`).
+/// Conv1d `vjp` — the exact adjoint of [`conv1d_causal_jvp`] (same flipped
+/// taps): `dx[t,c] = Σ_k K[c, kw−1−k] · dy[t+k, c]` (for `t + k < T`).
 pub fn conv1d_causal_vjp(
     kernel: &[f32],
     kernel_w: usize,
@@ -493,7 +495,7 @@ pub fn conv1d_causal_vjp(
             let mut acc = 0.0f32;
             let k_max = kernel_w.min(t_len - t);
             for k in 0..k_max {
-                acc += kernel[c * kernel_w + k] * dy[(t + k) * channels + c];
+                acc += kernel[c * kernel_w + (kernel_w - 1 - k)] * dy[(t + k) * channels + c];
             }
             dx[t * channels + c] = acc;
         }
@@ -767,13 +769,15 @@ mod tests {
         let x = rng.vec(t_len * channels);
         let mut dy = vec![0.0f32; x.len()];
         conv1d_causal_jvp(&kernel, kernel_w, &x, channels, &mut dy);
-        // Direct: pad-left and slide.
+        // Direct: pad-left and slide, the SERVING KERNEL's tap order (the
+        // newest token pairs with the LAST tap — see the map's doc).
         for t in 0..t_len {
             for c in 0..channels {
                 let mut acc = 0.0f32;
                 for k in 0..kernel_w {
                     if t >= k {
-                        acc += kernel[c * kernel_w + k] * x[(t - k) * channels + c];
+                        acc +=
+                            kernel[c * kernel_w + (kernel_w - 1 - k)] * x[(t - k) * channels + c];
                     }
                 }
                 assert!(

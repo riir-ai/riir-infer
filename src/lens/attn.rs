@@ -494,6 +494,568 @@ pub fn qg_interleave(gq: &[f32], ggate: &[f32], n_head: usize, head_dim: usize, 
 }
 
 // ---------------------------------------------------------------------------
+// Layer composition — weights, capture, consts, scratch, jvp/vjp (T2d)
+// ---------------------------------------------------------------------------
+
+use crate::lens::ops::{
+    GateConsts, gate_half_rule_jvp, gate_half_rule_vjp, matvec_t, rope_jvp, rope_vjp, sigmoid,
+};
+use crate::types::matmul;
+
+/// The attention layer's geometry (decode-forward dims, doc length).
+#[derive(Clone, Copy, Debug)]
+pub struct AttnGeometry {
+    pub t_len: usize,
+    pub n_head: usize,
+    pub n_kv: usize,
+    pub head_dim: usize,
+    /// The partial-RoPE dimension count (`effective_rotary_dim`'s resolved
+    /// value — 0-sentinel already folded to `head_dim`).
+    pub rotary_dim: usize,
+}
+
+impl AttnGeometry {
+    pub fn q_dim(&self) -> usize {
+        self.n_head * self.head_dim
+    }
+
+    pub fn kv_dim(&self) -> usize {
+        self.n_kv * self.head_dim
+    }
+
+    /// The gated Q projection's output width (`[q_h(hd), gate_h(hd)]` per head).
+    pub fn qg_dim(&self) -> usize {
+        2 * self.q_dim()
+    }
+
+    pub fn scale(&self) -> f32 {
+        attention_scale(self.head_dim)
+    }
+}
+
+/// The attention layer's weight slices (row-major `[rows, cols]`, `y = W @ x`).
+#[derive(Clone, Copy, Debug)]
+pub struct AttnLayerWeights<'a> {
+    /// `attn_wq` — `[2·q_dim][n_embd]` (Issue-594 interleave:
+    /// `[q_h(hd), gate_h(hd)]` per head).
+    pub w_qg: &'a [f32],
+    /// `attn_wk` — `[kv_dim][n_embd]`.
+    pub w_k: &'a [f32],
+    /// `attn_wv` — `[kv_dim][n_embd]`.
+    pub w_v: &'a [f32],
+    /// `attn_wo` — `[n_embd][q_dim]`.
+    pub w_o: &'a [f32],
+    /// QK-norm gamma for Q (one `[hd]` row shared by every head).
+    pub q_norm: &'a [f32],
+    /// QK-norm gamma for K.
+    pub k_norm: &'a [f32],
+    /// The RoPE frequency table (`[rotary_dim/2]` — the forward's
+    /// `RopeFreqTable::as_slice()`).
+    pub rope_freq: &'a [f32],
+    pub n_embd: usize,
+    pub rms_eps: f64,
+}
+
+/// The captured attention-layer activations for one doc
+/// ([`attn_layer_forward`]'s output — the FD reference values AND the
+/// constants the maps consume).
+#[derive(Default)]
+pub struct AttnLayerCapture {
+    /// `attn_wq` output `[T · 2·q_dim]` (pre-split interleave).
+    pub qg: Vec<f32>,
+    /// Pre-norm Q `[T · q_dim]` (the QK-norm Jacobian's `x`).
+    pub q_pre: Vec<f32>,
+    /// Pre-norm K `[T · kv_dim]`.
+    pub k_pre: Vec<f32>,
+    /// QK-norm per-head rsqrt: Q `[T · n_head]`, K `[T · n_kv]`.
+    pub q_r: Vec<f32>,
+    pub k_r: Vec<f32>,
+    /// Post-norm + post-RoPE q / k and post-norm v
+    /// (`[T · q_dim]` / `[T · kv_dim]` / `[T · kv_dim]`).
+    pub q: Vec<f32>,
+    pub k: Vec<f32>,
+    pub v: Vec<f32>,
+    /// Softmax weights `[T · n_head · T]` (per-head rows, never merged).
+    pub attn: Vec<f32>,
+    /// Attended values, PRE output gate `[T · q_dim]` (the gate's value
+    /// branch — [`GateConsts`] `z`).
+    pub att: Vec<f32>,
+    /// Output-gate pre-activation `[T · q_dim]`.
+    pub gate_g: Vec<f32>,
+    /// Captured `σ(gate)` / `σ'(gate)` `[T · q_dim]` (exact sigmoid — the
+    /// forward's `fast_sigmoid` is the disclosed fit-side drift, the same
+    /// posture as the GDN gates).
+    pub gate_sg: Vec<f32>,
+    pub gate_spg: Vec<f32>,
+    /// The layer output `[T · n_embd]`.
+    pub y: Vec<f32>,
+}
+
+/// Doc-level attention-layer forward — mirrors `forward_attention_layer`'s
+/// op order over a standalone doc (zero KV state; position `t`'s RoPE phase
+/// is `t`). This is the FD reference the tests differentiate AND the stack
+/// capture pass.
+pub fn attn_layer_forward(
+    x: &[f32],
+    w: &AttnLayerWeights,
+    geo: &AttnGeometry,
+    cap: &mut AttnLayerCapture,
+) {
+    let t_len = geo.t_len;
+    let n_embd = w.n_embd;
+    let q_dim = geo.q_dim();
+    let kv_dim = geo.kv_dim();
+    let qg_dim = geo.qg_dim();
+    let hd = geo.head_dim;
+    debug_assert_eq!(x.len(), t_len * n_embd, "attn_layer_forward: x shape");
+    debug_assert_eq!(w.w_qg.len(), qg_dim * n_embd, "w_qg shape");
+    debug_assert_eq!(w.w_k.len(), kv_dim * n_embd, "w_k shape");
+    debug_assert_eq!(w.w_v.len(), kv_dim * n_embd, "w_v shape");
+    debug_assert_eq!(w.w_o.len(), n_embd * q_dim, "w_o shape");
+    debug_assert_eq!(w.q_norm.len(), hd, "q_norm shape");
+    debug_assert_eq!(w.k_norm.len(), hd, "k_norm shape");
+
+    cap.qg = vec![0.0; t_len * qg_dim];
+    cap.q_pre = vec![0.0; t_len * q_dim];
+    cap.k_pre = vec![0.0; t_len * kv_dim];
+    cap.q_r = vec![0.0; t_len * geo.n_head];
+    cap.k_r = vec![0.0; t_len * geo.n_kv];
+    cap.q = vec![0.0; t_len * q_dim];
+    cap.k = vec![0.0; t_len * kv_dim];
+    cap.v = vec![0.0; t_len * kv_dim];
+    cap.attn = vec![0.0; t_len * geo.n_head * t_len];
+    cap.att = vec![0.0; t_len * q_dim];
+    cap.gate_g = vec![0.0; t_len * q_dim];
+    cap.gate_sg = vec![0.0; t_len * q_dim];
+    cap.gate_spg = vec![0.0; t_len * q_dim];
+    cap.y = vec![0.0; t_len * n_embd];
+
+    for t in 0..t_len {
+        let x_t = &x[t * n_embd..(t + 1) * n_embd];
+        // 1. Gated Q projection (+ K, V) — the forward's step 1.
+        matmul(
+            &mut cap.qg[t * qg_dim..(t + 1) * qg_dim],
+            w.w_qg,
+            x_t,
+            qg_dim,
+            n_embd,
+        );
+        matmul(
+            &mut cap.k_pre[t * kv_dim..(t + 1) * kv_dim],
+            w.w_k,
+            x_t,
+            kv_dim,
+            n_embd,
+        );
+        matmul(
+            &mut cap.v[t * kv_dim..(t + 1) * kv_dim],
+            w.w_v,
+            x_t,
+            kv_dim,
+            n_embd,
+        );
+        // The interleave split: q_pre / gate_g (the forward's q_buf/gate_buf).
+        for h in 0..geo.n_head {
+            let src = t * qg_dim + h * 2 * hd;
+            let dst = t * q_dim + h * hd;
+            cap.q_pre[dst..dst + hd].copy_from_slice(&cap.qg[src..src + hd]);
+            cap.gate_g[dst..dst + hd].copy_from_slice(&cap.qg[src + hd..src + 2 * hd]);
+        }
+        // 2. QK-norm (the forward's step 2) — capture rsqrt + normalized.
+        QkNormConsts::capture(
+            &cap.q_pre[t * q_dim..(t + 1) * q_dim],
+            w.q_norm,
+            hd,
+            w.rms_eps,
+            &mut cap.q_r[t * geo.n_head..(t + 1) * geo.n_head],
+            &mut cap.q[t * q_dim..(t + 1) * q_dim],
+        );
+        QkNormConsts::capture(
+            &cap.k_pre[t * kv_dim..(t + 1) * kv_dim],
+            w.k_norm,
+            hd,
+            w.rms_eps,
+            &mut cap.k_r[t * geo.n_kv..(t + 1) * geo.n_kv],
+            &mut cap.k[t * kv_dim..(t + 1) * kv_dim],
+        );
+        // 3. RoPE at phase `t` (the forward's step 3, doc-level phase map).
+        rope_jvp(
+            &mut cap.q[t * q_dim..(t + 1) * q_dim],
+            &mut cap.k[t * kv_dim..(t + 1) * kv_dim],
+            t,
+            hd,
+            geo.rotary_dim,
+            w.rope_freq,
+        );
+    }
+
+    // 5. Doc-level causal GQA attention (the forward's step 5, zero KV state).
+    attention_capture(
+        &cap.q,
+        &cap.k,
+        &cap.v,
+        geo.n_head,
+        geo.n_kv,
+        hd,
+        &mut cap.attn,
+        &mut cap.att,
+    );
+
+    // 6-7. Output gate + o_proj (the forward's steps 6-7).
+    let mut gated = vec![0.0f32; q_dim];
+    for t in 0..t_len {
+        let off = t * q_dim;
+        for (((i_out, &g), &a), (sg, spg)) in gated
+            .iter_mut()
+            .zip(&cap.gate_g[off..off + q_dim])
+            .zip(&cap.att[off..off + q_dim])
+            .zip(
+                cap.gate_sg[off..off + q_dim]
+                    .iter_mut()
+                    .zip(&mut cap.gate_spg[off..off + q_dim]),
+            )
+        {
+            let s = sigmoid(g);
+            *sg = s;
+            *spg = s * (1.0 - s);
+            *i_out = a * s;
+        }
+        matmul(
+            &mut cap.y[t * n_embd..(t + 1) * n_embd],
+            w.w_o,
+            &gated,
+            n_embd,
+            q_dim,
+        );
+    }
+}
+
+/// Borrowed view over the weights + captured constants the layer maps need.
+#[derive(Clone, Copy)]
+pub struct AttnLayerConsts<'a> {
+    pub w: AttnLayerWeights<'a>,
+    pub geo: AttnGeometry,
+    pub cap: &'a AttnLayerCapture,
+}
+
+/// Caller-provided scratch for [`attn_layer_jvp`] / [`attn_layer_vjp`]
+/// (allocate once per doc; the maps themselves allocate nothing).
+pub struct AttnLayerScratch {
+    dqg: Vec<f32>,
+    dq: Vec<f32>,
+    dq2: Vec<f32>,
+    dk: Vec<f32>,
+    dk2: Vec<f32>,
+    dv: Vec<f32>,
+    dgate: Vec<f32>,
+    dgated: Vec<f32>,
+    dgated2: Vec<f32>,
+    ds: Vec<f32>,
+    gq: Vec<f32>,
+    gq2: Vec<f32>,
+    gk: Vec<f32>,
+    gk2: Vec<f32>,
+    gv: Vec<f32>,
+    ggate: Vec<f32>,
+    gqg: Vec<f32>,
+    gsum: Vec<f32>,
+    gtmp: Vec<f32>,
+}
+
+impl AttnLayerScratch {
+    pub fn new(geo: &AttnGeometry) -> Self {
+        let tq = geo.t_len * geo.q_dim();
+        let tkv = geo.t_len * geo.kv_dim();
+        let tqg = geo.t_len * geo.qg_dim();
+        Self {
+            dqg: vec![0.0; tqg],
+            dq: vec![0.0; tq],
+            dq2: vec![0.0; tq],
+            dk: vec![0.0; tkv],
+            dk2: vec![0.0; tkv],
+            dv: vec![0.0; tkv],
+            dgate: vec![0.0; tq],
+            dgated: vec![0.0; tq],
+            dgated2: vec![0.0; tq],
+            ds: vec![0.0; geo.t_len],
+            gq: vec![0.0; tq],
+            gq2: vec![0.0; tq],
+            gk: vec![0.0; tkv],
+            gk2: vec![0.0; tkv],
+            gv: vec![0.0; tkv],
+            ggate: vec![0.0; tq],
+            gqg: vec![0.0; tqg],
+            gsum: vec![0.0; tq],
+            gtmp: vec![0.0; 0], // sized lazily (needs n_embd)
+        }
+    }
+}
+
+/// Layer `jvp`: tangent `dx` `[T · n_embd]` → `dy` `[T · n_embd]`, composed
+/// op by op in the forward's order (module doc steps 1–7).
+pub fn attn_layer_jvp(
+    c: &AttnLayerConsts,
+    dx: &[f32],
+    s: &mut AttnLayerScratch,
+    dy_out: &mut [f32],
+) {
+    let geo = c.geo;
+    let w = &c.w;
+    let cap = c.cap;
+    let t_len = geo.t_len;
+    let n_embd = w.n_embd;
+    let q_dim = geo.q_dim();
+    let kv_dim = geo.kv_dim();
+    let qg_dim = geo.qg_dim();
+    let hd = geo.head_dim;
+    debug_assert_eq!(dx.len(), t_len * n_embd, "attn_layer_jvp: dx shape");
+    debug_assert_eq!(dy_out.len(), t_len * n_embd, "attn_layer_jvp: dy shape");
+    if s.gtmp.len() != n_embd {
+        s.gtmp = vec![0.0; n_embd];
+    }
+
+    // 1. Gated Q / K / V projection tangents + interleave split.
+    for t in 0..t_len {
+        matmul(
+            &mut s.dqg[t * qg_dim..(t + 1) * qg_dim],
+            w.w_qg,
+            &dx[t * n_embd..(t + 1) * n_embd],
+            qg_dim,
+            n_embd,
+        );
+        matmul(
+            &mut s.dv[t * kv_dim..(t + 1) * kv_dim],
+            w.w_v,
+            &dx[t * n_embd..(t + 1) * n_embd],
+            kv_dim,
+            n_embd,
+        );
+        qg_deinterleave(
+            &s.dqg[t * qg_dim..(t + 1) * qg_dim],
+            geo.n_head,
+            hd,
+            &mut s.dq[t * q_dim..(t + 1) * q_dim],
+            &mut s.dgate[t * q_dim..(t + 1) * q_dim],
+        );
+        matmul(
+            &mut s.dk[t * kv_dim..(t + 1) * kv_dim],
+            w.w_k,
+            &dx[t * n_embd..(t + 1) * n_embd],
+            kv_dim,
+            n_embd,
+        );
+    }
+    // 2. QK-norm tangents (true derivative).
+    for t in 0..t_len {
+        let qc = QkNormConsts {
+            x: &cap.q_pre[t * q_dim..(t + 1) * q_dim],
+            r: &cap.q_r[t * geo.n_head..(t + 1) * geo.n_head],
+        };
+        qk_norm_true_jvp(
+            &qc,
+            w.q_norm,
+            hd,
+            &s.dq[t * q_dim..(t + 1) * q_dim],
+            &mut s.dq2[t * q_dim..(t + 1) * q_dim],
+        );
+        let kc = QkNormConsts {
+            x: &cap.k_pre[t * kv_dim..(t + 1) * kv_dim],
+            r: &cap.k_r[t * geo.n_kv..(t + 1) * geo.n_kv],
+        };
+        qk_norm_true_jvp(
+            &kc,
+            w.k_norm,
+            hd,
+            &s.dk[t * kv_dim..(t + 1) * kv_dim],
+            &mut s.dk2[t * kv_dim..(t + 1) * kv_dim],
+        );
+    }
+    // 3. RoPE (exact rotation, per-position phase).
+    for t in 0..t_len {
+        rope_jvp(
+            &mut s.dq2[t * q_dim..(t + 1) * q_dim],
+            &mut s.dk2[t * kv_dim..(t + 1) * kv_dim],
+            t,
+            hd,
+            geo.rotary_dim,
+            w.rope_freq,
+        );
+    }
+    // 5. Softmax attention (true derivative, doc-level core).
+    attention_jvp(
+        &AttentionConsts {
+            t_len,
+            n_head: geo.n_head,
+            n_kv: geo.n_kv,
+            head_dim: hd,
+            scale: geo.scale(),
+            attn: &cap.attn,
+        },
+        &cap.q,
+        &cap.k,
+        &cap.v,
+        &s.dq2,
+        &s.dk2,
+        &s.dv,
+        &mut s.ds,
+        &mut s.dgated,
+    );
+    // 6. Output gate (half rule) — doc-length const views.
+    let gc = GateConsts {
+        sg: &cap.gate_sg,
+        z: &cap.att,
+        spg: &cap.gate_spg,
+    };
+    gate_half_rule_jvp(&gc, &s.dgate, &s.dgated, &mut s.dgated2);
+    // 7. o_proj.
+    for t in 0..t_len {
+        matmul(
+            &mut dy_out[t * n_embd..(t + 1) * n_embd],
+            w.w_o,
+            &s.dgated2[t * q_dim..(t + 1) * q_dim],
+            n_embd,
+            q_dim,
+        );
+    }
+}
+
+/// Layer `vjp` — the exact adjoint of [`attn_layer_jvp`]: cotangent
+/// `gy` `[T · n_embd]` → `gdx` `[T · n_embd]` (zeroed here).
+pub fn attn_layer_vjp(c: &AttnLayerConsts, gy: &[f32], s: &mut AttnLayerScratch, gdx: &mut [f32]) {
+    let geo = c.geo;
+    let w = &c.w;
+    let cap = c.cap;
+    let t_len = geo.t_len;
+    let n_embd = w.n_embd;
+    let q_dim = geo.q_dim();
+    let kv_dim = geo.kv_dim();
+    let qg_dim = geo.qg_dim();
+    let hd = geo.head_dim;
+    debug_assert_eq!(gy.len(), t_len * n_embd, "attn_layer_vjp: gy shape");
+    debug_assert_eq!(gdx.len(), t_len * n_embd, "attn_layer_vjp: gdx shape");
+    if s.gtmp.len() != n_embd {
+        s.gtmp = vec![0.0; n_embd];
+    }
+    for v in gdx.iter_mut() {
+        *v = 0.0;
+    }
+
+    // 7'. o_proj adjoint.
+    for t in 0..t_len {
+        matvec_t(
+            &mut s.dgated[t * q_dim..(t + 1) * q_dim],
+            w.w_o,
+            &gy[t * n_embd..(t + 1) * n_embd],
+            n_embd,
+            q_dim,
+        );
+    }
+    // 6'. Output gate adjoint (doc-length const views).
+    let gc = GateConsts {
+        sg: &cap.gate_sg,
+        z: &cap.att,
+        spg: &cap.gate_spg,
+    };
+    gate_half_rule_vjp(&gc, &s.dgated, &mut s.ggate, &mut s.gq);
+    // 5'. Softmax attention adjoint (the pullback consumes the PRE-gate
+    // attention output `att` — the map being adjointed ends there). The
+    // attention gq output lands in `gsum` — `gq` is the cotangent INPUT and
+    // the core zeroes its gradient outputs first, so they must not alias.
+    attention_vjp(
+        &AttentionConsts {
+            t_len,
+            n_head: geo.n_head,
+            n_kv: geo.n_kv,
+            head_dim: hd,
+            scale: geo.scale(),
+            attn: &cap.attn,
+        },
+        &cap.q,
+        &cap.k,
+        &cap.v,
+        &cap.att,
+        &s.gq,
+        &mut s.gsum,
+        &mut s.gk,
+        &mut s.gv,
+    );
+    // 4'. RoPE adjoint (inverse rotation, per-position phase).
+    for t in 0..t_len {
+        rope_vjp(
+            &mut s.gsum[t * q_dim..(t + 1) * q_dim],
+            &mut s.gk[t * kv_dim..(t + 1) * kv_dim],
+            t,
+            hd,
+            geo.rotary_dim,
+            w.rope_freq,
+        );
+    }
+    // 3'. QK-norm adjoints (the rank-1 term carries NO gamma).
+    for t in 0..t_len {
+        let qc = QkNormConsts {
+            x: &cap.q_pre[t * q_dim..(t + 1) * q_dim],
+            r: &cap.q_r[t * geo.n_head..(t + 1) * geo.n_head],
+        };
+        qk_norm_true_vjp(
+            &qc,
+            w.q_norm,
+            hd,
+            &s.gsum[t * q_dim..(t + 1) * q_dim],
+            &mut s.gq2[t * q_dim..(t + 1) * q_dim],
+        );
+        let kc = QkNormConsts {
+            x: &cap.k_pre[t * kv_dim..(t + 1) * kv_dim],
+            r: &cap.k_r[t * geo.n_kv..(t + 1) * geo.n_kv],
+        };
+        qk_norm_true_vjp(
+            &kc,
+            w.k_norm,
+            hd,
+            &s.gk[t * kv_dim..(t + 1) * kv_dim],
+            &mut s.gk2[t * kv_dim..(t + 1) * kv_dim],
+        );
+    }
+    // 2'. Interleave fold + 1'. the three projection adjoints, summed.
+    for t in 0..t_len {
+        qg_interleave(
+            &s.gq2[t * q_dim..(t + 1) * q_dim],
+            &s.ggate[t * q_dim..(t + 1) * q_dim],
+            geo.n_head,
+            hd,
+            &mut s.gqg[t * qg_dim..(t + 1) * qg_dim],
+        );
+        let dx_t = &mut gdx[t * n_embd..(t + 1) * n_embd];
+        matvec_t(
+            dx_t,
+            w.w_qg,
+            &s.gqg[t * qg_dim..(t + 1) * qg_dim],
+            qg_dim,
+            n_embd,
+        );
+        matvec_t(
+            &mut s.gtmp,
+            w.w_k,
+            &s.gk2[t * kv_dim..(t + 1) * kv_dim],
+            kv_dim,
+            n_embd,
+        );
+        for (d, &g) in dx_t.iter_mut().zip(s.gtmp.iter()) {
+            *d += g;
+        }
+        matvec_t(
+            &mut s.gtmp,
+            w.w_v,
+            &s.gv[t * kv_dim..(t + 1) * kv_dim],
+            kv_dim,
+            n_embd,
+        );
+        for (d, &g) in dx_t.iter_mut().zip(s.gtmp.iter()) {
+            *d += g;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests — adjointness per map + finite-difference cross-checks
 // ---------------------------------------------------------------------------
 
@@ -831,6 +1393,100 @@ mod tests {
             dot(&dqg, &folded),
             1e-6,
             "qg adjoint",
+        );
+    }
+
+    // -- T2d: the layer composition --------------------------------------
+
+    /// Small layer geometry: T=5, 4Q/2KV, hd=8, partial rotary=4, d=16.
+    fn layer_geo() -> AttnGeometry {
+        AttnGeometry {
+            t_len: 5,
+            n_head: 4,
+            n_kv: 2,
+            head_dim: 8,
+            rotary_dim: 4,
+        }
+    }
+
+    fn layer_weights(
+        rng: &mut Lcg,
+        geo: &AttnGeometry,
+        n_embd: usize,
+    ) -> AttnLayerWeights<'static> {
+        let q_dim = geo.q_dim();
+        let kv_dim = geo.kv_dim();
+        AttnLayerWeights {
+            w_qg: rng.vec(geo.qg_dim() * n_embd).leak(),
+            w_k: rng.vec(kv_dim * n_embd).leak(),
+            w_v: rng.vec(kv_dim * n_embd).leak(),
+            w_o: rng.vec(n_embd * q_dim).leak(),
+            q_norm: rng.vec(geo.head_dim).leak(),
+            k_norm: rng.vec(geo.head_dim).leak(),
+            rope_freq: vec![0.5f32, 0.25].leak(),
+            n_embd,
+            rms_eps: 1e-6,
+        }
+    }
+
+    #[test]
+    fn attn_layer_is_adjoint() {
+        let geo = layer_geo();
+        let n_embd = 16usize;
+        let mut rng = Lcg(0xA77ED);
+        let w = layer_weights(&mut rng, &geo, n_embd);
+        let x = rng.vec(geo.t_len * n_embd);
+        let mut cap = AttnLayerCapture::default();
+        attn_layer_forward(&x, &w, &geo, &mut cap);
+        let c = AttnLayerConsts { w, geo, cap: &cap };
+        let mut s = AttnLayerScratch::new(&geo);
+        let dx = rng.vec(x.len());
+        let gy = rng.vec(x.len());
+        let mut dy = vec![0.0f32; x.len()];
+        let mut gdx = vec![0.0f32; x.len()];
+        attn_layer_jvp(&c, &dx, &mut s, &mut dy);
+        attn_layer_vjp(&c, &gy, &mut s, &mut gdx);
+        close(dot(&dy, &gy), dot(&dx, &gdx), 1e-4, "attn layer adjoint");
+    }
+
+    /// The composed layer vs central differences of the capture forward at
+    /// the layer output — the input gradient is EXACTLY half the FD truth:
+    /// the layer's ONLY ruled op is the silu-free sigmoid gate (half rule,
+    /// ½ on BOTH branches) and o_proj's linearity commutes the scalar — the
+    /// T2c layer-level law, now on the attention side.
+    #[test]
+    fn attn_layer_vjp_matches_fd_with_half_rule_factor() {
+        let geo = layer_geo();
+        let n_embd = 16usize;
+        let mut rng = Lcg(0xB77ED);
+        let w = layer_weights(&mut rng, &geo, n_embd);
+        let x = rng.vec(geo.t_len * n_embd);
+        let mut cap = AttnLayerCapture::default();
+        attn_layer_forward(&x, &w, &geo, &mut cap);
+        let c = AttnLayerConsts { w, geo, cap: &cap };
+        let mut s = AttnLayerScratch::new(&geo);
+        let probe = x.len() / 2;
+        let slot = x.len() - 1;
+        let hh = 1e-3f32;
+        let mut x_hi = x.clone();
+        x_hi[probe] += hh;
+        let mut x_lo = x.clone();
+        x_lo[probe] -= hh;
+        let y_of = |xx: &[f32]| -> f64 {
+            let mut capn = AttnLayerCapture::default();
+            attn_layer_forward(xx, &w, &geo, &mut capn);
+            capn.y[slot] as f64
+        };
+        let fd = (y_of(&x_hi) - y_of(&x_lo)) / (2.0 * hh as f64);
+        let mut gy_unit = vec![0.0f32; x.len()];
+        gy_unit[slot] = 1.0;
+        let mut gdx2 = vec![0.0f32; x.len()];
+        attn_layer_vjp(&c, &gy_unit, &mut s, &mut gdx2);
+        close(
+            gdx2[probe] as f64,
+            0.5 * fd,
+            3e-3,
+            "attn layer vjp fd (half-rule factor)",
         );
     }
 }

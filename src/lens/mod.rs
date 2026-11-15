@@ -39,5 +39,7 @@
 //! PoC gates G1–G4 live in `../katgpt-rs/.issues/999_rs_lens_fit_validate_poc.md`.
 
 pub mod attn;
+pub mod fit;
 pub mod gdn;
 pub mod ops;
+pub mod stack;
