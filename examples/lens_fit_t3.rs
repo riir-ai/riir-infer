@@ -656,9 +656,10 @@ fn main() -> Result<()> {
     let t_tok = Instant::now();
     let stream = tokenize_rows(&tok, &rows, want)?;
     println!(
-        "# corpus: {} rows → {} tokens ({:.1}s) blake3(rows)={}",
+        "# corpus: read {} rows, consumed {} tokens for {} docs ({:.1}s) blake3(rows)={}",
         rows.len(),
         stream.len(),
+        args.docs,
         t_tok.elapsed().as_secs_f32(),
         &digest[..16]
     );
