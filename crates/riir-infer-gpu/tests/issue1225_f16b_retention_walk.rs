@@ -325,10 +325,54 @@ fn print_provenance(when: &str) {
     );
 }
 
+/// Issue 1226: the load tripwire. The pp32768 VOID record's cross-arm table
+/// (see `.issues/1226_f16b_lane_followups.md`) shows the placebo HARD gate
+/// fires ONLY under heavy CPU load (load 17.8 and 34.2 reproduced; load
+/// 1.9–5.8 never did, across four quiet runs) — the reference pass is
+/// load-sensitively nondeterministic (the Issue-670 submission-visibility
+/// class, environmental). The walk therefore REFUSES above the ceiling
+/// instead of spending ~1 h producing void-prone numbers; the refusal is
+/// the pre-registration's own posture (an instrument that cannot hold its
+/// measurement premises says so, never a green-zero). `I1225_LOAD_OK=1`
+/// overrides for diagnosis — the run then stamps itself DIAGNOSTIC and its
+/// numbers are void-by-default in the record.
+fn load_tripwire() -> f64 {
+    const LOAD_CEILING: f64 = 16.0;
+    let one_min: f64 = std::fs::read_to_string("/proc/loadavg")
+        .ok()
+        .and_then(|s| s.split_whitespace().next().and_then(|v| v.parse().ok()))
+        .or_else(|| {
+            let out = std::process::Command::new("uptime")
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(o.stdout.as_slice()).into_owned())?;
+            // "load averages: a b c" — the FIRST number is the 1-minute mean.
+            out.split("load averages:")
+                .nth(1)
+                .and_then(|rest| rest.split_whitespace().next().and_then(|v| v.parse().ok()))
+        })
+        .unwrap_or(0.0);
+    let override_ok = std::env::var("I1225_LOAD_OK").as_deref() == Ok("1");
+    if one_min > LOAD_CEILING && !override_ok {
+        panic!(
+            "i1226 load tripwire: 1-min load {one_min} > {LOAD_CEILING} — the reference \
+             pass is load-sensitively nondeterministic at pp32768 (the 1226 VOID \
+             record's cross-arm table); rerun on a quiet box, or \
+             I1225_LOAD_OK=1 for a DIAGNOSTIC (void-by-default) run"
+        );
+    }
+    if override_ok {
+        println!("# I1225_LOAD_OK=1 — DIAGNOSTIC run: numbers void-by-default in the record");
+    }
+    one_min
+}
+
 #[test]
 #[ignore = "requires the Metal GPU + the Bonsai-2 PQ2_0 model; run explicitly with --release"]
 fn f16b_retention_walk() {
     print_provenance("start");
+    let load = load_tripwire();
+    println!("[provenance load-1min] {load}");
     let model = std::env::var_os("BONSAI2_G1_MODEL")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(FOLDED_MODEL));
@@ -398,7 +442,7 @@ fn f16b_retention_walk() {
     };
     let (mut config, weights) =
         load_qwen_deltanet_ternary_weights_gguf(&model).expect("folded model load");
-    let n_layer = config.n_layer as usize;
+    let n_layer = config.n_layer;
     let p_max = *ps.iter().max().unwrap();
     config.block_size = p_max + 8;
 
@@ -433,12 +477,7 @@ fn f16b_retention_walk() {
         // length (deterministic; the pre-registration's corpus amendment —
         // the 1146 texts encode ~412-700 tokens, short of P=4096; the axis
         // under test is numerics, not task skill).
-        let toks: Vec<usize> = base_toks
-            .iter()
-            .cycle()
-            .take(p_max + 2)
-            .copied()
-            .collect();
+        let toks: Vec<usize> = base_toks.iter().cycle().take(p_max + 2).copied().collect();
         assert!(
             toks.len() > p_max,
             "{family}: cycled to {} tokens, need > P={p_max}",
