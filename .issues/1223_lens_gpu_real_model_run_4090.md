@@ -28,11 +28,11 @@ root package; the bare `--features` spelling refused with `error: no feature
 named lens_gpu` + `help: package with the missing feature: riir-infer-gpu`.
 Measured on the 4090 2026-11-16.)
 
-**Run (in flight 2026-11-16):** 4090 rig job `01a1e1bd-16b4-7280-b071-96e6437ab1ec`
-(EXCLUSIVE, notify `zed-ba521963@amo`; wrapper `E:\git\lens_fit_t3_run.ps1` v2 —
-preflight → build → run → artifact listing; log `E:\git\lens_fit_t3_run.log`).
-Boot confirmed: CubeCL `wgpu<spirv>`, model load 5.6 s, corpus 1000 docs
-128k tokens blake3 `22cb3c582d73cbc6`, J sweep 8×B128 blocks on GPU.
+**Run (in flight 2026-11-16):** first execution FAILED — `lens_gpu_fit_t3.rs` accumulation indexing OOB at the doc-1 K merge (`len 1048576, index 1048576` = d², point 1 row 0): `target[pi]`/`gpu_sums[pi]` are per-point [d × d] buffers, but both merge sites carried a `pi *` term inside the ROW index (`(pi*d + row)*d`) — correct only for point 0, out of bounds for every point ≥ 1. The J sweep carried the identical defect (would have fired after K). **Found by the first real-model execution** — the fixture/unit gates exercise the kernels, never this example's accumulation loops, and no prior run had `points.len() ≥ 2`. FIXED `7862a8c` (K merge + J sweep; comment pins the layout law).
+
+**The run plan is re-priced (the recipe's ~20-30 h estimate was wrong >30×):** the failed run's timeline — start 07:26:01, panic 08:13:20, ZERO per-doc lines — means doc 1 never completed: ~47 min = capture + the FULL K sweep (1024 prefix JVPs × 48 points, 24 workers, k_threads defaults to available_parallelism). ~45+ min/doc on the 4090's 24 cores ⇒ 1000 docs ≈ 750+ h, infeasible as launched. Re-plan: **1-doc smoke first** (post-fix: validates the K merge through all 48 points, the J sweep through all 8 full-basis blocks, and the finalize path; measures the honest per-doc wall), then the deciding run is re-sized to what the acceptance needs at a feasible doc count (target ≤ ~30 h) — the G3 half-corpus parity gate needs INDEPENDENT halves, not 1000 docs; the count is set from the smoke's measured cost and recorded here.
+
+**Artifacts of the failed attempt kept:** job `01a1e1bd` log (`C:\Users\katop\.agent-mail\jobs\logs\01a1e1bd-16b4-7280-b071-96e6437ab1ec.log`), rig `rig log 4090 01a1e1bd`; boot facts stand (CubeCL `wgpu<spirv>`, model load 5.6 s, corpus blake3 `22cb3c582d73cbc6`).
 
 - The GGUF: `riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf` is the league
   model; the lens lane needs the 0.8B dense checkpoint — restore if missing
