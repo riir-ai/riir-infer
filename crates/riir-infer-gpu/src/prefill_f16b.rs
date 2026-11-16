@@ -7,10 +7,14 @@
 //! carries the ROUTE half of the twin ([`crate::gemm_ternary_metal_zero_copy`]
 //! carries the kernel half):
 //!
-//! - **Route** ([`set_f16b_route`]): opt-in, PROMOTE-ONLY by the env-switch
-//!   law — the default build never routes the twin; the promotion flip is
-//!   the T4 GOAT verdict's (owner-visible), never a default here. The
-//!   twin's pipeline is a CONSTRUCTION-TIME posture: pin the flags BEFORE
+//! - **Route** ([`set_f16b_route`]): the substrate latch stays opt-in —
+//!   the default build never routes the twin (every bit-exact gate keeps
+//!   the incumbent bytes, the Issue-1146 lossy-surface scoping law). The
+//!   PROMOTED default-ON lives in the dist serving lane (`stage_gpu`'s
+//!   arm: `RIIR_PREFILL_F16B=0` demotes byte-identically; unset = ON —
+//!   T4's delegated-owner verdict AGREE 2026-11-16, G1 Bench 1224 + G2
+//!   Bench 1225 + G3/G4 by construction, modelless-clean). The twin's
+//!   pipeline is a CONSTRUCTION-TIME posture: pin the flags BEFORE
 //!   `TernaryDeltanetGpuForward::new` (the same ordering law the relaxed
 //!   pin carries).
 //! - **Per-family admission** ([`set_f16b_site_mask`]): the demote axis of
@@ -51,8 +55,13 @@ static PLACEBO_PINNED: AtomicBool = AtomicBool::new(false);
 static SITE_MASK: AtomicU64 = AtomicU64::new(u64::MAX);
 
 /// Pin the twin route for every forward constructed after (and consulted at
-/// every dispatch). Opt-in: `false` keeps the incumbent f32-B route
-/// byte-identically.
+/// every dispatch). SUBSTRATE posture: PROMOTE-ONLY — the default here stays
+/// OFF so every bit-exact gate keeps the incumbent bytes (the Issue-1146
+/// lossy-surface scoping law); the PROMOTED default-ON lives in the dist
+/// serving lane (`stage_gpu`'s arm: `RIIR_PREFILL_F16B=0` demotes, unset =
+/// ON — T4's delegated-owner verdict, 2026-11-16), the lane where the
+/// quality read (Bench 1224) was taken. `false` keeps the incumbent f32-B
+/// route byte-identically (the walk's A arm).
 pub fn set_f16b_route(on: bool) {
     ROUTE_ARMED.store(on, Ordering::Relaxed);
 }

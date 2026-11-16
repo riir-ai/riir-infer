@@ -50,6 +50,11 @@ pub const PRODUCTION_RUNGS: &[(&str, bool)] = &[
         "deltanet_prework_fused",
         cfg!(feature = "deltanet_prework_fused"),
     ),
+    // Issue 1225 T4 (delegated-owner AGREE 2026-11-16): the f16-B serving
+    // twin joined the aggregate — compile-side; the ROUTE default lives in
+    // the dist serving lane (`RIIR_PREFILL_F16B=0` demotes), the substrate
+    // latch stays opt-in per the lossy-surface scoping law.
+    ("prefill_f16b", cfg!(feature = "prefill_f16b")),
 ];
 
 /// Promoted rungs the current compilation is MISSING. Empty iff the

@@ -155,6 +155,7 @@ production = [
     "params_handle_cache",
     "metal_tensor_gemm",
     "deltanet_prework_fused",
+    "prefill_f16b",
 ]
 
 # Issue 1182 — the online drift guard + exact-path fallback for the
@@ -997,6 +998,26 @@ required-features = ["metal_tensor_gemm", "cubecl_runtime", "ternary_gemv", "mul
 name = "issue1146_relaxed_kl"
 path = "tests/issue1146_relaxed_kl.rs"
 required-features = ["metal_tensor_gemm", "cubecl_runtime", "ternary_gemv", "multi_host", "ternary_gemm_batched", "riir-infer-core/bonsai2_hadamard"]
+
+# Issue 1225 — the f16-B frame A/B (the T3 e2e NET cell; the file-level cfg
+# empties it without the twin feature). The feature row mirrors the dist
+# stage's `gpu` lane: production (EVERY promoted rung — the Bench-937
+# comparability law: a missing promoted rung is the omitted-promoted-rung
+# class) + prefill_f16b. Run explicitly (--ignored, --release): see the
+# file header.
+[[test]]
+name = "issue1225_f16b_frame_ab"
+path = "tests/issue1225_f16b_frame_ab.rs"
+required-features = ["prefill_f16b", "production", "cubecl_runtime", "multi_host", "riir-infer-core/bonsai2_hadamard"]
+
+# Issue 1225 T4 — the executed promotion check (the verdict's condition 2:
+# the promoted default engages the twin; the =0 demote restores the
+# incumbent bytes). Run TWICE — armed (unset) then RIIR_PREFILL_F16B=0 —
+# with the same I1225_CHECK_OUT artifact path; see the file header.
+[[test]]
+name = "issue1225_f16b_promoted_default_check"
+path = "tests/issue1225_f16b_promoted_default_check.rs"
+required-features = ["prefill_f16b", "production", "cubecl_runtime", "multi_host", "riir-infer-core/bonsai2_hadamard"]
 
 # Issue 1225 — the f16-B retention walk (the T1 decider, pre-registered in
 # the issue BEFORE this twin landed; the file-level cfg empties it without

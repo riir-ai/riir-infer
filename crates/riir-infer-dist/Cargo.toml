@@ -120,6 +120,7 @@ bonsai2_hadamard = ["riir-infer-core/bonsai2_hadamard"]
 gpu = [
     "dep:riir-infer-gpu",
     "riir-infer-gpu/production",
+    "prefill_f16b",
 ]
 # riir-ai Issue 1147 B8 — the ANE‖GPU channel split on the dist prefill
 # frames (OPT-IN): the GPU stage registers a 128-token ANE block per
@@ -134,11 +135,13 @@ gpu = [
 # 1.33-1.38 s both; single box relaxed best f=0.10-0.15 = 1.01x (noise).
 # `RIIR_DIST_ANE_SPLIT=0` demotes at runtime; code is Apple-silicon-gated.
 ane_split = ["gpu", "riir-infer-gpu/ane_zc_channel_split"]
-# Issue 1225 — the f16-B serving twin's dist stage seam (OPT-IN, mirrors
-# ane_split's forwarding shape): compiles the twin route + the env arm
-# lines in stage_gpu. `RIIR_PREFILL_F16B=1` PROMOTE-ONLY; the default flip
-# is the T4 GOAT call, never this row.
-prefill_f16b = ["gpu", "riir-infer-gpu/prefill_f16b"]
+# Issue 1225 — the f16-B serving twin's dist stage seam. **PROMOTED into
+# the `gpu` lane 2026-11-16 (T4 delegated-owner verdict AGREE — Bench 1224
+# + 1225)**: the gpu lane compiles the twin and arms its route at the
+# promoted default (`RIIR_PREFILL_F16B=0` demotes byte-identically). The
+# standalone row stays for non-gpu postures that want the twin without the
+# serving lane (the walk's build compiles it explicitly).
+prefill_f16b = ["riir-infer-gpu/prefill_f16b"]
 # Issue 654 promotion e2e — the head score placed on the CUDA device (the
 # 654 gate's GPU-placement precondition on the 4090; CUDA-only — the code
 # is cfg'd out on macOS like its host module, and an arm request without

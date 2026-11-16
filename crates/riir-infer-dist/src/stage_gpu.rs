@@ -89,10 +89,15 @@ impl TernaryGpuStage {
             std::env::var("RIIR_DIST_PREFILL_ATTN_TENSOR").as_deref() != Ok("0"),
         );
         // Issue 1225: the f16-B serving twin (feature `prefill_f16b`) —
-        // OPT-IN, PROMOTE-ONLY per the env-switch law: arms on the exact
-        // literal `RIIR_PREFILL_F16B=1`; unset/any other value keeps the
-        // incumbent f32-B route byte-identically (the default flip is the
-        // T4 GOAT call). `RIIR_PREFILL_F16B_FAMILIES` (comma site names)
+        // **PROMOTED default-ON in THIS serving lane** (T4 delegated-owner
+        // verdict AGREE 2026-11-16: G1 Bench 1224 no-family-demotes + G2
+        // Bench 1225 5.91%/65.59% e2e NET sign-consistent + G3/G4 by
+        // construction; modelless-clean). `RIIR_PREFILL_F16B=0` (the exact
+        // literal) is DEMOTE-ONLY: it restores the incumbent f32-B route
+        // byte-identically. Unset (or any other value) reads the promoted
+        // default ON. The substrate latch stays opt-in (the lossy-surface
+        // scoping law — every bit-exact gate off this lane keeps the
+        // incumbent bytes). `RIIR_PREFILL_F16B_FAMILIES` (comma site names)
         // narrows the route — the T1 decider's per-family demote axis.
         // `RIIR_PREFILL_F16B_TAP=1` / `RIIR_PREFILL_F16B_PLACEBO=1` are the
         // walk's instrument arms (tap = serialize-and-tally, never timing;
@@ -102,7 +107,7 @@ impl TernaryGpuStage {
         #[cfg(feature = "prefill_f16b")]
         {
             riir_infer_gpu::set_f16b_route(
-                std::env::var("RIIR_PREFILL_F16B").as_deref() == Ok("1"),
+                std::env::var("RIIR_PREFILL_F16B").as_deref() != Ok("0"),
             );
             riir_infer_gpu::set_f16b_tap(
                 std::env::var("RIIR_PREFILL_F16B_TAP").as_deref() == Ok("1"),
