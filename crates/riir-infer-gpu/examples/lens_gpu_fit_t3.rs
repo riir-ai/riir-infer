@@ -325,7 +325,10 @@ fn main() -> Result<()> {
                 let target = if parity == 0 { &mut k_even } else { &mut k_odd };
                 for (pi, rows_p) in sums.iter().enumerate() {
                     for (li, row) in rows_p.chunks_exact(d).enumerate() {
-                        let dst = (pi * d + slo + li) * d;
+                        // target[pi] is per-point [d × d]: row = global emb
+                        // row (slo + li), col = j — pi selects the buffer,
+                        // never the row (pi*d here overflows every point ≥ 1).
+                        let dst = (slo + li) * d;
                         for (j, &v) in row.iter().enumerate() {
                             target[pi][dst + j] += v;
                         }
@@ -363,7 +366,9 @@ fn main() -> Result<()> {
                 // the accumulator's exact semantics.
                 let inv_w = 1.0 / (seed_hi - args.seed_lo) as f64;
                 for k in 0..dir_len {
-                    let base = (pi * d + dir_lo + k) * d;
+                    // gpu_sums[pi] is per-point [d × d]: row = direction
+                    // index (dir_lo + k), col = j — pi selects the buffer.
+                    let base = (dir_lo + k) * d;
                     for (j, &s) in sums[k * d..(k + 1) * d].iter().enumerate() {
                         gpu_sums[pi][base + j] += (s as f64) * inv_w;
                     }
