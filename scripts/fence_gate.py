@@ -69,10 +69,67 @@ MIN_TOMLS = 1
 ALLOWED_SIBLING_PREFIX = "../katgpt-rs"
 
 # Foreign workspace crates are forbidden in code positions — the repo is
-# upstream of ALL of them. This repo's OWN crates (riir_infer_core,
-# riir_infer_gpu, riir_infer_laya) are exempt: self-references are the
-# point of the repo.
-FOREIGN_RIIR = r"riir_(?!infer_core\b|infer_gpu\b|infer_laya\b)[a-z0-9_]+"
+# upstream of ALL of them. This repo's OWN workspace-member crates are
+# exempt: self-references are the point of the repo. The exemption set is
+# DERIVED from the root manifest's [workspace] members (measured, never
+# hand-typed — Issue 1227: the hand list predates four member crates and
+# the gate cried wolf 144 findings deep for weeks on develop, invisible
+# to the main-only CI arm). A member whose package name cannot be
+# resolved refuses the walk loud (the parse floor), it never silently
+# scans with a stale set.
+
+def member_crate_names(root: Path) -> list[str]:
+    """Package names of the root package + every [workspace] member dir
+    (the repo's OWN crates — the root package "riir-infer-core" IS one)."""
+    names: list[str] = []
+    manifest = root / "Cargo.toml"
+    in_members = False
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_members = stripped == "[workspace]"
+            continue
+        if not in_members:
+            if stripped.startswith("name"):
+                pm = re.match(r'\s*name\s*=\s*"([^"]+)"', stripped)
+                if pm:
+                    names.append(pm.group(1))
+            continue
+        if not stripped.startswith("members"):
+            continue
+        for m in re.finditer(r'"([^"]+)"', stripped):
+            member_dir = root / m.group(1)
+            pkg = member_dir / "Cargo.toml"
+            if not pkg.is_file():
+                raise RuntimeError(
+                    f"fence: workspace member {m.group(1)} has no manifest"
+                )
+            for pline in pkg.read_text(encoding="utf-8").splitlines():
+                pm = re.match(r'\s*name\s*=\s*"([^"]+)"', pline)
+                if pm:
+                    names.append(pm.group(1))
+                    break
+            else:
+                raise RuntimeError(
+                    f"fence: no package name in {member_dir / 'Cargo.toml'}"
+                )
+        break
+    if len(names) < 2:
+        raise RuntimeError(
+            "fence: root package + [workspace] members not parsed — walk refused"
+        )
+    return sorted(set(names))
+
+
+def _foreign_regex(names: list[str]) -> str:
+    # the lookahead sits AFTER "riir_" is consumed — each member's tail
+    # ("infer_core", not "riir_infer_core") is what must not follow.
+    tails = "|".join(re.escape(n.replace("-", "_")[len("riir_"):])
+                     for n in names)
+    return rf"riir_(?!{tails}\b)[a-z0-9_]+"
+
+
+FOREIGN_RIIR = _foreign_regex(member_crate_names(REPO_ROOT))
 RIIR_TOKEN = re.compile(r"\b" + FOREIGN_RIIR)
 USE_RIIR = re.compile(r"\buse\s+" + FOREIGN_RIIR)
 EXTERN_CRATE_RIIR = re.compile(r"\bextern\s+crate\s+" + FOREIGN_RIIR)
@@ -299,37 +356,70 @@ def selftest() -> int:
             "// NO cognition — prose mention is fine\n"
             'fn f() -> &\'static str { "riir_chain in a string is fine" }\n',
             encoding="utf-8")
+        (root / "crates/riir-infer-core").mkdir(parents=True)
+        (root / "crates/riir-member").mkdir(parents=True)
         (root / "Cargo.toml").write_text(
+            '[package]\n'
+            'name = "riir-infer-core"\n'
+            '\n'
+            '[workspace]\n'
+            'members = ["crates/riir-infer-core", "crates/riir-member"]\n'
+            '\n'
             '[dependencies]\n'
             'katgpt-core = { path = "../katgpt-rs/crates/katgpt-core" }\n'
             'bad = { path = "../riir-ai/crates/riir-engine" }\n',
             encoding="utf-8")
-        (root / "src/self_ref.rs").write_text(
-            'use riir_infer_core::quant;\n'
-            'fn f() { riir_infer_gpu::k(); }\n',
-            encoding="utf-8")
-        # F1 containment: a workspace MEMBER manifest legitimately
-        # reaches the repo root via `../..` (the riir-infer-gpu ->
-        # riir-infer-core dep) — INSIDE, never a finding; one level
-        # further escapes and must fire.
-        (root / "crates/member").mkdir(parents=True)
-        (root / "crates/member/Cargo.toml").write_text(
+        (root / "crates/riir-infer-core/Cargo.toml").write_text(
+            '[package]\nname = "riir-infer-core"\n', encoding="utf-8")
+        (root / "crates/riir-member/Cargo.toml").write_text(
+            '[package]\n'
+            'name = "riir-member"\n'
             '[dependencies]\n'
             'core = { path = "../.." }\n'
             'bad = { path = "../../../riir-engine" }\n',
             encoding="utf-8")
-        rs_f, toml_f = run_scanners(
-            [root / "src/lib.rs", root / "src/clean.rs",
-             root / "src/self_ref.rs", root / "Cargo.toml",
-             root / "crates/member/Cargo.toml"],
-            root)
+        (root / "src/self_ref.rs").write_text(
+            'use riir_member::quant;\n'
+            'fn f() { riir_infer_core::k(); }\n',
+            encoding="utf-8")
+        (root / "crates/member").mkdir(parents=True)
+        (root / "crates/member/Cargo.toml").write_text(
+            '[package]\n'
+            'name = "riir-member"\n'
+            '[dependencies]\n'
+            'core = { path = "../.." }\n'
+            'bad = { path = "../../../riir-engine" }\n',
+            encoding="utf-8")
+        # Issue 1227's law, mirrored in the original selftest: the fixture
+        # is a THROWAWAY tree whose members differ from this repo's — the
+        # exemption must come from the FIXTURE's manifest, not the module
+        # constant. Derive the fixture regex the way run_gate derives the
+        # real one and rebuild the scanners' patterns against it.
+        fixture_names = member_crate_names(root)
+        foreign = _foreign_regex(fixture_names)
+        use_rx = re.compile(r"\buse\s+" + foreign)
+        path_rx = re.compile(r"\b" + foreign + r"\s*::")
+        rs_f, toml_f = [], []
+        for f in [root / "src/lib.rs", root / "src/clean.rs",
+                  root / "src/self_ref.rs"]:
+            masked = mask_comments_and_strings(f.read_text(encoding="utf-8"))
+            for ln, line in enumerate(masked.splitlines(), 1):
+                if use_rx.search(line) or path_rx.search(line):
+                    rs_f.append((f.relative_to(root), ln,
+                                 line.strip()[:120]))
+        for f in [root / "Cargo.toml", root / "crates/riir-member/Cargo.toml"]:
+            for ln, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+                m2 = PATH_DEP.search(line)
+                if m2 and path_dep_escapes(f.parent, root, m2.group(1)):
+                    toml_f.append((f.relative_to(root), ln,
+                                   f"path dep escapes: {m2.group(1)}"))
         fired_rs = len(rs_f) >= 2
         fired_toml = len(toml_f) >= 2
         escaped_only = all(not f[2].endswith(': ../..')
                             for f in toml_f)
         clean_masked = mask_comments_and_strings(
             (root / "src/clean.rs").read_text(encoding="utf-8"))
-        prose_safe = not RIIR_TOKEN.search(clean_masked)
+        prose_safe = not re.search(r"\b" + foreign + r"\b", clean_masked)
         # Normalize separators: on Windows the scanner yields backslash
         # relatives and the literal below is forward-slash (the gate was
         # authored + validated on POSIX; this comparison made every Windows
@@ -348,11 +438,45 @@ def selftest() -> int:
     return 0 if ok else 1
 
 
+def selftest_member_exemption() -> int:
+    """Issue 1227's negative control: a derived member name is exempt in
+    code positions; an ENGINE token still fires. Runs against a planted
+    fixture manifest (root package + one member) so the derivation
+    itself is what's tested."""
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "crates/riir-infer-dist").mkdir(parents=True)
+        (root / "Cargo.toml").write_text(
+            '[package]\nname = "riir-infer-core"\n\n'
+            '[workspace]\nmembers = ["crates/riir-infer-dist"]\n',
+            encoding="utf-8")
+        (root / "crates/riir-infer-dist/Cargo.toml").write_text(
+            '[package]\nname = "riir-infer-dist"\n', encoding="utf-8")
+        names = member_crate_names(root)
+        if names != ["riir-infer-core", "riir-infer-dist"]:
+            print(f"⛔ member-exemption selftest: parsed {names}")
+            return 1
+        rx = re.compile(r"\b" + _foreign_regex(names) + r"\b")
+        if rx.search("use riir_infer_dist::multi;"):
+            print("⛔ member-exemption selftest: own member flagged")
+            return 1
+        if not rx.search("use riir_engine::quant;"):
+            print("⛔ member-exemption selftest: engine token NOT flagged")
+            return 1
+    print("✓ selftest: member-derived exemption holds, engine tokens "
+          "stay foreign")
+    return 0
+
+
 def main() -> int:
     args = sys.argv[1:]
     if "--self-test-only" in args:
-        return selftest()
+        rc = selftest()
+        return rc if rc != 0 else selftest_member_exemption()
     rc = selftest()
+    if rc != 0:
+        return rc
+    rc = selftest_member_exemption()
     if rc != 0:
         return rc
     return run_gate(REPO_ROOT)
