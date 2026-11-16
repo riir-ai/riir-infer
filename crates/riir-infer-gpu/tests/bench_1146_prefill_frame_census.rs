@@ -43,7 +43,9 @@
 //! (the dist `gpu` row's posture since `54f0dce`; needs `metal_tensor_gemm`
 //! on macOS — refused loud otherwise, never silently measured as simdgroup).
 //! `I1146C_POSTURES` (comma list of posture names) narrows the strip set;
-//! ALL always runs.
+//! ALL always runs. `I1146C_F16B=1` arms the f16-B twin route (substrate
+//! opt-in — Issue 1225's latch; the i1167 post-f16B re-rank posture) and
+//! asserts positive engagement via the route dispatch counts.
 
 #![cfg(all(
     feature = "cubecl_runtime",
@@ -56,16 +58,16 @@ use std::time::{Duration, Instant};
 
 use riir_infer_core::gguf_loader::load_qwen_deltanet_ternary_weights_gguf;
 use riir_infer_core::multi_host::LayerRange;
-use riir_infer_gpu::TernaryDeltanetGpuForward;
 use riir_infer_gpu::cubecl_runtime::CubeCLContext;
 use riir_infer_gpu::ternary_deltanet_gpu_forward::{
-    PREFILL_STAGE_ALL, PREFILL_STAGE_ATTENTION, PREFILL_STAGE_DELTANET, PREFILL_STAGE_EMBED,
-    PREFILL_STAGE_FFN, PREFILL_STAGE_GDN_BETA, PREFILL_STAGE_GDN_NORM, PREFILL_STAGE_GDN_POST,
+    prefill_site_timing_reset, prefill_site_timing_snapshot, set_prefill_site_exec_timing_armed,
+    set_prefill_site_timing_armed, set_prefill_stage_mask, PREFILL_STAGE_ALL,
+    PREFILL_STAGE_ATTENTION, PREFILL_STAGE_DELTANET, PREFILL_STAGE_EMBED, PREFILL_STAGE_FFN,
+    PREFILL_STAGE_GDN_BETA, PREFILL_STAGE_GDN_NORM, PREFILL_STAGE_GDN_POST,
     PREFILL_STAGE_GDN_PREWORK, PREFILL_STAGE_GDN_REC, PREFILL_STAGE_GDN_RESIDUAL,
-    PREFILL_STAGE_GDN_ROTIN, PREFILL_STAGE_TAIL, prefill_site_timing_reset,
-    prefill_site_timing_snapshot, set_prefill_site_exec_timing_armed,
-    set_prefill_site_timing_armed, set_prefill_stage_mask,
+    PREFILL_STAGE_GDN_ROTIN, PREFILL_STAGE_TAIL,
 };
+use riir_infer_gpu::TernaryDeltanetGpuForward;
 
 const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
 
@@ -104,6 +106,28 @@ fn arm_tensor_posture() -> &'static str {
         false => "simdgroup",
     }
 }
+/// Arms the f16-B twin route when `I1146C_F16B=1` (the substrate latch is
+/// opt-in — the dist lane's default-ON does not reach a substrate-level
+/// test). Construction-time posture: must pin BEFORE `::new` (the twin's
+/// pipeline compiles there). A build that cannot arm it REFUSES rather than
+/// measuring the incumbent under an f16-B label — engagement is asserted
+/// positive later via the route dispatch counts.
+fn arm_f16b_route() {
+    let want = std::env::var("I1146C_F16B").as_deref() == Ok("1");
+    #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+    {
+        riir_infer_gpu::prefill_f16b::set_f16b_route(want);
+        if want {
+            println!("i1167 re-rank: f16b route ARMED (substrate opt-in arm)");
+        }
+    }
+    #[cfg(not(all(feature = "prefill_f16b", target_os = "macos")))]
+    assert!(
+        !want,
+        "I1146C_F16B=1 needs --features prefill_f16b on macOS"
+    );
+}
+
 /// Untimed compile passes per posture (kernel JIT + cache warm). Two: the
 /// first pass compiles the posture's kernel set, the second settles the
 /// CubeCL pipeline caches — the census's first run measured the ALL baseline
@@ -255,7 +279,11 @@ fn logits_digest(bits: &[u8]) -> String {
         .map(|c| f32::from_le_bytes(*c))
         .enumerate()
         .fold((0usize, f32::NEG_INFINITY), |(bi, bv), (i, v)| {
-            if v > bv { (i, v) } else { (bi, bv) }
+            if v > bv {
+                (i, v)
+            } else {
+                (bi, bv)
+            }
         });
     format!("fnv {h:016x} argmax {} ({:.4})", argmax.0, argmax.1)
 }
@@ -329,6 +357,7 @@ fn bench_1146_prefill_frame_census() {
         "I1146C_CHUNK/I1146C_FRAMES must be > 0"
     );
     let gemm = arm_tensor_posture();
+    arm_f16b_route();
     let prompt_len = chunk * frames;
     let mut config = config;
     config.block_size = prompt_len + 1;
@@ -400,6 +429,18 @@ fn bench_1146_prefill_frame_census() {
         "i1146: the mask machinery moved a token — bit-identity anchors disagree"
     );
     println!("bit-identity: never-touched == ALL-first == ALL-after ✓");
+
+    // ── Engagement proof (Issue-1124 T1.5 law): an armed route that routed
+    //    ZERO dispatches measured the incumbent under an f16-B label. ──
+    #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+    if std::env::var("I1146C_F16B").as_deref() == Ok("1") {
+        let (routed, total) = fwd.f16b_route_dispatch_counts();
+        println!("i1167 re-rank: f16b route dispatch counts: routed {routed} / total {total}");
+        assert!(
+            routed > 0,
+            "I1146C_F16B=1 armed but the twin routed ZERO dispatches — not engaged"
+        );
+    }
 
     // ── The wide-chunk comparison (the issue's "wider chunks" question):
     //    same total prompt, 4× the frame width, ALL posture. ──
