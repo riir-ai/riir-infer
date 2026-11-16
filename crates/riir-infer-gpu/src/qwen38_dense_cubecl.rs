@@ -399,6 +399,13 @@ pub enum QuantWeight {
     },
     F32(Handle, usize, usize), // handle, m, n
     F16(Handle, usize, usize), // handle (u16 f16 bit patterns), m, n
+    /// Issue 1186 T3 — the CQ3 never-unpack arm (opt-in `cq3`; never in
+    /// `production` before the league cell's GOAT). One handle per tensor;
+    /// decode routes the plane kernel, prefill the batched GEMV-shape
+    /// (option (i), disclosed), `RIIR_QWEN38_CQ3_TILED=1` the to_bits
+    /// parity arm.
+    #[cfg(feature = "cq3")]
+    Cq3(crate::qwen38_cq3_gpu::Cq3Handle),
 }
 
 /// Host-dequant one Q4_K / Q6_K tensor to a plain f32 row-major matrix —
@@ -549,6 +556,30 @@ impl QuantWeight {
         ))
     }
 
+    /// Issue 1186 T3 — the CQ3 load route (verify-then-use): read the named
+    /// tensor out of the parsed artifact, assert the dims match the GGUF's
+    /// plan, upload the device form. The artifact's blake3 sidecar is
+    /// verified ONCE at load (the forward's boot), never per tensor.
+    #[cfg(feature = "cq3")]
+    fn from_cq3(
+        client: &ComputeClient<ActiveRuntime>,
+        artifact: &crate::qwen38_cq3_serving::Cq3Artifact,
+        name: &str,
+        m: usize,
+        n: usize,
+    ) -> Result<Self, String> {
+        let t = artifact.tensor(name).map_err(|e| format!("cq3: {e}"))?;
+        if t.d_out != m || t.d_in != n {
+            return Err(format!(
+                "cq3: {name} is {}x{} in the artifact, the plan says {m}x{n}",
+                t.d_out, t.d_in
+            ));
+        }
+        Ok(QuantWeight::Cq3(
+            crate::qwen38_cq3_gpu::Cq3Handle::from_packed(client, t),
+        ))
+    }
+
     /// Decode GEMV dispatch (batch is always 1 on the decode path).
     ///
     /// Under the f16 posture decode rides the plain f16 GEMV kernel — the
@@ -610,6 +641,14 @@ impl QuantWeight {
                              (the load gate refuses this posture earlier)"
                         );
                     }
+                }
+                #[cfg(feature = "cq3")]
+                QuantWeight::Cq3(h) => {
+                    // Decode shape (batch 1). The engagement proof rides the
+                    // handle's launch counters + the construction line.
+                    crate::qwen38_cq3_gpu::Cq3GemvCubeCL::launch::<ActiveRuntime>(
+                        client, h, input, output, 1,
+                    );
                 }
             }
         }
@@ -675,6 +714,16 @@ impl QuantWeight {
                              (the load gate refuses this posture earlier)"
                         );
                     }
+                }
+                #[cfg(feature = "cq3")]
+                QuantWeight::Cq3(h) => {
+                    // Prefill = option (i): the never-unpack GEMV shape run
+                    // p-times in ONE batched launch (the paper has no CQ
+                    // prefill path — disclosed; the novel tile GEMM is the
+                    // named follow-up if the pp rows demand it).
+                    crate::qwen38_cq3_gpu::Cq3GemvCubeCL::launch::<ActiveRuntime>(
+                        client, h, x, out, p,
+                    );
                 }
             }
         }
@@ -1109,12 +1158,55 @@ impl Qwen38WgpuForward {
 
         // Per-layer weights.
         let mut layers = Vec::with_capacity(config.n_layer);
+        // Issue 1186 T3 — the CQ3 serving arm (opt-in `cq3`): the env names
+        // the artifact PATH (presence arms it; the path IS the arm). The
+        // sidecar is verified ONCE here (verify-then-use), the tensors
+        // route per-name at load, and the construction line names the
+        // armed count (the engagement-proof class).
+        #[cfg(feature = "cq3")]
+        let cq3_artifact = match std::env::var("RIIR_QWEN38_CQ3") {
+            Ok(path) if !path.is_empty() => {
+                let artifact = crate::qwen38_cq3_serving::Cq3Artifact::read(Path::new(&path))
+                    .map_err(|e| format!("cq3 artifact: {e}"))?;
+                let digest = crate::qwen38_cq3_serving::verify_blake3_sidecar(Path::new(&path))
+                    .map_err(|e| format!("cq3 sidecar: {e}"))?;
+                let count = artifact.tensors.len();
+                eprintln!(
+                    "[cq3-serving] RIIR_QWEN38_CQ3 armed: {count} tensors from {path}, \
+                     blake3 {digest} — mixed posture: artifact tensors serve CQ3, \
+                     the rest keep the incumbent route"
+                );
+                Some(artifact)
+            }
+            _ => {
+                eprintln!(
+                    "[cq3-serving] RIIR_QWEN38_CQ3 unset — the incumbent weight route (byte-identical)"
+                );
+                None
+            }
+        };
+        #[cfg(not(feature = "cq3"))]
+        {
+            if std::env::var("RIIR_QWEN38_CQ3").is_ok() {
+                return Err(
+                    "RIIR_QWEN38_CQ3 set but this build lacks the `cq3` feature — \
+                     rebuild with --features cq3"
+                        .into(),
+                );
+            }
+        }
         for i in 0..config.n_layer {
             let kind = config.layer_types[i];
             let gdn = kind == Qwen38WgpuLayerType::Deltanet;
             let attn = !gdn;
             #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
             let g = |name: String, m: usize, n: usize| -> Result<QuantWeight, String> {
+                #[cfg(feature = "cq3")]
+                if let Some(a) = &cq3_artifact
+                    && a.tensor(&name).is_ok()
+                {
+                    return QuantWeight::from_cq3(&client, a, &name, m, n);
+                }
                 if dense_armed {
                     QuantWeight::from_gguf_f16(&client, &gguf, &name, m, n)
                 } else {
@@ -1123,6 +1215,12 @@ impl Qwen38WgpuForward {
             };
             #[cfg(not(all(feature = "metal_tensor_gemm", target_os = "macos")))]
             let g = |name: String, m: usize, n: usize| -> Result<QuantWeight, String> {
+                #[cfg(feature = "cq3")]
+                if let Some(a) = &cq3_artifact
+                    && a.tensor(&name).is_ok()
+                {
+                    return QuantWeight::from_cq3(&client, a, &name, m, n);
+                }
                 QuantWeight::from_gguf(&client, &gguf, &name, m, n)
             };
             let f = |name: &str| -> Result<Handle, String> {

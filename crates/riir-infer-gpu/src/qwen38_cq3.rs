@@ -174,6 +174,14 @@ impl Rotation {
         self.g
     }
 
+    /// The derivation's device-upload parts: `(s1, s2, perm)` — the serving
+    /// GPU lane's load-time inputs (the same seeded derivation the block
+    /// application replays; nothing else crosses the boundary).
+    #[must_use]
+    pub fn device_params(&self) -> (&[f32], &[f32], &[u32]) {
+        (&self.s1, &self.s2, &self.perm)
+    }
+
     /// Apply to one `g`-length block IN PLACE: `x ↦ S₂·FWHT(S₁·P·x)`.
     /// (The normalized FWHT carries the `1/√g`.)
     fn apply_block(&self, blk: &mut [f32]) {

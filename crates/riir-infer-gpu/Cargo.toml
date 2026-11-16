@@ -555,6 +555,13 @@ required-features = ["cq3_calibrate"]
 name = "qwen38_cq3_serving_g1"
 required-features = ["cq3"]
 
+# Issue 1186 T3 serving src/ arm — the GPU kernel battery (Metal posture;
+# skips LOUD without a device). Whole-file #![cfg(cq3 + cubecl_runtime)]
+# + this row = the reader-protection pair.
+[[test]]
+name = "qwen38_cq3_gpu_g1"
+required-features = ["cq3", "qwen38_wgpu"]
+
 # riir-ai Issue 1004 R2 — the fused-prework stage-isolated A/B. Whole-file
 # #![cfg] + this row = the reader-protection pair (the R1 pattern).
 [[test]]

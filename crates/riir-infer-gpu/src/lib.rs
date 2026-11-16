@@ -943,6 +943,11 @@ pub mod qwen38_cq3;
 // blake3 sidecar verify. Gated with the recipe module.
 #[cfg(feature = "cq3")]
 pub mod qwen38_cq3_serving;
+// Issue 1186 T3 serving src/ arm — the CubeCL kernels (act-prep + GEMV
+// plane/tiled + batched prefill shape) and the Cq3Handle device lane.
+// Opt-in `cq3` + `cubecl_runtime`; never in `production` before the T3 GOAT.
+#[cfg(all(feature = "cq3", feature = "cubecl_runtime"))]
+pub mod qwen38_cq3_gpu;
 // Issue 1186 T2b — the capture sinks + ledger (plan 629). Gated with its
 // sole consumer (`cq3_calibrate` implies `cq3`): the serving build
 // compiles none of it (the zero-cost posture).
