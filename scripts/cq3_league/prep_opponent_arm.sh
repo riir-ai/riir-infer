@@ -69,7 +69,7 @@ dl "$HF_BASE/Qwen3.8-27B-BF16-00002-of-00002.gguf" "$S2" "$SHARD2_SHA"
 run_imatrix() { # corpus outfile
   local corpus=$1 out=$2
   if [ -f "$out" ]; then echo "have $out"; return 0; fi
-  "$IMAT" -m "$S1" -f "$corpus" -c 512 -o "$out" -noflush 2>&1 | tee "$W/$(basename "$out").imatrix_log.txt" | tail -3
+  "$IMAT" -m "$S1" -f "$corpus" -c 512 -o "$out" 2>&1 | tee "$W/$(basename "$out").imatrix_log.txt" | tail -3
   [ -f "$out" ] || die "imatrix produced no $out"
 }
 run_imatrix "$CORPUS_DIR/bpb_corpus_v1.txt" "$MODELS/imatrix_v1.gguf"
