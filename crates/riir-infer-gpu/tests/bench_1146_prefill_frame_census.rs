@@ -61,7 +61,7 @@ use riir_infer_core::multi_host::LayerRange;
 use riir_infer_gpu::cubecl_runtime::CubeCLContext;
 use riir_infer_gpu::ternary_deltanet_gpu_forward::{
     prefill_site_timing_reset, prefill_site_timing_snapshot, set_prefill_site_exec_timing_armed,
-    set_prefill_site_timing_armed, set_prefill_stage_mask, PREFILL_STAGE_ALL,
+    set_prefill_site_timing_armed, set_prefill_stage_mask, PrefillSite, PREFILL_STAGE_ALL,
     PREFILL_STAGE_ATTENTION, PREFILL_STAGE_DELTANET, PREFILL_STAGE_EMBED, PREFILL_STAGE_FFN,
     PREFILL_STAGE_GDN_BETA, PREFILL_STAGE_GDN_NORM, PREFILL_STAGE_GDN_POST,
     PREFILL_STAGE_GDN_PREWORK, PREFILL_STAGE_GDN_REC, PREFILL_STAGE_GDN_RESIDUAL,
@@ -85,6 +85,23 @@ fn env_usize(key: &str, default: usize) -> usize {
             .unwrap_or_else(|_| panic!("{key}={v}: not a positive integer")),
         Err(_) => default,
     }
+}
+
+/// `I1146C_DIAG=1`: the engagement postmortem instrumentation (issue 1167
+/// bisect). Additive prints only — unset keeps the run output byte-identical.
+fn diag_enabled() -> bool {
+    std::env::var("I1146C_DIAG").as_deref() == Ok("1")
+}
+
+fn dump_latch(tag: &str) {
+    let admits = |s: PrefillSite| riir_infer_gpu::prefill_f16b::f16b_site_admits(s);
+    eprintln!(
+        "[i1167 diag] {tag}: route_armed={} admits(Q/Kv/Gate)={}/{}/{}",
+        riir_infer_gpu::prefill_f16b::f16b_route_armed(),
+        admits(PrefillSite::AttnQ),
+        admits(PrefillSite::AttnKv),
+        admits(PrefillSite::FfnGate),
+    );
 }
 
 /// Arms the tensor zero-copy GEMM when `I1146C_TENSOR=1`; returns the posture
@@ -255,6 +272,15 @@ fn run_pass(
         // so it cancels in the Δ. On the final frame it is the real readback.
         let logits = fwd.read_logits();
         wall += t0.elapsed();
+        if diag_enabled() {
+            let (inc, twin) = fwd.f16b_route_dispatch_counts();
+            eprintln!(
+                "[i1167 diag] chunk {base}: route_armed={} inc={inc} twin={twin} logits_len={} out_len={} is_final={is_final}",
+                riir_infer_gpu::prefill_f16b::f16b_route_armed(),
+                logits.len(),
+                out.len(),
+            );
+        }
         if is_final {
             last_bits = out
                 .iter()
@@ -358,6 +384,9 @@ fn bench_1146_prefill_frame_census() {
     );
     let gemm = arm_tensor_posture();
     arm_f16b_route();
+    if diag_enabled() {
+        dump_latch("after-arms");
+    }
     let prompt_len = chunk * frames;
     let mut config = config;
     config.block_size = prompt_len + 1;
@@ -372,6 +401,11 @@ fn bench_1146_prefill_frame_census() {
 
     let ctx = CubeCLContext::new().expect("GPU init");
     let mut fwd = TernaryDeltanetGpuForward::new(&ctx, &config, &weights);
+    if diag_enabled() {
+        dump_latch("after-new");
+        let (inc, twin) = fwd.f16b_route_dispatch_counts();
+        eprintln!("[i1167 diag] after-new counts: inc={inc} twin={twin}");
+    }
 
     if std::env::var("I1146C_EXEC").as_deref() == Ok("1") {
         exec_site_census(&mut fwd, &toks, chunk, n_layer);
@@ -381,6 +415,18 @@ fn bench_1146_prefill_frame_census() {
     // ── Bit-identity anchor: the never-touched run, before any mask call. ──
     fwd.reset_state();
     let (w0, bits_never) = run_pass(&mut fwd, &toks, chunk, n_layer);
+    if diag_enabled() {
+        dump_latch("after-never-pass");
+        eprintln!(
+            "[i1167 diag] never-touched bits_len={} {}",
+            bits_never.len(),
+            if bits_never.is_empty() {
+                "VACUOUS ANCHOR — readback EMPTY, adjudicate nothing"
+            } else {
+                "non-empty ✓"
+            }
+        );
+    }
     println!(
         "never-touched ALL pass: {:?} ({:.1} ms/frame), final-logits {}",
         w0,
