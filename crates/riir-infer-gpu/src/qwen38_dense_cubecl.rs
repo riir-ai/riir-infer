@@ -297,7 +297,9 @@ pub struct Qwen38WgpuForward {
     /// end, one wait. Diagnostic-only — env-off = byte-identical (no
     /// census built, no samples taken).
     #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
-    census: Option<crate::qwen38_gdn_census::GdnCensus>,
+    /// Issue 1172 census state — `Some` on the instrumented layer only
+    /// (metal_tensor_gemm + macOS posture).
+    census: Option<crate::qwen38_gdn_census::CensusState>,
     /// Issue 1174: the free-running ablation instrument, when
     /// `RIIR_QWEN38_ABLATE` armed it (or the bench bin's `--ablate-matrix`
     /// set it per cell via [`Self::set_ablate`]). Skipped classes launch
@@ -305,6 +307,12 @@ pub struct Qwen38WgpuForward {
     /// outputs are bit-trashed by design (measurement-only). None = the
     /// production byte-path (one branch per launch site).
     ablate: Option<crate::qwen38_ablate::Ablate>,
+    /// Issue 1186 T2b (plan 629): the CQ3 calibration capture session,
+    /// `Some` only in the feature-gated driver (`cq3_calibrate`); every
+    /// serving boot leaves it `None` and the tap sites cost one bool
+    /// check (the census/ablate posture).
+    #[cfg(feature = "cq3_calibrate")]
+    cq3_capture: Option<crate::qwen38_cq3_capture::CaptureSession>,
     // Decode scratch.
     x: Handle,
     norm_x: Handle,
@@ -1351,6 +1359,8 @@ impl Qwen38WgpuForward {
             #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
             census,
             ablate,
+            #[cfg(feature = "cq3_calibrate")]
+            cq3_capture: None,
             x,
             norm_x,
             tmp,
@@ -2427,10 +2437,85 @@ impl Qwen38WgpuForward {
         }
     }
 
+    /// Issue 1186 T2b: whether the CQ3 capture session is installed. One
+    /// bool read per tap site when disarmed (the census posture).
+    fn cq3_armed(&self) -> bool {
+        #[cfg(feature = "cq3_calibrate")]
+        {
+            self.cq3_capture.is_some()
+        }
+        #[cfg(not(feature = "cq3_calibrate"))]
+        {
+            false
+        }
+    }
+
     /// Issue 1174: swap the ablation cell (the bench bin's matrix mode —
     /// one model load, many cells). `None` = the production launch set.
     pub fn set_ablate(&mut self, ablate: Option<crate::qwen38_ablate::Ablate>) {
         self.ablate = ablate;
+    }
+
+    /// Issue 1186 T2b (plan 629): install the CQ3 capture session. The
+    /// driver constructs it (`CaptureSession::with_layers`) and the boot
+    /// log names the armed posture — unarmed boots never call this and
+    /// stay byte-identical.
+    #[cfg(feature = "cq3_calibrate")]
+    pub fn set_cq3_capture(&mut self, session: Option<crate::qwen38_cq3_capture::CaptureSession>) {
+        if let Some(s) = &session {
+            println!(
+                "[cq3-capture] armed dir={} sites={} budget_rows_per_file={}",
+                s.dir().display(),
+                crate::qwen38_cq3_capture::CAPTURE_SITES.len(),
+                s.budget_rows_per_file(),
+            );
+        }
+        self.cq3_capture = session;
+    }
+
+    /// Issue 1186 T2b: take the finished session back (flush + ledger are
+    /// the driver's `finish` call; this just uninstalls).
+    #[cfg(feature = "cq3_calibrate")]
+    pub fn take_cq3_capture(&mut self) -> Option<crate::qwen38_cq3_capture::CaptureSession> {
+        self.cq3_capture.take()
+    }
+
+    /// Issue 1186 T2b: one capture tap — sync THEN read back `handle`
+    /// (`rows × d_in` f32) and append to the (layer, site) sink. The sync
+    /// is the tap's own ordering (never a serving cost: disarmed = the
+    /// caller's `is_some` guard is false, one bool). Cfg-split like
+    /// [`Self::census_mark`]: the unarmed posture compiles to `Ok(())`.
+    fn cq3_tap(
+        &mut self,
+        li: usize,
+        site: &'static str,
+        handle: &Handle,
+        rows: usize,
+        d_in: usize,
+    ) -> Result<(), String> {
+        #[cfg(feature = "cq3_calibrate")]
+        {
+            let armed = self.cq3_capture.is_some();
+            if !armed {
+                return Ok(());
+            }
+            pollster::block_on(self.client.sync())
+                .map_err(|e| format!("cq3 capture sync: {e:?}"))?;
+            let bytes = self
+                .client
+                .read_one(handle.clone())
+                .map_err(|e| format!("cq3 capture read {site}: {e:?}"))?;
+            let vals: Vec<f32> = bytemuck::cast_slice(&bytes).to_vec();
+            self.cq3_capture
+                .as_mut()
+                .expect("armed checked above")
+                .tap_rows(li, site, rows, d_in, &vals)?;
+        }
+        #[cfg(not(feature = "cq3_calibrate"))]
+        {
+            let _ = (li, site, handle, rows, d_in);
+        }
+        Ok(())
     }
 
     /// Issue 1174: whether `class`'s launches are skipped in this cell.
@@ -2500,6 +2585,9 @@ impl Qwen38WgpuForward {
         self.census_mark(li, "gemm_qkv_z_ab", &gemm_hz)?;
         let norm_in =
             self.gemm_input_fresh(&self.norm_x_b_h, &self.norm_x_b, p * e, norm_twin_fresh);
+        if self.cq3_armed() {
+            self.cq3_tap(li, "gdn_qkvz_in", &norm_in, p, e)?;
+        }
         if !self.ablate_skip("gemm_qkv_z_ab") {
             qkv.gemm(&self.client, norm_in.clone(), self.qkv_b.clone(), p);
             z_w.gemm(&self.client, norm_in.clone(), self.z_b.clone(), p);
@@ -2709,6 +2797,9 @@ impl Qwen38WgpuForward {
             p * n_v * hd_v,
             ssm_twin_fresh,
         );
+        if self.cq3_armed() {
+            self.cq3_tap(li, "gdn_out_in", &ssm_in, p, n_v * hd_v)?;
+        }
         if !self.ablate_skip("ssm_out_gemm") {
             ssm_out.gemm(&self.client, ssm_in, self.tmp_b.clone(), p);
         }
@@ -2735,6 +2826,7 @@ impl Qwen38WgpuForward {
             self.census_mark(li, "mlp_norm_gateup", std::slice::from_ref(&x_b))?;
         }
         let next_prefetched = self.prefill_mlp(
+            li,
             lw,
             p,
             eps,
@@ -2760,7 +2852,9 @@ impl Qwen38WgpuForward {
         norm_prefetched: bool,
         next_attn_norm: Option<Handle>,
     ) -> Result<bool, String> {
-        let c = &self.config;
+        // Config fields copied into locals — the capture taps borrow `self`
+        // mutably mid-function (the GDN fn's prologue law; same reason).
+        let c = self.config.clone();
         let e = c.n_embd;
         let hd = c.head_dim;
         let kvd = c.kvd();
@@ -2792,6 +2886,9 @@ impl Qwen38WgpuForward {
             }
             let norm_in =
                 self.gemm_input_fresh(&self.norm_x_b_h, &self.norm_x_b, p * e, norm_twin_fresh);
+            if self.cq3_armed() {
+                self.cq3_tap(li, "attn_qkv_in", &norm_in, p, e)?;
+            }
             if !self.ablate_skip("attn_qkv_gemm") {
                 wq.gemm(&self.client, norm_in.clone(), self.qg_b.clone(), p);
                 wk.gemm(&self.client, norm_in.clone(), self.k_b.clone(), p);
@@ -2908,6 +3005,9 @@ impl Qwen38WgpuForward {
                 );
             }
             let wo_in = self.gemm_input(&self.attn_out_b_h, &self.attn_out_b, p * c.n_head * hd);
+            if self.cq3_armed() {
+                self.cq3_tap(li, "attn_o_in", &wo_in, p, c.n_head * hd)?;
+            }
             if !self.ablate_skip("attn_out_gemm") {
                 wo.gemm(&self.client, wo_in, self.tmp_b.clone(), p);
             }
@@ -2926,7 +3026,7 @@ impl Qwen38WgpuForward {
             } else {
                 false
             };
-            self.prefill_mlp(lw, p, eps, None, mlp_norm_prefetched, next_attn_norm)
+            self.prefill_mlp(li, lw, p, eps, None, mlp_norm_prefetched, next_attn_norm)
         }
     }
 
@@ -2940,6 +3040,7 @@ impl Qwen38WgpuForward {
     )]
     fn prefill_mlp(
         &mut self,
+        li: usize,
         lw: &Qwen38WgpuLayerWeights,
         p: usize,
         eps: f32,
@@ -2972,6 +3073,9 @@ impl Qwen38WgpuForward {
         // `f16_cast` class also counts.
         let norm_in =
             self.gemm_input_fresh(&self.norm_x_b_h, &self.norm_x_b, p * e, norm_twin_fresh);
+        if self.cq3_armed() {
+            self.cq3_tap(li, "mlp_gateup_in", &norm_in, p, e)?;
+        }
         if !self.ablate_skip("mlp_gateup_gemm") {
             gate.gemm(&self.client, norm_in.clone(), self.gateup_b.clone(), p);
             up.gemm(&self.client, norm_in, self.up_b.clone(), p);
@@ -3006,6 +3110,9 @@ impl Qwen38WgpuForward {
             self.census_mark(cli, "mlp_down_gemm", &down_hz)?;
         }
         let down_in = self.gemm_input(&self.hidden_b_h, &self.hidden_b, p * mlp);
+        if self.cq3_armed() {
+            self.cq3_tap(li, "mlp_down_in", &down_in, p, mlp)?;
+        }
         if !self.ablate_skip("mlp_down_gemm") {
             down.gemm(&self.client, down_in, self.tmp_b.clone(), p);
         }

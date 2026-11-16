@@ -473,6 +473,12 @@ lm_head_cpu = []
 # the GOAT gate; NEVER in `production` before that (the env-switch law:
 # an opt-in feature's env is PROMOTE-ONLY).
 cq3 = ["dep:half", "katgpt-core/meld"]
+# Issue 1186 T2b ours half: the calibration capture seam + the cq3_quantize
+# driver (plan 629). Implies `cq3` (the recipe + T2a fit APIs); the capture
+# session exists at every posture but only this feature arms the tap
+# read-backs (the unarmed constructor is unreachable — env gates it and the
+# driver is feature-gated), so serving builds compile the taps to nothing.
+cq3_calibrate = ["cq3", "qwen38_wgpu", "dep:blake3"]
 # Plan 630 / Issue 1201 T1 — the FlashStates cell's deterministic trace
 # generator (device-free; the digest half rides blake3). Opt-in feature
 # so the default serving tree carries zero extra deps; the [[test]] row
@@ -534,6 +540,13 @@ required-features = ["lens_gpu"]
 [[test]]
 name = "qwen38_cq3_g1"
 required-features = ["cq3"]
+
+# Issue 1186 T2b — the capture-seam fixture battery (sinks, budget law,
+# site map, ledger; hermetic, no GPU). Same reader/count pair for
+# `cq3_calibrate`.
+[[test]]
+name = "qwen38_cq3_t2b"
+required-features = ["cq3_calibrate"]
 
 # riir-ai Issue 1004 R2 — the fused-prework stage-isolated A/B. Whole-file
 # #![cfg] + this row = the reader-protection pair (the R1 pattern).
@@ -1163,3 +1176,10 @@ required-features = [
     "deltanet_recurrence_rowpar",
     "params_handle_cache",
 ]
+
+# Issue 1186 T2b ours half (plan 629) — the CQ3 quantize driver:
+# source GGUF + capture dir -> per-tensor fit_smooth + quantize_residual
+# -> packed .cq3 artifact + BLAKE3 manifest + matched-budget ledger row.
+[[bin]]
+name = "cq3_quantize"
+required-features = ["cq3_calibrate"]

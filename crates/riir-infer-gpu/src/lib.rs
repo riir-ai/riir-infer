@@ -932,6 +932,11 @@ pub mod qwen38_dflash2;
 // T3 league cell's GOAT gate; never in `production` before that.
 #[cfg(feature = "cq3")]
 pub mod qwen38_cq3;
+// Issue 1186 T2b — the capture sinks + ledger (plan 629). Gated with its
+// sole consumer (`cq3_calibrate` implies `cq3`): the serving build
+// compiles none of it (the zero-cost posture).
+#[cfg(feature = "cq3_calibrate")]
+pub mod qwen38_cq3_capture;
 #[cfg(all(feature = "ternary_gemv_cuda_raw", not(target_os = "macos")))]
 pub mod qwen38_dflash2_gpu;
 // Plan 614 Phase 2 — the keyed spec-decode lane: the pure decision layer is
