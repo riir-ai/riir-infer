@@ -4,7 +4,7 @@
 
 **Priority:** LOW relative to the stack's model pivot — the owner model law prefers Ternary-Bonsai-2-27B first; other models are low priority. **T0 is the only unconditional task; T1–T5 are GATED on T0's census verdict AND an explicit pickup.** The T0 tripwire doubles as the GGUF-format-drift gate — re-run T0 before any T1+ work after an upstream format event.
 
-**Claimed:** zed-amo-1221t0@amo, 1794801103, expires 2026-11-17T03:51:43Z (T0 only — the header census + the format-drift tripwire; T1+ stays gated on the verdict AND the explicit pickup)
+**Lease closed:** zed-amo-1221t0@amo, 1794801103, was expires 2026-11-17T03:51:43Z — T0 complete under it (riir-infer `76bf95fb`: the probe + fixture + tripwire + the verdict block above; the pin row riir-train `e84ecf84`); T1+ stay gated on the census verdict AND the explicit pickup, lease folded at close (2026-11-16, this line).
 
 Scope: riir-infer only. Native-only. No riir-* deps added (the GGUF loader family is in-repo). Every task carries its proof path; nothing in this issue is executed yet. **Compute posture (owner compute law):** Metal-first for every perf cell (T2–T4) on the M3; the CPU forward is the parity/fixture snapshot only; heavy sweeps route through the rig rules (amo/bmo/4090 windows; m3 stays read-only under contention). **Resumability:** T3/T4 benches on a 4B model plausibly exceed 20 min — write partial rows incrementally (durable-state posture) and resume, never one-shot in-memory.
 
