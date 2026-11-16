@@ -1,0 +1,29 @@
+   Compiling riir-infer-core v0.1.1 (/Users/katopz/git/riir-infer)
+   Compiling riir-infer-gpu v0.1.0 (/Users/katopz/git/riir-infer/crates/riir-infer-gpu)
+    Finished `release` profile [optimized] target(s) in 36.89s
+     Running tests/issue1225_f16b_frame_ab.rs (/tmp/i1225f16b/release/deps/issue1225_f16b_frame_ab-fe64469033b3cc47)
+
+running 1 test
+test f16b_frame_ab ... CubeCL runtime initialized: wgpu<msl>
+[Issue 864] attention KV working set = 513 MiB (block_size 4106 × kvd 1024 × K+V × 16 attention layers) — above the 256 MiB warn line. If the workload never drives this many positions, clamp `config.block_size` to the real sequence bound BEFORE construction (the riir-train driver pattern); the unbounded variant measured a ~50 s first-touch burst at a 262,144-token context (riir-train Bench 573). Steady-state throughput is unaffected.
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x10251f2a0, queue=0x1025235f0)
+[i1225] f16b twin compiled (patched B-side half; cast kernel armed)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# issue1225 f16-B frame A/B · posture relaxed · 5 ABBA pairs · chunk 512 × frames 8 = 4098 tok/pass · NET bar 1.5%
+  pair 0: A mean 4117.85 ms · B mean 3877.90 ms · Δ 239.94 ms (5.83%)
+  pair 1: A mean 4120.58 ms · B mean 3877.11 ms · Δ 243.47 ms (5.91%)
+  pair 2: A mean 4121.01 ms · B mean 3876.86 ms · Δ 244.15 ms (5.92%)
+  pair 3: A mean 4120.23 ms · B mean 3876.85 ms · Δ 243.38 ms (5.91%)
+  pair 4: A mean 4118.58 ms · B mean 3878.90 ms · Δ 239.68 ms (5.82%)
+# bit anchors: A identical × 10, B identical × 10 — HELD (A≠B as expected)
+# order-bias probe: A-first mean 4119.71 ms vs A-second mean 4119.59 ms (drift -0.00%, |drift| must be ≪ the effect)
+
+A median 4120.32 ms · B median 3878.16 ms · Δ median 243.38 ms (range [239.68, 244.15] ms) = 5.91% of the frame (bar ≥ 1.5% = 7.51 ms of the 500.86 ms frame reference)
+
+FRAME A/B VERDICT relaxed: OVER — sign-consistent NET evidence on all 5 pairs; with T1 PASS (Bench 1224, no family demotes) the GOAT gate's G1+G2 halves hold — T4 (G3 decode-by-construction + G4 alloc + promotion) is cleared to adjudicate
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 95.52s
+
