@@ -4770,24 +4770,28 @@ impl TernaryDeltanetGpuForward {
                 // iff the state is Ready (ane_prefill mod.rs) — a guard
                 // failure (Ready + None) is unreachable, so the nested
                 // if-let form this replaces had no silent skip to lose.
+                // The explicit inner if-let (not a match-guard) keeps the
+                // match exhaustive over BOTH enum variants on every rustc —
+                // the `if let` match-guard spelling left `Ready(_)` with no
+                // fallthrough arm and broke the all-features lane (E0004).
                 match sealed.state() {
-                    crate::ane_prefill::AnePrefillState::Ready(_)
-                        if let Some((bytes, ceiling)) = sealed.bank_bytes() =>
-                    {
-                        eprintln!(
-                            "[Issue 726] ANE prefill bank ready: {} programs in {:.1}s, {:.2}/{:.2} GB budget{}",
-                            gdn_layers.len() * 2 + down_landed,
-                            compile_started.elapsed().as_secs_f32(),
-                            bytes as f64 / 1e9,
-                            ceiling as f64 / 1e9,
-                            if down_landed > 0 {
-                                format!(
-                                    " (+{down_landed} down via ladder, {down_refusals} refusals)"
-                                )
-                            } else {
-                                String::new()
-                            }
-                        );
+                    crate::ane_prefill::AnePrefillState::Ready(_) => {
+                        if let Some((bytes, ceiling)) = sealed.bank_bytes() {
+                            eprintln!(
+                                "[Issue 726] ANE prefill bank ready: {} programs in {:.1}s, {:.2}/{:.2} GB budget{}",
+                                gdn_layers.len() * 2 + down_landed,
+                                compile_started.elapsed().as_secs_f32(),
+                                bytes as f64 / 1e9,
+                                ceiling as f64 / 1e9,
+                                if down_landed > 0 {
+                                    format!(
+                                        " (+{down_landed} down via ladder, {down_refusals} refusals)"
+                                    )
+                                } else {
+                                    String::new()
+                                }
+                            );
+                        }
                     }
                     crate::ane_prefill::AnePrefillState::Unavailable(reason) => {
                         eprintln!(
