@@ -40,6 +40,16 @@ Additional standing bars:
 - [ ] T3 — the league cell: pp2048/pp4096 + decode vs llama.cpp Q3_K matched-bpw (4090 window, run ALONE, `PROVENANCE:` line quoted); per-family retention cells alongside the perf cells.
 - [ ] T4 — verdict: GOAT gate per the league law (G1 correctness / G2 perf / G3 no-regression / G4 alloc); win → demote-only env promotion per the env-switch law; loss → recorded verdict, the corpus note filed.
 
+### T2b OURS half — the design (paper-first 2026-11-16T19:47Z, implementation next quiet window)
+
+The two T2a APIs (`fit_smooth`, `quantize_residual`) take RAW CALIBRATION ROWS (`cal: &[f32]`, `n_cal × d_in`) and derive H internally — so the capture seam records activations per watched tensor input, not precomputed Hessians. Three pieces:
+
+1. **Capture seam** (`qwen38_dense_cubecl.rs`, opt-in `cq3` + env `RIIR_CQ3_CAPTURE=<dir>`; armed = the boot log names it, unarmed = byte-identical): per watched tensor input (the 11 twin site classes — attn_q/k/v/out, gdn qkv/z/out, ffn gate/up/down — the same set the league cell scores), tap the input activation vector once per calibration token, append `d_in × f32` rows to `<dir>/<tensor_name>.cq3cap` (header: name, d_in, format v1). Estimated disk: n_cal=2048 × d_in 4096 × 4 B ≈ 32 MB/tensor × ~420 ≈ 13 GB — fits (149 GB free at design time; ledger-record n_cal per the matched-budget law). The capture pass runs the model over `bpb_corpus_v1` (the SHARED calibration source — the opponent arm calibrates on the same corpus, that is what makes the budgets matched) for n_cal tokens per tensor position; run cost minutes of prefill, serialized post-walk like the prep.
+2. **Driver** (`bin/cq3_quantize`): source GGUF (the league Q4_K_M) + capture dir → per tensor: `dequant_host_f32` → `fit_smooth`(α=0.25, the T2a-pinned fold) → `quantize_residual`(g=32, b=3 — the pre-registered bpw match vs Q3_K ~3.44, ours b_eff 3.5) → serialize the packed CQ3 artifact (`.cq3`: per-tensor CqTensor + recipe metadata g/b/α + calibration ledger row: corpus sha, n_cal, capture date) + BLAKE3 manifest. Whole-file determinism pin: same inputs → bit-identical artifact (the g1f class).
+3. **Serving arm** (T3's measured path): `QuantWeight::Cq3(Cq3Handle)` — the never-unpack GEMV (`gemv_i8_sdot`, the phone-kernel shape from T1; the LUT arm stays the G1 reference) with the per-group activation rotation fused into the load (x_rot = FWHT(x) per group — the T1 bit-exactness law carries: the comparison basis is W_rot·x_rot, never W·x). Engagement proof = the T1 counter class (dispatch counts asserted per pass type, the Issue-1124 T1.5 lesson).
+
+Schedule (serialized behind the F1 walk — the top gate): shard download resumed network-bound 2026-11-16T19:42Z (`cq3-prep/shard_download_resume.log`; both stages land ~20:30Z); imatrix ×2 + quantize ×3 (the prep's heavy phases — the fork build is DONE, binaries on disk from 11-09) run post-walk ~22:30Z; capture pass + driver implementation in the same post-walk quiet window; T3 queues 4090-exclusive after both arms' artifacts verify.
+
 ## Constraints
 
 - Opt-in until T3 passes (never in the release set before a GOAT); linear mixes only, no softmax; the league model naming law: Cactus artifacts are "Cactus <name>", ours keep their full lineage names — never a bare colliding stem (987's lineage check, 2026-11-08).
