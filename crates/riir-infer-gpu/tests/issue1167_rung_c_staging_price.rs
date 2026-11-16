@@ -543,6 +543,17 @@ enum TwinKind {
     /// whole-word timing shapes — `cols % 64 == 0` keeps every work item on
     /// the V2 fast path, asserted by the fixture builder).
     PackedBody,
+    /// (e) G5 — the B-side activations read as f16 instead of f32 (the last
+    /// named in-GEMM lever for the FFN strip after the packed closure):
+    /// halves the B-side bytes the tensor op + its re-reads move, and hands
+    /// matmul2d a half operand on both sides. LOSSY by construction (the
+    /// input activations round f32→f16, ≤ 2^-11 relative per element) — the
+    /// tolerance assert + measured worst_rel are the quality anchor; deployed
+    /// per-family retention is a DECIDER concern, never this price cell's.
+    /// The cast tax is timed separately (`g5`'s cast arm) so the printed net
+    /// is win − tax; a producer-writes-f16 serving shape is the tax-free
+    /// upper bound and is named in the record, never assumed here.
+    F16Body,
 }
 
 /// The exact string each twin patches, with the occurrence count the patch
@@ -609,6 +620,24 @@ const PATCH_NO_STAGE: &[(&str, &str, usize)] = &[
         1,
     ),
 ];
+/// G5 — the B-side f16 twin: the kernel signature's input pointer and the
+/// single downcast site. `tensor(input_rw, …)` infers its element type from
+/// the pointer, so the tensor op takes a half B with no further edits; the
+/// accumulator stays float. If mpp::tensor_ops::matmul2d rejects mixed
+/// half/half→float operands the twin compile FAILS LOUD and the lever is
+/// dead at the mpp level — that refusal is itself a bench-recordable result.
+const PATCH_F16_BODY: &[(&str, &str, usize)] = &[
+    (
+        "device const float* input_batch      [[buffer(3)]],   // X[P × K] row-major",
+        "device const half*   input_batch      [[buffer(3)]],   // X[P × K] row-major (G5 f16-B twin)",
+        1,
+    ),
+    (
+        "device float* input_rw = (device float*)(input_batch);",
+        "device half* input_rw = (device half*)(input_batch);",
+        1,
+    ),
+];
 
 fn patches_for(kind: TwinKind) -> &'static [(&'static str, &'static str, usize)] {
     match kind {
@@ -617,6 +646,7 @@ fn patches_for(kind: TwinKind) -> &'static [(&'static str, &'static str, usize)]
         TwinKind::ConstDequant => PATCH_INCUMBENT_FASTPATH_LOADS,
         TwinKind::NoStage => PATCH_NO_STAGE,
         TwinKind::PackedBody => PATCH_PACKED_BODY,
+        TwinKind::F16Body => PATCH_F16_BODY,
     }
 }
 
@@ -691,6 +721,18 @@ impl ServingTwin {
         self.device.new_buffer_with_data(
             data.as_ptr() as *const core::ffi::c_void,
             (data.len() * 4) as u64,
+            MTLResourceOptions::StorageModeManaged,
+        )
+    }
+
+    /// G5 — the f16-B arm's input buffer: pre-rounded f16 bits (the cast tax
+    /// is timed separately, so the GEMM arm reads a ready f16 buffer — the
+    /// tax-free GEMM-side win; the in-situ net subtracts the cast in the
+    /// verdict arithmetic).
+    fn upload_f16_bits(&self, bits: &[u16]) -> Buffer {
+        self.device.new_buffer_with_data(
+            bits.as_ptr() as *const core::ffi::c_void,
+            (bits.len() * 2) as u64,
             MTLResourceOptions::StorageModeManaged,
         )
     }
@@ -1808,4 +1850,400 @@ fn projection_verdict_guard_arithmetic() {
         ProjectionVerdict::Undecidable(_) => {}
         _ => panic!("empty evidence must read UNDECIDABLE"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// G5 — the f16-B price at the serving posture (Issue 1167's last named
+// in-GEMM FFN lever after the packed closure, Bench 1222). The B-side
+// activations become f16: half the B bytes the tensor op moves (B is
+// re-read per feature-tile row, so its DRAM share is large), and both
+// matmul2d operands become half. LOSSY — the input rounds f32→f16 (≤ 2^-11
+// relative per element); the tolerance assert pins the class, the deployed
+// per-family retention is a DECIDER concern. The cast tax is timed
+// separately and subtracted in the printed net: win − tax per launch.
+// ---------------------------------------------------------------------------
+//
+// ```sh
+// CARGO_TARGET_DIR=/tmp/i1167 cargo test -p riir-infer-gpu --release \
+//   --features <the [[test]] row's set> \
+//   --test issue1167_rung_c_staging_price g5_f16b_price_at_serving_posture \
+//   -- --ignored --nocapture --test-threads=1
+// ```
+
+/// f32 → f16 bits, round-to-nearest-even (IEEE 754 half). Host-side, no
+/// `half` dep (the crate's `half` is optional and not a dev-dependency —
+/// integration tests cannot name it). Handles the usual classes: zero,
+/// subnormals-in/out, inf/nan, overflow → inf.
+fn f32_to_f16_bits(v: f32) -> u16 {
+    let bits = v.to_bits();
+    let sign = ((bits >> 16) & 0x8000) as u16;
+    let exp = ((bits >> 23) & 0xff) as i32;
+    let man = bits & 0x007f_ffff;
+    if exp == 0xff {
+        // inf / nan — preserve the payload's top bit for quiet-ness.
+        return sign | 0x7c00 | (((man != 0) as u16) * 0x0200) | ((man >> 13) as u16 & 0x03ff);
+    }
+    // Unbiased exponent; f16 bias 15, f32 bias 127.
+    let e = exp - 127;
+    if e > 15 {
+        return sign | 0x7c00; // overflow → inf
+    }
+    if e >= -14 {
+        // normal: 10 mantissa bits with RNE from the 23-bit one.
+        let half_man = man >> 13;
+        let rem = man & 0x1fff;
+        let mut h = ((e + 15) as u16) << 10 | half_man as u16;
+        // RNE: rem > halfway rounds up; exactly halfway rounds to even.
+        if rem > 0x1000 || (rem == 0x1000 && (half_man & 1) == 1) {
+            h += 1;
+        }
+        return sign | h;
+    }
+    // Subnormal f16 (e in [-24, -15]) or underflow to zero.
+    if e < -25 {
+        return sign; // flush to zero
+    }
+    let full = 0x0080_0000u32 | man; // implicit leading 1
+    let shift = (-e - 14 + 13) as u32; // position of the f16 subnormal lsb
+    let half_man = full >> shift;
+    let rem = full & ((1u32 << shift) - 1);
+    let half_man = if rem > (1 << (shift - 1)) || (rem == (1 << (shift - 1)) && (half_man & 1) == 1)
+    {
+        half_man + 1
+    } else {
+        half_man
+    };
+    sign | (half_man as u16 & 0x03ff)
+}
+
+/// The cast-tax kernel host: f32 → f16 elementwise pass, the in-situ price
+/// of producing the f16 input copy next to each GEMM launch (a
+/// producer-writes-f16 shape is the tax-free upper bound; the record names
+/// it, never assumes it).
+struct CastTax {
+    queue: CommandQueue,
+    pipeline: ComputePipelineState,
+}
+
+impl CastTax {
+    const SRC: &'static str = r#"
+#include <metal_stdlib>
+using namespace metal;
+kernel void cast_f32_f16(device const float* src [[buffer(0)]],
+                         device half* dst [[buffer(1)]],
+                         constant uint& n [[buffer(2)]],
+                         uint gid [[thread_position_in_grid]]) {
+    if (gid < n) { dst[gid] = half(src[gid]); }
+}
+"#;
+
+    fn new() -> Result<Self, String> {
+        let device = Device::system_default().ok_or("No Metal device found")?;
+        let library = device
+            .new_library_with_source(Self::SRC, &CompileOptions::new())
+            .map_err(|e| format!("cast-tax MSL compilation failed: {e}"))?;
+        let function = library
+            .get_function("cast_f32_f16", None)
+            .map_err(|e| format!("cast-tax: function not found: {e}"))?;
+        let pipeline = device
+            .new_compute_pipeline_state_with_function(&function)
+            .map_err(|e| format!("cast-tax pipeline failed: {e}"))?;
+        let queue = device.new_command_queue();
+        Ok(Self { queue, pipeline })
+    }
+
+    fn cast_ms(&self, src: &Buffer, dst: &Buffer, n: usize, reps: usize) -> f64 {
+        let tg = 256u64;
+        let grid = MTLSize {
+            width: n.div_ceil(tg as usize) as u64,
+            height: 1,
+            depth: 1,
+        };
+        let threadgroup = MTLSize {
+            width: tg,
+            height: 1,
+            depth: 1,
+        };
+        let mut walls = Vec::with_capacity(reps);
+        for _ in 0..reps {
+            let t0 = std::time::Instant::now();
+            let cmd = self.queue.new_command_buffer();
+            let enc = cmd.new_compute_command_encoder();
+            enc.set_compute_pipeline_state(&self.pipeline);
+            enc.set_buffer(0, Some(src), 0);
+            enc.set_buffer(1, Some(dst), 0);
+            enc.set_bytes(2, 4, (n as u32).to_ne_bytes().as_ptr() as *const _);
+            enc.use_resource(src, MTLResourceUsage::Read);
+            enc.use_resource(dst, MTLResourceUsage::Write);
+            enc.dispatch_thread_groups(grid, threadgroup);
+            enc.end_encoding();
+            cmd.commit();
+            cmd.wait_until_completed();
+            walls.push(t0.elapsed().as_secs_f64());
+        }
+        walls.sort_by(|a, b| a.total_cmp(b));
+        walls[walls.len() / 2] * 1e3
+    }
+}
+
+/// The G5 correctness bar: the f16-input class bound. The input rounding is
+/// ≤ 2^-11 relative per element; accumulated over K with the SAME relaxed
+/// internal MACs on both arms, the output scale-relative drift must sit far
+/// under 1e-2. Measured value printed; per-family retention is a DECIDER
+/// concern, never this cell's.
+const G5_REL_LIMIT: f64 = 1e-2;
+
+#[test]
+#[ignore = "requires macOS Metal + a GPU; run explicitly with --release"]
+fn g5_f16b_price_at_serving_posture() {
+    print_provenance("start");
+
+    let shapes: Vec<(String, usize, usize)> = std::env::var("BENCH1167_SHAPES")
+        .ok()
+        .map(|v| {
+            v.split(',')
+                .map(|s| {
+                    let (m, n) = s.split_once('x').expect("shape as MxN");
+                    (format!("{m}x{n}"), m.parse().unwrap(), n.parse().unwrap())
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            DEFAULT_SHAPES
+                .iter()
+                .chain(GDN_SHAPES.iter())
+                .map(|&(n, m, k)| (n.to_string(), m, k))
+                .collect()
+        });
+    let ps: Vec<usize> = std::env::var("BENCH1167_PS")
+        .ok()
+        .map(|v| v.split(',').map(|s| s.parse().unwrap()).collect())
+        .unwrap_or_else(|| vec![512]);
+    let rounds: usize = std::env::var("BENCH1167_ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8);
+    let launches: usize = std::env::var("BENCH1167_LAUNCHES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4);
+    let frame_ref_ms: f64 = std::env::var("BENCH1167_FRAME_REF_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500.86);
+
+    let cfg = MetalTileConfig::KTILE64;
+    let twins = [
+        (TwinKind::Baseline, "baseline"),
+        (TwinKind::F16Body, "f16b"),
+    ];
+    let compiled: Vec<(TwinKind, &str, ServingTwin)> = twins
+        .iter()
+        .filter_map(|&(kind, name)| match ServingTwin::new(cfg, kind) {
+            Ok(t) => Some((kind, name, t)),
+            Err(e) => {
+                println!("  TWIN {name} COMPILE_FAIL — {e}");
+                None
+            }
+        })
+        .collect();
+    if compiled.len() != 2 {
+        panic!(
+            "the f16-B lever is DEAD at the mpp level: matmul2d rejected the \
+             half/half→float operands ({} of 2 arms compiled) — record the refusal \
+             as the rung's verdict, never a timing row",
+            compiled.len()
+        );
+    }
+    let cast = CastTax::new().expect("cast-tax kernel must compile");
+    let relaxed = std::env::var("TWIN_RELAXED").as_deref() != Ok("0");
+    println!(
+        "\nG5 f16-B price: 2 arms · relaxed_precision={relaxed} (serving selector) \
+         · rounds={rounds} launches={launches} · cast tax timed separately"
+    );
+
+    let mut rows_per_p: Vec<Vec<ProjectionRow>> = (0..ps.len()).map(|_| Vec::new()).collect();
+
+    for shape_ref in shapes.iter() {
+        let (shape_name, m, n) = (shape_ref.0.as_str(), shape_ref.1, shape_ref.2);
+        let fx = TernaryFixture::build(m, n, 0x1167 ^ m as u64 ^ (n as u64) << 8);
+        let weights: Vec<(Buffer, Buffer, Buffer)> = compiled
+            .iter()
+            .map(|(kind, _, t)| t.upload_weights_for(&fx, *kind))
+            .collect();
+
+        for (pi, &p) in ps.iter().enumerate() {
+            let input = random_input(p * n, 0xBEEF);
+            let f16_bits: Vec<u16> = input.iter().map(|&x| f32_to_f16_bits(x)).collect();
+            let inputs: Vec<Buffer> = vec![
+                compiled[0].2.upload_f32(&input),
+                compiled[1].2.upload_f16_bits(&f16_bits),
+            ];
+            let outputs: Vec<Buffer> = compiled
+                .iter()
+                .map(|(_, _, t)| {
+                    t.device
+                        .new_buffer((p * m * 4) as u64, MTLResourceOptions::StorageModeManaged)
+                })
+                .collect();
+
+            // Warm every arm once.
+            for (ai, (_, _, t)) in compiled.iter().enumerate() {
+                let io = GemmIo {
+                    pos: &weights[ai].0,
+                    neg: &weights[ai].1,
+                    scale: &weights[ai].2,
+                    input: &inputs[ai],
+                    output: &outputs[ai],
+                };
+                t.launch(&io, &fx, p);
+            }
+
+            // Tolerance-class correctness: the f16 arm vs the f32 baseline at
+            // the SAME posture — scale-relative to the baseline's max |out|.
+            // The input-rounding class must sit far under G5_REL_LIMIT.
+            {
+                let base = compiled[0].2.read_f32(&outputs[0], p * m);
+                let f16 = compiled[1].2.read_f32(&outputs[1], p * m);
+                let ref_scale = base.iter().fold(0.0f32, |a, b| a.max(b.abs())).max(1e-6);
+                let mut worst = (0.0f64, 0usize);
+                for (i, (a, b)) in base.iter().zip(f16.iter()).enumerate() {
+                    let rel = ((a - b).abs() / ref_scale) as f64;
+                    if rel > worst.0 {
+                        worst = (rel, i);
+                    }
+                }
+                println!(
+                    "  tol {shape_name} P={p}: worst_rel={:.3e} at [{}] (bar {G5_REL_LIMIT:e})",
+                    worst.0, worst.1
+                );
+                assert!(
+                    worst.0 <= G5_REL_LIMIT,
+                    "{shape_name} P={p}: f16-B drift {:.3e} breaches the {G5_REL_LIMIT:e} \
+                     input-rounding class bound",
+                    worst.0
+                );
+            }
+
+            // Interleaved rotating-start timing (the G4 pattern).
+            let n_arms = compiled.len();
+            let mut times = vec![vec![0.0f64; n_arms]; rounds];
+            for (r, row) in times.iter_mut().enumerate() {
+                for k in 0..n_arms {
+                    let ai = (r + k) % n_arms;
+                    let (_, _, t) = &compiled[ai];
+                    let io = GemmIo {
+                        pos: &weights[ai].0,
+                        neg: &weights[ai].1,
+                        scale: &weights[ai].2,
+                        input: &inputs[ai],
+                        output: &outputs[ai],
+                    };
+                    let t0 = std::time::Instant::now();
+                    for _ in 0..launches {
+                        t.launch(&io, &fx, p);
+                    }
+                    let dt = t0.elapsed().as_secs_f64() / launches as f64;
+                    assert!(dt > 0.0, "{shape_name} P={p} arm {ai}: zero-length timing");
+                    row[ai] = dt;
+                }
+            }
+
+            let median = |mut v: Vec<f64>| {
+                v.sort_by(|a, b| a.total_cmp(b));
+                v[v.len() / 2]
+            };
+            let meds: Vec<f64> = (0..n_arms)
+                .map(|ai| median(times.iter().map(|row| row[ai]).collect()))
+                .collect();
+            let (b_lo, b_hi) = {
+                let mut v = times.iter().map(|row| row[0]).collect::<Vec<_>>();
+                v.sort_by(|a, b| a.total_cmp(b));
+                (v[0], v[v.len() - 1])
+            };
+            let (t_lo, t_hi) = {
+                let mut v = times.iter().map(|row| row[1]).collect::<Vec<_>>();
+                v.sort_by(|a, b| a.total_cmp(b));
+                (v[0], v[v.len() - 1])
+            };
+            let delta = meds[0] - meds[1];
+
+            // The cast tax: one f32→f16 pass over the SAME input, median of
+            // `rounds` fenced launches.
+            let cast_dst = compiled[1]
+                .2
+                .device
+                .new_buffer((p * n * 2) as u64, MTLResourceOptions::StorageModeManaged);
+            let cast_ms = cast.cast_ms(&inputs[0], &cast_dst, p * n, rounds);
+            let net = delta - cast_ms / 1e3;
+
+            println!(
+                "\n── {shape_name} (m={m} k={n}) P={p} — baseline {:.3} ms · f16b {:.3} ms \
+                 · Δ {:>7.3} ms ({:>5.2}% of wall)  Δ-range [{:.3}, {:.3}] ms \
+                 · cast tax {:.3} ms · NET {:.3} ms ({:>5.2}% of wall)",
+                meds[0] * 1e3,
+                meds[1] * 1e3,
+                delta * 1e3,
+                delta / meds[0] * 100.0,
+                (b_lo - t_hi) * 1e3,
+                (b_hi - t_lo) * 1e3,
+                cast_ms,
+                net * 1e3,
+                net / meds[0] * 100.0
+            );
+
+            let weight = FRAME_LAUNCHES_PER_CHUNK
+                .iter()
+                .find(|(name, _)| *name == shape_name)
+                .map(|(_, w)| *w)
+                .unwrap_or(0);
+            if weight == 0 {
+                println!("  (not in the frame projection weight table — raw row only)");
+            } else {
+                rows_per_p[pi].push(ProjectionRow {
+                    delta_ms: net * 1e3,
+                    range_lo_ms: (b_lo - t_hi) * 1e3 - cast_ms,
+                    range_hi_ms: (b_hi - t_lo) * 1e3 - cast_ms,
+                    weight_launches: (weight as u64) * 8,
+                });
+            }
+        }
+    }
+
+    for (pi, &p) in ps.iter().enumerate() {
+        let raw_ms: f64 = rows_per_p[pi]
+            .iter()
+            .map(|r| r.delta_ms * r.weight_launches as f64)
+            .sum();
+        match projection_verdict(&rows_per_p[pi], frame_ref_ms, 1.5) {
+            ProjectionVerdict::Undecidable(raw) => println!(
+                "\nF16-B PRICE projection P={p}: {:.2} ms/frame raw (NET of cast tax) vs the \
+                 {:.2} ms Bench-937 frame — UNDECIDABLE: every weighted row's NET Δ-range \
+                 straddles zero, so the projection is a noise multiplier at this effect size \
+                 (issue 1224's guard) — adjudicate on the per-launch NET rows above",
+                raw, frame_ref_ms
+            ),
+            ProjectionVerdict::Over(share) => println!(
+                "\nF16-B PRICE projection P={p}: {:.2} ms/frame (NET) vs the {:.2} ms frame = \
+                 {:.2}% e2e (bar 1.5% = {:.2} ms) — OVER (sign-consistent NET evidence) — a \
+                 tolerance decider (per-family retention at the shipped posture) + a serving \
+                 twin + frame A/B is justified",
+                raw_ms,
+                frame_ref_ms,
+                share,
+                frame_ref_ms * 0.015
+            ),
+            ProjectionVerdict::Under(share) => println!(
+                "\nF16-B PRICE projection P={p}: {:.2} ms/frame (NET) vs the {:.2} ms frame = \
+                 {:.2}% e2e (bar 1.5% = {:.2} ms) — UNDER (sign-consistent NET evidence) — the \
+                 f16-B rung closes NEGATIVE on the measured net price",
+                raw_ms,
+                frame_ref_ms,
+                share,
+                frame_ref_ms * 0.015
+            ),
+        }
+    }
+
+    print_provenance("end");
 }
