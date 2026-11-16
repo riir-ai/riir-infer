@@ -444,7 +444,13 @@ fn f16b_retention_walk() {
             "{family}: cycled to {} tokens, need > P={p_max}",
             toks.len()
         );
-        let k = if p_max >= 4096 { 2 } else { 8 };
+        let k = if p_max >= 16384 {
+            1
+        } else if p_max >= 4096 {
+            2
+        } else {
+            8
+        };
         let lengths = scored_lengths(p_max, k);
         let mut placebos_left = 1usize; // the control at the FIRST length of each family
         for &len in &lengths {

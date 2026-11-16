@@ -1,6 +1,9 @@
 # Issue 1226: the f16-B lane's follow-ups (the T4 verdict's carried caveats)
 
-**Status:** OPEN — filed 2026-11-16 at the T4 promotion (delegated-owner verdict AGREE; the caveats the verdict carried forward, none blocking). Not yet claimed — the next session's engagement takes a lane.
+**Status:** OPEN — filed 2026-11-16 at the T4 promotion (delegated-owner verdict AGREE; the caveats the verdict carried forward, none blocking).
+
+**Claimed:** amo-idle-i1225f16b@amo, 1794848737, expires 2026-11-17T16:00:00+00:00
+(scope: F1 only — the pp32768 retention row via the walk's own P axis, relaxed + strict, one scored length per family; F2/F3 stay open)
 
 **Repos:** [riir-infer]
 
