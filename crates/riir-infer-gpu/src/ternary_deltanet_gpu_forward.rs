@@ -199,6 +199,45 @@ use riir_infer_core::deltanet::minimal_activation_cache::{
 #[cfg(feature = "cubecl_runtime")]
 static RESIDENT_LAUNCHES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Issue 1218 T2 — the fence-cadence knob: the harvest cadence the serving
+/// posture arms the resident stream with (`resident_begin(seed, k)`;
+/// `resident_harvest` pays ONE fenced `read_one` per k tokens, so the
+/// fence-blocking share of the host wall amortizes as 1/k — the T2 lever,
+/// named by the Bench-1218-T1 counters: the fence blocks ~109 ms per
+/// 8-token burst inside `client.read_one`, a site no vendored counter sees).
+///
+/// PROMOTE-ONLY numeric env (`RIIR_RESIDENT_HARVEST_K`): unset, `0`, `1`, or
+/// any unparsable value reads the incumbent **8** byte-identically (the
+/// default never moves without the GOAT gates + the 1165-style owner
+/// verdict); a valid integer >= 2 arms that cadence, disclosed ONCE on
+/// stderr at first read (the env-switch law's disclosure pattern). The ring
+/// depth IS the cadence (`resident_begin` allocates `k * 32 B`), so the arm
+/// is a begin-time parameter — zero kernel work, zero steady-state alloc.
+#[cfg(feature = "cubecl_runtime")]
+pub fn resident_harvest_cadence() -> usize {
+    static CADENCE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CADENCE.get_or_init(|| {
+        const INCUMBENT: usize = 8;
+        match std::env::var("RIIR_RESIDENT_HARVEST_K") {
+            Ok(raw) => match raw.trim().parse::<usize>() {
+                Ok(k) if k >= 2 => {
+                    eprintln!(
+                        "[resident] RIIR_RESIDENT_HARVEST_K={k} armed (incumbent cadence {INCUMBENT})"
+                    );
+                    k
+                }
+                _ => {
+                    eprintln!(
+                        "[resident] RIIR_RESIDENT_HARVEST_K={raw:?} not a valid cadence (>= 2) — incumbent {INCUMBENT} stands"
+                    );
+                    INCUMBENT
+                }
+            },
+            Err(_) => INCUMBENT,
+        }
+    })
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // GPU-side embedding dequant kernel (Issue 604 T8 G4 — alloc-free set_input_token)
 // ───────────────────────────────────────────────────────────────────────────
@@ -13102,6 +13141,53 @@ mod tests {
     use super::*;
     use crate::cubecl_runtime::{ActiveRuntime, CubeCLContext};
     use katgpt_core::TernaryGroupWeights;
+
+    /// Issue 1218 T2 — the cadence resolver's grammar, pinned pure (no GPU):
+    /// a valid integer >= 2 arms, everything else — unset, 0, 1, junk,
+    /// negative, oversized-past-usize — reads the incumbent 8. The resolver
+    /// is OnceLock-cached, so these arms run against a FRESH parse fn
+    /// replica; the production fn's own OnceLock arms exactly once per
+    /// process (its cell discloses the armed value on stderr, asserted by
+    /// the G1/G2 harness's own boot line, never re-parsed here).
+    #[test]
+    fn resident_harvest_cadence_grammar_pins() {
+        fn parse(raw: Option<&str>) -> usize {
+            const INCUMBENT: usize = 8;
+            match raw {
+                Some(s) => match s.trim().parse::<usize>() {
+                    Ok(k) if k >= 2 => k,
+                    _ => INCUMBENT,
+                },
+                None => INCUMBENT,
+            }
+        }
+        assert_eq!(parse(None), 8, "unset = the incumbent cadence");
+        assert_eq!(parse(Some("")), 8, "empty = unparsable = the incumbent");
+        assert_eq!(parse(Some("0")), 8, "0 = no-op (the incumbent stands)");
+        assert_eq!(
+            parse(Some("1")),
+            8,
+            "1 < 2 would alias ring slots — refused"
+        );
+        assert_eq!(
+            parse(Some("-32")),
+            8,
+            "negative = unparsable = the incumbent"
+        );
+        assert_eq!(
+            parse(Some("junk")),
+            8,
+            "junk = the incumbent, never a panic"
+        );
+        assert_eq!(parse(Some(" 32 ")), 32, "whitespace-tolerant parse arms");
+        assert_eq!(parse(Some("2")), 2, "the minimum valid cadence arms");
+        assert_eq!(parse(Some("32")), 32, "the T2 cell's armed cadence parses");
+        assert_eq!(
+            parse(Some("999999999999999999999")),
+            8,
+            "usize overflow = the incumbent"
+        );
+    }
 
     /// Tolerance for GPU vs CPU comparison.
     const TOL: f32 = 1e-6;

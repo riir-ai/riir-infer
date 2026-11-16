@@ -751,6 +751,11 @@ pub use prefill_f16b::{
 pub use ternary_deltanet_gpu_forward::set_prefill_use_simdgroup;
 #[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
 pub use ternary_deltanet_gpu_forward::{DequantWteRowCubeCL, TernaryDeltanetGpuForward};
+// Issue 1218 T2 — the fence-cadence knob (the serving posture's promote-only
+// harvest-cadence read; the wall cell + ResidentStream consumers call this —
+// one definition, one env name).
+#[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
+pub use ternary_deltanet_gpu_forward::resident_harvest_cadence;
 // T3.4's async readback pair only EXISTS under multi_host (the module's own
 // pub use is gated identically); the wider ternary_gemv cfg alone would
 // green-zero the names and break every non-multi_host posture at link time.
