@@ -3,7 +3,7 @@
 **Status:** PROVISIONAL — the synth-geometry cell REFUTES promotion at small scale; the real-geometry (Bonsai-2 27B) deciding cell is parked on the exclusive quiet window. `RIIR_TAIL_LAYER_INTERLEAVE` stays PROMOTE-ONLY (exact `1`/`true`/`on`; unset/other = the incumbent path, byte-identical).
 **Date:** 2026-11-12
 **Session:** zed-93bcde10@amo, 1794438486 (claim `1a7c863`)
-**Issue:** [`.issues/1199_cpu_stage_alternation_tax.md`](../.issues/1199_cpu_stage_alternation_tax.md)
+**Issue:** 1199 (the cpu-stage alternation tax — closed+removed, record in HISTORY.md 2026-11-16)
 
 ## What landed (the code half of rung b)
 

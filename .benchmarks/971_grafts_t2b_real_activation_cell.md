@@ -3,7 +3,7 @@
 **Status:** LANDED — **G1 PASSES on the sealed split: graft 39.25% vs baseline 12.50% (+26.75pp; the pre-registered bar was +20pp)**; the primitive's probe+table+write pipeline demonstrably transfers a skill the frozen model lacks, closed-form, zero training. Two disclosed caveats: the scramble control ran at parity with the graft (39.75% — see §control), and the report's `probe_corr` field is STALE-BROKEN (a pre-slot diag layout bug; corrected in code, the confirmatory re-run heals the field).
 **Date:** 2026-11-12
 **Session:** amo-i988-t2b@amo (claim in `.issues/1206`)
-**Issue:** [`.issues/1206_grafts_t2b_real_activation_cell.md`](../.issues/1206_grafts_t2b_real_activation_cell.md); the primitive: katgpt-rs issue 988 (T1/T2a/T3-arms/T5/T6 landed `dc348756b`, T5 `3dc2b49a4`)
+**Issue:** 1206 (grafts T2b real-activation cell — record in HISTORY.md); the primitive: katgpt-rs issue 988 (T1/T2a/T3-arms/T5/T6 landed `dc348756b`, T5 `3dc2b49a4`)
 **Report:** `.benchmarks/grafts_cell_t2b/report.json` — payload BLAKE3 `fac21420025b309ec6b2374080fb6ece50f8a304cd74a8edf0428a3438e0a747`
 
 ## Posture (all pinned BEFORE any sealed touch)
