@@ -1,0 +1,64 @@
+   Compiling riir-infer-core v0.1.1 (/Users/katopz/git/riir-infer)
+   Compiling riir-infer-gpu v0.1.0 (/Users/katopz/git/riir-infer/crates/riir-infer-gpu)
+    Finished `release` profile [optimized] target(s) in 39.32s
+     Running tests/i1226_pp32k_placebo_repro.rs (/tmp/i1225f16b/release/deps/i1226_pp32k_placebo_repro-0832da5e15d857f8)
+
+running 1 test
+test pp32k_placebo_repro ... [provenance start]  4:34  up 14 days, 17:33, 5 users, load averages: 11.74 10.49 10.77 · correctness cell (bit comparisons — CPU load does not move bits; GPU must be compute-exclusive)
+# i1226 pp32k placebo repro · tap ON (the walk's default) · families code,math
+# posture: metal_tensor_relaxed_precision=true (the walk's relaxed posture)
+CubeCL runtime initialized: wgpu<msl>
+[Issue 864] attention KV working set = 4097 MiB (block_size 32776 × kvd 1024 × K+V × 16 attention layers) — above the 256 MiB warn line. If the workload never drives this many positions, clamp `config.block_size` to the real sequence bound BEFORE construction (the riir-train driver pattern); the unbounded variant measured a ~50 s first-touch burst at a 262,144-token context (riir-train Bench 573). Steady-state throughput is unaffected.
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x104a92840, queue=0x104a973c0)
+[i1225] f16b twin compiled (patched B-side half; cast kernel armed)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# code@32767: ref done
+# code@32767: armed done (tap true)
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x104a92840, queue=0x104a973c0)
+[i1225] f16b twin built PLACEBO (unpatched body — the control arm)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# code@32767: placebo done (tap true)
+# math@32767: ref done
+# math@32767: armed done (tap true)
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x104a92840, queue=0x104a973c0)
+[i1225] f16b twin built PLACEBO (unpatched body — the control arm)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# math@32767: placebo done (tap true)
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x104a92840, queue=0x104a973c0)
+[i1225] f16b twin compiled (patched B-side half; cast kernel armed)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# fresh-fwd ref vs ORIG in-loop ref (math) — state discriminator: KL 4.919e-5 · flips 0 · worst_rel 0.000e0 → NONZERO (defect read)
+# fresh-fwd ref vs fwd-NOW ref (math): KL 0.000e0 · flips 0 · worst_rel 0.000e0 → EXACT
+
+── i1226 repro verdict ──
+  armed code vs ref code (informational)               KL 1.565e-7 · flips 8 · worst_rel 5.035e-4
+  placebo code vs ref code (the walk's HARD gate)      KL 0.000e0 · flips 0 · worst_rel 0.000e0
+  armed math vs ref math (informational)               KL 5.083e-5 · flips 13 · worst_rel 5.483e-4
+  placebo math vs ref math (the walk's HARD gate)      KL 5.428e-5 · flips 0 · worst_rel 0.000e0  ← VOID-class
+  fresh-vs-orig (math, informational)                  KL 4.919e-5 · flips 0 · worst_rel 0.000e0
+  fresh-vs-now (math, informational)                   KL 0.000e0 · flips 0 · worst_rel 0.000e0
+
+VERDICT: 1 placebo defect(s) reproduced — bisect: rerun with I1226_REPRO_TAP_OFF=1 (tap-interleave class) then I1226_REPRO_FAM=math (order/state class); keep this log as the evidence row.
+
+thread 'pp32k_placebo_repro' (131113909) panicked at crates/riir-infer-gpu/tests/i1226_pp32k_placebo_repro.rs:499:9:
+i1226 repro: the walk's placebo defect reproduced (1 HARD-gate reads nonzero)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    pp32k_placebo_repro
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 954.14s
+
+error: test failed, to rerun pass `-p riir-infer-gpu --test i1226_pp32k_placebo_repro`
+ARMA_EXIT=101
