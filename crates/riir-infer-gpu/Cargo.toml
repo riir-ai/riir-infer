@@ -472,7 +472,7 @@ lm_head_cpu = []
 # GEMV arms. CPU fixture lane only — opt-in until the T3 league cell passes
 # the GOAT gate; NEVER in `production` before that (the env-switch law:
 # an opt-in feature's env is PROMOTE-ONLY).
-cq3 = ["dep:half", "katgpt-core/meld"]
+cq3 = ["dep:half", "katgpt-core/meld", "dep:blake3"]
 # Issue 1186 T2b ours half: the calibration capture seam + the cq3_quantize
 # driver (plan 629). Implies `cq3` (the recipe + T2a fit APIs); the capture
 # session exists at every posture but only this feature arms the tap
@@ -547,6 +547,13 @@ required-features = ["cq3"]
 [[test]]
 name = "qwen38_cq3_t2b"
 required-features = ["cq3_calibrate"]
+
+# Issue 1186 T2b serving half — the packed data plane + the CQ3ART1
+# container battery (hermetic, no GPU). Whole-file #![cfg(feature = "cq3")]
+# + this row = the reader-protection pair (the R1 pattern).
+[[test]]
+name = "qwen38_cq3_serving_g1"
+required-features = ["cq3"]
 
 # riir-ai Issue 1004 R2 — the fused-prework stage-isolated A/B. Whole-file
 # #![cfg] + this row = the reader-protection pair (the R1 pattern).

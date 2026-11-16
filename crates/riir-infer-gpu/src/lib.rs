@@ -932,6 +932,12 @@ pub mod qwen38_dflash2;
 // T3 league cell's GOAT gate; never in `production` before that.
 #[cfg(feature = "cq3")]
 pub mod qwen38_cq3;
+// Issue 1186 T2b serving half — the b-bit packed (device-shaped)
+// representation + the CQ3ART1 container reader/writer (the format's
+// single authority; the cq3_quantize bin writes through it) + the
+// blake3 sidecar verify. Gated with the recipe module.
+#[cfg(feature = "cq3")]
+pub mod qwen38_cq3_serving;
 // Issue 1186 T2b — the capture sinks + ledger (plan 629). Gated with its
 // sole consumer (`cq3_calibrate` implies `cq3`): the serving build
 // compiles none of it (the zero-cost posture).

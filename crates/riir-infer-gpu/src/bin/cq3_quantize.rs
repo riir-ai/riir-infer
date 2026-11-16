@@ -45,9 +45,8 @@ use riir_infer_gpu::qwen38_cq3::{fit_smooth, quantize_residual};
 use riir_infer_gpu::qwen38_cq3_capture::{
     CQ3CAP_FORMAT_V1, CQ3CAP_MAGIC, CaptureLedgerMeta, CaptureSession,
 };
+use riir_infer_gpu::qwen38_cq3_serving::{PackedCq3Tensor, write_header, write_tensor_record};
 
-const MAGIC: &[u8; 7] = b"CQ3ART1";
-const FORMAT_V1: u32 = 1;
 /// The pre-registered recipe pins (plan 629): g = 32, b = 3 → b_eff 3.5
 /// vs Q3_K ≈ 3.44 (+1.7% heaviest, the conservative direction).
 const DEFAULT_G: usize = 32;
@@ -288,15 +287,12 @@ fn cmd_capture(argv: &[String]) -> Result<(), String> {
 
 // ────────────────────────────── quantize ──────────────────────────────
 
-/// One artifact tensor record (the serialized subset of `CqTensor` — the
-/// rotation + codebook reconstruct from (g, b), the g1f determinism pin).
+/// One artifact tensor record — the packed (device-shaped) form; the
+/// container write goes through the serving module (the format's single
+/// authority), which re-derives the v1 wire's u8 carrier per record.
 struct TensorRecord {
     name: String,
-    d_out: usize,
-    d_in: usize,
-    smooth: Option<Vec<f32>>,
-    indices: Vec<u8>,
-    scales: Vec<u16>,
+    tensor: PackedCq3Tensor,
 }
 
 /// The artifact's tensor set: every capture-fed matrix, in layer order
@@ -450,11 +446,7 @@ fn cmd_quantize(argv: &[String]) -> Result<(), String> {
         let tensor = quantize_residual(&w, *d_out, *d_in, g, b, Some(&smooth), &cal, n_cal);
         records.push(TensorRecord {
             name: name.clone(),
-            d_out: *d_out,
-            d_in: *d_in,
-            smooth: tensor.smooth,
-            indices: tensor.indices,
-            scales: tensor.scales,
+            tensor: PackedCq3Tensor::from_cq_tensor(&tensor),
         });
         if (idx + 1) % 8 == 0 || idx + 1 == plan.len() {
             println!(
@@ -472,34 +464,9 @@ fn cmd_quantize(argv: &[String]) -> Result<(), String> {
     let file = std::fs::File::create(&path).map_err(|e| format!("out: {e}"))?;
     let mut w = BufWriter::with_capacity(1 << 22, file);
     let emit = |w: &mut BufWriter<std::fs::File>| -> std::io::Result<()> {
-        w.write_all(MAGIC)?;
-        w.write_all(&[0u8; 1])?;
-        w.write_all(&FORMAT_V1.to_le_bytes())?;
-        w.write_all(&(g as u32).to_le_bytes())?;
-        w.write_all(&b.to_le_bytes())?;
-        w.write_all(&alpha.to_bits().to_le_bytes())?;
-        w.write_all(&0u32.to_le_bytes())?; // reserved
-        w.write_all(&(records.len() as u32).to_le_bytes())?;
+        write_header(w, g, b, alpha, records.len())?;
         for r in &records {
-            w.write_all(&(r.name.len() as u32).to_le_bytes())?;
-            w.write_all(r.name.as_bytes())?;
-            w.write_all(&(r.d_out as u32).to_le_bytes())?;
-            w.write_all(&(r.d_in as u32).to_le_bytes())?;
-            match &r.smooth {
-                Some(s) => {
-                    w.write_all(&[1u8])?;
-                    for v in s {
-                        w.write_all(&v.to_le_bytes())?;
-                    }
-                }
-                None => w.write_all(&[0u8])?,
-            }
-            w.write_all(&(r.indices.len() as u64).to_le_bytes())?;
-            w.write_all(&r.indices)?;
-            w.write_all(&(r.scales.len() as u64).to_le_bytes())?;
-            for s in &r.scales {
-                w.write_all(&s.to_le_bytes())?;
-            }
+            write_tensor_record(w, &r.name, &r.tensor)?;
         }
         Ok(())
     };
