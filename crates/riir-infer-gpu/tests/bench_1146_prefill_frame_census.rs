@@ -257,12 +257,13 @@ fn run_pass(
     let mut wall = Duration::ZERO;
     let mut last_bits = Vec::new();
     for (base, chunk_toks) in toks.chunks(chunk).enumerate() {
-        let is_final = base + chunk_toks.len() == prompt_len;
+        let tok_base = base * chunk;
+        let is_final = tok_base + chunk_toks.len() == prompt_len;
         let t0 = Instant::now();
         let out = fwd.prefill_range_chunk(
             chunk_toks,
             None,
-            base * chunk,
+            tok_base,
             prompt_len,
             LayerRange::new(0, n_layer as u32),
             is_final,
@@ -476,14 +477,19 @@ fn bench_1146_prefill_frame_census() {
     );
     println!("bit-identity: never-touched == ALL-first == ALL-after ✓");
 
-    // ── Engagement proof (Issue-1124 T1.5 law): an armed route that routed
-    //    ZERO dispatches measured the incumbent under an f16-B label. ──
+    // ── Engagement proof (Issue-1124 T1.5 law): the TWIN counter is the
+    //    engagement signal — when the route serves, the twin dispatches every
+    //    site and the incumbent's own counter stays 0 (the twin arm returns
+    //    before the incumbent dispatch). `f16b_route_dispatch_counts` returns
+    //    (incumbent, twin) — the assert names them, never positionally.
     #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
     if std::env::var("I1146C_F16B").as_deref() == Ok("1") {
-        let (routed, total) = fwd.f16b_route_dispatch_counts();
-        println!("i1167 re-rank: f16b route dispatch counts: routed {routed} / total {total}");
+        let (incumbent, twin) = fwd.f16b_route_dispatch_counts();
+        println!(
+            "i1167 re-rank: f16b engagement: twin {twin} dispatched / incumbent {incumbent} served"
+        );
         assert!(
-            routed > 0,
+            twin > 0,
             "I1146C_F16B=1 armed but the twin routed ZERO dispatches — not engaged"
         );
     }
