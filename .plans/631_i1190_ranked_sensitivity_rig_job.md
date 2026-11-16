@@ -1,6 +1,6 @@
 # Plan 631 — i1190 T3 ranked-sensitivity rig job: claim, corpus regen path, queue
 
-**Status:** IN FLIGHT — claim on `.issues/1190` pushed; corpus recipe reconstructed + verified (sha256 byte-match); the rig job parks on bmo behind i1117. This plan carries the job's exact inputs; execution/verdict live in the issue + the bench record when the run lands.
+**Status:** DONE — the run landed and was recorded (corrected 2026-11-17, amo idle lane; the IN-FLIGHT line below predated the run). Claim on `.issues/1190` pushed; corpus recipe reconstructed + verified (sha256 byte-match); the rig job parks on bmo behind i1117. This plan carries the job's exact inputs; execution/verdict live in the issue + the bench record when the run lands.
 
 Session: zed-c21902cf@amo, epoch 1765484700 (2026-11-12). Re-taken zed-41cd0608@amo epoch 1794572858 (2026-11-13) — the prior holder went session-less and its queued job `a45099bc` died at STAGING (sandbox katgpt-core resolution). The re-queue stages from bmo's OWN `~/git/riir-infer` checkout (the sibling layout the i1213 Metal trio proved building+running from), and the out dir moves to the durable path `~/riir-bench/i1190_ranked_cell/` (the i1117 loss lessons) — corpus/model/flags byte-pinned unchanged.
 
@@ -39,4 +39,4 @@ The rig job's corpus recipe (`/tmp/i1188_corpus.txt`, "the market prose paragrap
 - [x] bmo model presence + full sha256 verified over the bridge.
 - [x] Plan committed (this file) with the job body; highwater 630→631.
 - [x] Rig job queued (`agent-mail rig run bmo --exclusive`, notify amo) — same commit as the queueing act.
-- [ ] Run lands: 16/16 engagement + determinism + sanity gates; T2 ranked table written; bench record; issue rows closed.
+- [x] Run lands: 16/16 engagement + determinism + sanity gates; T2 ranked table written; bench record; issue rows closed. **LANDED 2026-11-15** — [Bench 1215](.benchmarks/1215_i1190_ranked_sensitivity_cell.md) (`d825892a`, bmo exclusive): 16/16 families + the ffn_down determinism re-run; the ranked table + per-family keep/demote lines live in the bench (posture decision owner-gated there, per the issue's own law); i1190 removed at close, i1188 closed with it.
