@@ -1,7 +1,8 @@
 # Issue 1218 — the resident wall's residual host sync after the caps lift: the fence/flush decomposition cell
 
 **Status:** open — filed 2026-11-15 from [Bench 1218 §"arm B"](../.benchmarks/1218_i1181_t1_encode_share_demote_gate.md)'s verdict (the 1217 caps A/B measured NEGATIVE on the wall bar with engagement proven). **T1 DONE 2026-11-15** (the counters cell ran + adjudicated, the T2 lever named — see below).
-**Claimed:** zed-a0615aba@amo, 1794693900, expires 2026-11-16T14:30:00Z
+**Lease closed:** zed-a0615aba@amo, 1794693900, expired 2026-11-16T14:30:00Z unclaimed-past-expiry — T1 landed inside it; the lease-expiry law hands the lane back.
+**Claimed:** amo-i1218t2@amo, 1794869000, expires 2026-11-18T23:00:00Z
 (scope: T1 — the counters-decomposition cell at the raised-caps posture, queued bmo exclusive behind the i1189 T4 feeding cell + i177 duel smoke — then T2's lever naming from its row; T3 stays gated on T2's pre-registered bars. T1 LANDED; the lease continues for T2 — the fence-cadence lever implementation + GOAT cell. expiry converted from the original +07:00 spelling to UTC for the checker grammar.)
 
 ## The measured facts this issue starts from
