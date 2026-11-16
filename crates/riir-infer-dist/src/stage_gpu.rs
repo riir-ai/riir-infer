@@ -88,6 +88,56 @@ impl TernaryGpuStage {
         riir_infer_gpu::set_prefill_attn_metal_tensor(
             std::env::var("RIIR_DIST_PREFILL_ATTN_TENSOR").as_deref() != Ok("0"),
         );
+        // Issue 1225: the f16-B serving twin (feature `prefill_f16b`) —
+        // OPT-IN, PROMOTE-ONLY per the env-switch law: arms on the exact
+        // literal `RIIR_PREFILL_F16B=1`; unset/any other value keeps the
+        // incumbent f32-B route byte-identically (the default flip is the
+        // T4 GOAT call). `RIIR_PREFILL_F16B_FAMILIES` (comma site names)
+        // narrows the route — the T1 decider's per-family demote axis.
+        // `RIIR_PREFILL_F16B_TAP=1` / `RIIR_PREFILL_F16B_PLACEBO=1` are the
+        // walk's instrument arms (tap = serialize-and-tally, never timing;
+        // placebo = the unpatched control body). MUST run BEFORE the
+        // forwarder compiles its pipelines (the twin's body is a
+        // construction-time posture).
+        #[cfg(feature = "prefill_f16b")]
+        {
+            riir_infer_gpu::set_f16b_route(
+                std::env::var("RIIR_PREFILL_F16B").as_deref() == Ok("1"),
+            );
+            riir_infer_gpu::set_f16b_tap(
+                std::env::var("RIIR_PREFILL_F16B_TAP").as_deref() == Ok("1"),
+            );
+            riir_infer_gpu::set_f16b_placebo(
+                std::env::var("RIIR_PREFILL_F16B_PLACEBO").as_deref() == Ok("1"),
+            );
+            if let Ok(list) = std::env::var("RIIR_PREFILL_F16B_FAMILIES") {
+                use riir_infer_gpu::ternary_deltanet_gpu_forward::PrefillSite;
+                let mut mask = 0u64;
+                for name in list.split(',') {
+                    let name = name.trim();
+                    let site = [
+                        PrefillSite::AttnQ,
+                        PrefillSite::AttnKv,
+                        PrefillSite::AttnOutProj,
+                        PrefillSite::GdnQkv,
+                        PrefillSite::GdnZ,
+                        PrefillSite::GdnA,
+                        PrefillSite::GdnB,
+                        PrefillSite::GdnOutProj,
+                        PrefillSite::FfnGate,
+                        PrefillSite::FfnUp,
+                        PrefillSite::FfnDown,
+                    ]
+                    .into_iter()
+                    .find(|s| s.name() == name)
+                    .unwrap_or_else(|| {
+                        panic!("RIIR_PREFILL_F16B_FAMILIES: unknown site name {name:?}")
+                    });
+                    mask |= site.bit();
+                }
+                riir_infer_gpu::set_f16b_site_mask(mask);
+            }
+        }
         // riir-ai Issue 1147 B8 (opt-in `ane_split`): the ANE‖GPU channel
         // split at the dist frame width — measured 1.154× at a 128-token
         // frame in this lane's `production` posture. Armed BEFORE

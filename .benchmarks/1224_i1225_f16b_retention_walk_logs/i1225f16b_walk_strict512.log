@@ -1,0 +1,241 @@
+    Finished `release` profile [optimized] target(s) in 0.13s
+     Running tests/issue1225_f16b_retention_walk.rs (/tmp/i1225f16b/release/deps/issue1225_f16b_retention_walk-7579643a87efdb43)
+
+running 1 test
+test f16b_retention_walk ... [provenance start] 21:28  up 14 days, 10:26, 5 users, load averages: 2.64 3.54 3.64 · GPU-exclusive per the AGENTS rule (no sibling compute workload)
+CubeCL runtime initialized: wgpu<msl>
+# issue1225 f16-B retention walk · posture strict · P=[512] · frame 128 · families 4
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x101ef5a20, queue=0x101efcb40)
+[i1225] f16b twin compiled (patched B-side half; cast kernel armed)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# code@256: ref done (route back on)
+  flip code@256 ffn_up occ=9 row=85 inc=11870 twin=15811 margin=1.037e-5
+  flip code@256 gdn_in_proj_z occ=12 row=81 inc=4906 twin=4214 margin=3.457e-5
+  flip code@256 gdn_in_proj_z occ=23 row=44 inc=1239 twin=731 margin=7.200e-5
+  flip code@256 ffn_up occ=37 row=17 inc=14616 twin=6776 margin=3.192e-4
+  flip code@256 ffn_up occ=40 row=19 inc=8879 twin=4872 margin=3.862e-5
+  flip code@256 gdn_in_proj_qkv occ=31 row=92 inc=2630 twin=7094 margin=7.772e-5
+  flip code@256 gdn_out_proj occ=33 row=72 inc=2698 twin=4350 margin=1.484e-5
+  flip code@256 gdn_out_proj occ=40 row=109 inc=536 twin=376 margin=5.639e-5
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x101ef5a20, queue=0x101efcb40)
+[i1225] f16b twin built PLACEBO (unpatched body — the control arm)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# placebo code@256: KL max 0.000e0 · top1 1/1 · flips 0 · worst_rel 0.000e0 → PASS
+# code@292: ref done (route back on)
+# code@328: ref done (route back on)
+# code@365: ref done (route back on)
+  flip code@365 ffn_up occ=28 row=85 inc=9474 twin=7633 margin=4.888e-5
+  flip code@365 ffn_gate occ=35 row=108 inc=198 twin=12228 margin=2.408e-5
+# code@401: ref done (route back on)
+  flip code@401 ffn_up occ=44 row=10 inc=12173 twin=14606 margin=6.437e-6
+# code@438: ref done (route back on)
+  flip code@438 ffn_gate occ=9 row=23 inc=757 twin=4345 margin=2.855e-5
+  flip code@438 gdn_in_proj_qkv occ=15 row=50 inc=9917 twin=4688 margin=2.146e-4
+  flip code@438 ffn_down occ=55 row=23 inc=941 twin=4391 margin=1.607e-4
+# code@474: ref done (route back on)
+  flip code@474 ffn_gate occ=47 row=46 inc=12158 twin=16626 margin=3.815e-6
+  flip code@474 ffn_down occ=50 row=79 inc=2144 twin=5016 margin=2.658e-5
+  flip code@474 ffn_down occ=58 row=14 inc=2933 twin=1539 margin=3.483e-4
+# code@511: ref done (route back on)
+  flip code@511 gdn_out_proj occ=28 row=86 inc=1737 twin=832 margin=6.121e-5
+  flip code@511 ffn_gate occ=47 row=46 inc=12158 twin=16626 margin=3.815e-6
+  flip code@511 gdn_out_proj occ=37 row=111 inc=74 twin=2349 margin=1.210e-5
+  flip code@511 ffn_down occ=50 row=79 inc=2144 twin=5016 margin=3.314e-5
+  flip code@511 ffn_down occ=58 row=14 inc=2933 twin=1539 margin=3.483e-4
+code   n= 8 · KL mean 2.009e-8 max 1.194e-7 nats · top1 8/8 · ΔNLL mean -1.962e-5 · NLL(ref) mean 0.232
+# math@256: ref done (route back on)
+  flip math@256 ffn_gate occ=8 row=45 inc=8481 twin=9869 margin=5.925e-5
+  flip math@256 ffn_gate occ=10 row=48 inc=5649 twin=6786 margin=3.433e-5
+  flip math@256 ffn_down occ=17 row=6 inc=974 twin=1384 margin=7.123e-6
+  flip math@256 attn_kv occ=4 row=80 inc=553 twin=957 margin=2.491e-4
+  flip math@256 ffn_gate occ=20 row=4 inc=11240 twin=6612 margin=7.176e-5
+  flip math@256 gdn_in_proj_qkv occ=31 row=116 inc=178 twin=5020 margin=5.512e-4
+  flip math@256 ffn_gate occ=47 row=44 inc=6277 twin=8587 margin=2.871e-4
+  flip math@256 attn_q occ=14 row=4 inc=11265 twin=9218 margin=6.609e-4
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x101ef5a20, queue=0x101efcb40)
+[i1225] f16b twin built PLACEBO (unpatched body — the control arm)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# placebo math@256: KL max 0.000e0 · top1 1/1 · flips 0 · worst_rel 0.000e0 → PASS
+# math@292: ref done (route back on)
+  flip math@292 attn_kv occ=0 row=11 inc=57 twin=290 margin=9.191e-5
+  flip math@292 ffn_gate occ=51 row=0 inc=2023 twin=15545 margin=2.375e-4
+# math@328: ref done (route back on)
+  flip math@328 attn_kv occ=0 row=11 inc=57 twin=290 margin=9.191e-5
+  flip math@328 gdn_out_proj occ=11 row=48 inc=3994 twin=736 margin=1.951e-5
+  flip math@328 gdn_out_proj occ=24 row=52 inc=1007 twin=1124 margin=1.836e-5
+  flip math@328 ffn_gate occ=51 row=0 inc=2023 twin=15545 margin=2.375e-4
+# math@365: ref done (route back on)
+  flip math@365 attn_kv occ=0 row=11 inc=57 twin=290 margin=9.191e-5
+  flip math@365 gdn_out_proj occ=11 row=48 inc=3994 twin=736 margin=1.951e-5
+  flip math@365 gdn_out_proj occ=24 row=52 inc=1007 twin=1124 margin=1.836e-5
+  flip math@365 ffn_up occ=42 row=92 inc=5079 twin=2888 margin=1.135e-4
+  flip math@365 ffn_gate occ=51 row=0 inc=2023 twin=15545 margin=2.375e-4
+# math@401: ref done (route back on)
+  flip math@401 attn_kv occ=9 row=11 inc=959 twin=640 margin=2.952e-4
+# math@438: ref done (route back on)
+  flip math@438 attn_q occ=2 row=20 inc=7737 twin=1081 margin=1.574e-4
+  flip math@438 attn_kv occ=2 row=30 inc=772 twin=810 margin=5.102e-5
+  flip math@438 ffn_up occ=21 row=35 inc=7588 twin=11764 margin=3.469e-5
+  flip math@438 ffn_up occ=38 row=22 inc=3439 twin=312 margin=4.053e-6
+# math@474: ref done (route back on)
+  flip math@474 attn_kv occ=2 row=30 inc=772 twin=810 margin=1.669e-5
+  flip math@474 ffn_down occ=15 row=14 inc=3994 twin=1583 margin=6.884e-6
+  flip math@474 ffn_up occ=21 row=35 inc=7588 twin=11764 margin=3.195e-5
+  flip math@474 gdn_in_proj_qkv occ=30 row=88 inc=1450 twin=181 margin=1.764e-4
+  flip math@474 attn_kv occ=10 row=34 inc=448 twin=139 margin=5.913e-5
+  flip math@474 ffn_up occ=49 row=66 inc=1208 twin=3004 margin=9.346e-5
+# math@511: ref done (route back on)
+  flip math@511 attn_kv occ=2 row=30 inc=772 twin=810 margin=1.669e-5
+  flip math@511 ffn_up occ=15 row=87 inc=15886 twin=2770 margin=1.800e-5
+  flip math@511 ffn_down occ=15 row=14 inc=3994 twin=1583 margin=6.884e-6
+  flip math@511 ffn_up occ=21 row=35 inc=7588 twin=11764 margin=3.195e-5
+  flip math@511 ffn_gate occ=23 row=102 inc=9595 twin=744 margin=7.081e-5
+  flip math@511 ffn_gate occ=40 row=113 inc=16788 twin=4500 margin=1.652e-4
+  flip math@511 attn_kv occ=10 row=34 inc=448 twin=139 margin=5.913e-5
+  flip math@511 ffn_up occ=49 row=66 inc=1208 twin=3004 margin=9.346e-5
+math   n= 8 · KL mean 2.361e-9 max 1.133e-8 nats · top1 8/8 · ΔNLL mean +2.882e-5 · NLL(ref) mean 0.363
+# prose@256: ref done (route back on)
+  flip prose@256 ffn_down occ=6 row=22 inc=4122 twin=2336 margin=5.245e-6
+  flip prose@256 ffn_gate occ=7 row=32 inc=9461 twin=7162 margin=2.193e-5
+  flip prose@256 ffn_gate occ=11 row=65 inc=6482 twin=14694 margin=1.031e-4
+  flip prose@256 gdn_in_proj_qkv occ=13 row=23 inc=2642 twin=4522 margin=1.640e-4
+  flip prose@256 ffn_down occ=19 row=84 inc=766 twin=3577 margin=6.098e-5
+  flip prose@256 ffn_up occ=22 row=3 inc=12623 twin=10573 margin=9.513e-5
+  flip prose@256 ffn_up occ=40 row=96 inc=15461 twin=13995 margin=1.669e-6
+  flip prose@256 gdn_in_proj_qkv occ=33 row=77 inc=3852 twin=3908 margin=1.812e-5
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x101ef5a20, queue=0x101efcb40)
+[i1225] f16b twin built PLACEBO (unpatched body — the control arm)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# placebo prose@256: KL max 0.000e0 · top1 1/1 · flips 0 · worst_rel 0.000e0 → PASS
+# prose@292: ref done (route back on)
+  flip prose@292 gdn_in_proj_z occ=12 row=12 inc=5411 twin=3376 margin=4.911e-5
+# prose@328: ref done (route back on)
+  flip prose@328 gdn_in_proj_z occ=12 row=12 inc=5411 twin=3376 margin=2.575e-5
+  flip prose@328 ffn_down occ=17 row=38 inc=1121 twin=3432 margin=1.884e-5
+  flip prose@328 ffn_gate occ=25 row=44 inc=4222 twin=6440 margin=1.180e-5
+  flip prose@328 gdn_in_proj_z occ=46 row=59 inc=938 twin=5576 margin=6.542e-4
+# prose@365: ref done (route back on)
+  flip prose@365 ffn_up occ=3 row=81 inc=1435 twin=3697 margin=2.730e-5
+  flip prose@365 gdn_in_proj_z occ=12 row=12 inc=5411 twin=3376 margin=2.575e-5
+  flip prose@365 ffn_down occ=17 row=38 inc=1121 twin=3432 margin=1.884e-5
+  flip prose@365 ffn_gate occ=25 row=44 inc=4222 twin=6440 margin=1.180e-5
+  flip prose@365 gdn_in_proj_z occ=46 row=59 inc=938 twin=5576 margin=6.542e-4
+  flip prose@365 ffn_down occ=61 row=106 inc=3281 twin=4183 margin=1.526e-4
+# prose@401: ref done (route back on)
+# prose@438: ref done (route back on)
+  flip prose@438 attn_q occ=2 row=45 inc=11833 twin=1334 margin=1.907e-5
+  flip prose@438 gdn_out_proj occ=22 row=22 inc=1089 twin=1590 margin=5.007e-6
+  flip prose@438 ffn_gate occ=36 row=53 inc=2768 twin=4191 margin=2.933e-5
+  flip prose@438 ffn_gate occ=41 row=7 inc=2753 twin=10187 margin=2.789e-4
+# prose@474: ref done (route back on)
+  flip prose@474 gdn_out_proj occ=3 row=71 inc=3994 twin=4387 margin=1.818e-6
+  flip prose@474 ffn_down occ=19 row=47 inc=2617 twin=254 margin=6.497e-6
+  flip prose@474 gdn_in_proj_qkv occ=19 row=71 inc=1696 twin=3422 margin=2.909e-4
+  flip prose@474 attn_q occ=7 row=35 inc=4641 twin=33 margin=1.335e-4
+  flip prose@474 attn_out_proj occ=7 row=22 inc=2768 twin=2565 margin=2.146e-6
+  flip prose@474 gdn_out_proj occ=29 row=85 inc=744 twin=3187 margin=2.143e-5
+  flip prose@474 ffn_gate occ=39 row=73 inc=4337 twin=12010 margin=2.310e-4
+  flip prose@474 ffn_gate occ=53 row=82 inc=8669 twin=14916 margin=3.419e-4
+# prose@511: ref done (route back on)
+  flip prose@511 gdn_out_proj occ=3 row=71 inc=3994 twin=4387 margin=1.818e-6
+  flip prose@511 ffn_up occ=13 row=89 inc=16481 twin=4558 margin=3.314e-5
+  flip prose@511 ffn_down occ=19 row=47 inc=2617 twin=254 margin=6.497e-6
+  flip prose@511 ffn_up occ=22 row=92 inc=7889 twin=10950 margin=1.765e-4
+  flip prose@511 attn_q occ=7 row=35 inc=4641 twin=33 margin=1.335e-4
+  flip prose@511 attn_out_proj occ=7 row=22 inc=2768 twin=2565 margin=2.146e-6
+  flip prose@511 gdn_in_proj_qkv occ=24 row=114 inc=1271 twin=3431 margin=3.352e-4
+  flip prose@511 gdn_in_proj_z occ=28 row=117 inc=332 twin=4413 margin=7.391e-5
+prose  n= 8 · KL mean 6.408e-8 max 3.773e-7 nats · top1 8/8 · ΔNLL mean +1.339e-4 · NLL(ref) mean 0.441
+# zh@256: ref done (route back on)
+  flip zh@256 ffn_gate occ=14 row=39 inc=3164 twin=15989 margin=3.242e-5
+  flip zh@256 ffn_up occ=27 row=83 inc=3277 twin=7547 margin=5.507e-5
+  flip zh@256 ffn_up occ=41 row=24 inc=13459 twin=10496 margin=5.698e-5
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x101ef5a20, queue=0x101efcb40)
+[i1225] f16b twin built PLACEBO (unpatched body — the control arm)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# placebo zh@256: KL max 0.000e0 · top1 1/1 · flips 0 · worst_rel 0.000e0 → PASS
+# zh@292: ref done (route back on)
+  flip zh@292 gdn_out_proj occ=34 row=13 inc=4040 twin=1490 margin=4.140e-5
+  flip zh@292 ffn_up occ=46 row=26 inc=10011 twin=9641 margin=1.862e-4
+  flip zh@292 attn_kv occ=11 row=19 inc=200 twin=375 margin=1.483e-4
+  flip zh@292 ffn_up occ=53 row=20 inc=6991 twin=1858 margin=1.836e-4
+# zh@328: ref done (route back on)
+  flip zh@328 ffn_down occ=20 row=39 inc=3041 twin=4589 margin=2.250e-5
+  flip zh@328 ffn_down occ=37 row=58 inc=2670 twin=3532 margin=4.333e-5
+  flip zh@328 ffn_gate occ=44 row=28 inc=10775 twin=10670 margin=1.044e-4
+  flip zh@328 gdn_in_proj_z occ=34 row=69 inc=2145 twin=5565 margin=3.510e-4
+  flip zh@328 gdn_out_proj occ=34 row=13 inc=1490 twin=4040 margin=3.326e-5
+  flip zh@328 attn_kv occ=11 row=19 inc=200 twin=375 margin=1.173e-4
+  flip zh@328 gdn_in_proj_z occ=46 row=58 inc=3608 twin=3648 margin=1.798e-4
+  flip zh@328 gdn_in_proj_z occ=47 row=56 inc=2955 twin=4888 margin=8.678e-5
+# zh@365: ref done (route back on)
+  flip zh@365 ffn_up occ=6 row=84 inc=10064 twin=14045 margin=2.092e-5
+  flip zh@365 gdn_in_proj_z occ=8 row=86 inc=3457 twin=3516 margin=2.885e-5
+  flip zh@365 ffn_down occ=20 row=39 inc=3041 twin=4589 margin=2.250e-5
+  flip zh@365 ffn_down occ=37 row=58 inc=2670 twin=3532 margin=4.333e-5
+  flip zh@365 ffn_gate occ=44 row=28 inc=10775 twin=10670 margin=1.044e-4
+  flip zh@365 gdn_in_proj_z occ=34 row=69 inc=2145 twin=5565 margin=3.510e-4
+  flip zh@365 gdn_out_proj occ=34 row=13 inc=1490 twin=4040 margin=3.326e-5
+  flip zh@365 attn_kv occ=11 row=19 inc=200 twin=375 margin=1.173e-4
+# zh@401: ref done (route back on)
+# zh@438: ref done (route back on)
+  flip zh@438 gdn_in_proj_z occ=7 row=35 inc=2936 twin=1288 margin=1.907e-5
+  flip zh@438 ffn_up occ=31 row=20 inc=5382 twin=15374 margin=4.578e-5
+  flip zh@438 ffn_down occ=31 row=26 inc=4435 twin=105 margin=1.663e-5
+  flip zh@438 ffn_up occ=45 row=45 inc=10899 twin=10907 margin=1.113e-4
+# zh@474: ref done (route back on)
+  flip zh@474 gdn_in_proj_z occ=7 row=35 inc=2936 twin=1288 margin=1.335e-5
+  flip zh@474 gdn_out_proj occ=20 row=83 inc=3615 twin=3227 margin=6.974e-6
+  flip zh@474 ffn_up occ=34 row=50 inc=10664 twin=16755 margin=5.865e-5
+  flip zh@474 gdn_out_proj occ=31 row=10 inc=191 twin=3463 margin=2.980e-7
+  flip zh@474 ffn_gate occ=41 row=46 inc=6072 twin=16300 margin=6.366e-5
+  flip zh@474 gdn_out_proj occ=37 row=31 inc=2164 twin=3776 margin=3.934e-6
+  flip zh@474 ffn_up occ=54 row=73 inc=8974 twin=16675 margin=2.522e-4
+# zh@511: ref done (route back on)
+  flip zh@511 gdn_in_proj_z occ=7 row=35 inc=2936 twin=1288 margin=1.335e-5
+  flip zh@511 gdn_out_proj occ=20 row=83 inc=3227 twin=3615 margin=6.080e-6
+  flip zh@511 ffn_up occ=34 row=50 inc=10664 twin=16755 margin=5.865e-5
+  flip zh@511 ffn_gate occ=39 row=123 inc=9900 twin=3198 margin=1.962e-4
+  flip zh@511 gdn_out_proj occ=31 row=10 inc=191 twin=3463 margin=2.980e-7
+  flip zh@511 ffn_gate occ=41 row=46 inc=6072 twin=16300 margin=6.366e-5
+  flip zh@511 ffn_down occ=47 row=73 inc=4202 twin=1116 margin=1.675e-5
+  flip zh@511 gdn_in_proj_z occ=37 row=98 inc=5641 twin=5381 margin=3.672e-5
+zh     n= 8 · KL mean 5.744e-7 max 3.856e-6 nats · top1 8/8 · ΔNLL mean -8.207e-5 · NLL(ref) mean 0.764
+
+── per-GEMM-family matched-input retention (strict) ──
+  family         instances       rows   flips flip_rate  worst_rel
+  attn_q               512      40512       5   1.23e-4  1.450e-4
+  attn_kv              512      40512      13   3.21e-4  3.117e-4
+  attn_out_proj        512      40512       2   4.94e-5  1.353e-4
+  gdn_in_proj_qkv      1536     121536       9   7.41e-5  1.085e-4
+  gdn_in_proj_z       1536     121536      21   1.73e-4  1.264e-4
+  gdn_in_proj_a          0          0       0       NaN  0.000e0 
+  (engagement note: gdn_in_proj_a admitted but zero twin instances — the incumbent never served this site in this stack either, T==R holds)
+  gdn_in_proj_b          0          0       0       NaN  0.000e0 
+  (engagement note: gdn_in_proj_b admitted but zero twin instances — the incumbent never served this site in this stack either, T==R holds)
+  gdn_out_proj        1536     121536      23   1.89e-4  1.598e-4
+  ffn_gate            2048     162048      27   1.67e-4  1.695e-4
+  ffn_up              2048     162048      30   1.85e-4  1.561e-4
+  ffn_down            2048     162048      22   1.36e-4  1.751e-4
+  other                  0          0       0       NaN  0.000e0 
+  (engagement note: other admitted but zero twin instances — the incumbent never served this site in this stack either, T==R holds)
+
+engagement totals: incumbent 41472 · twin 41472 → EQUAL
+
+WALK VERDICT strict: PASS — every pre-registered floor held; the twin route 
+graduates to the paired frame A/B (issue 1225 T3)
+[provenance end] 21:30  up 14 days, 10:28, 5 users, load averages: 2.51 3.42 3.60 · GPU-exclusive per the AGENTS rule (no sibling compute workload)
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 126.62s
+

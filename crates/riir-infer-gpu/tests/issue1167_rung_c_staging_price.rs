@@ -626,18 +626,11 @@ const PATCH_NO_STAGE: &[(&str, &str, usize)] = &[
 /// accumulator stays float. If mpp::tensor_ops::matmul2d rejects mixed
 /// half/half→float operands the twin compile FAILS LOUD and the lever is
 /// dead at the mpp level — that refusal is itself a bench-recordable result.
-const PATCH_F16_BODY: &[(&str, &str, usize)] = &[
-    (
-        "device const float* input_batch      [[buffer(3)]],   // X[P × K] row-major",
-        "device const half*   input_batch      [[buffer(3)]],   // X[P × K] row-major (G5 f16-B twin)",
-        1,
-    ),
-    (
-        "device float* input_rw = (device float*)(input_batch);",
-        "device half* input_rw = (device half*)(input_batch);",
-        1,
-    ),
-];
+/// CANONICAL HOME: `gemm_ternary_metal_zero_copy::F16_BODY_PATCHES` (the
+/// serving twin compiles from there; this test consumes the same const so
+/// the price cell and the serving twin can never drift apart).
+const PATCH_F16_BODY: &[(&str, &str, usize)] =
+    riir_infer_gpu::gemm_ternary_metal_zero_copy::F16_BODY_PATCHES;
 
 fn patches_for(kind: TwinKind) -> &'static [(&'static str, &'static str, usize)] {
     match kind {

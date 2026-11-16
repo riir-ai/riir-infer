@@ -165,6 +165,16 @@ production = [
 # consumers keep this off (issue 1182 T4 scope law).
 drift_guard = ["metal_tensor_gemm", "cubecl_runtime", "ternary_gemv"]
 
+# Issue 1225 — the f16-B serving twin (the Bench-1223 G5 lever, the last
+# named in-GEMM FFN lever, graduated OVER). OPT-IN, default-OFF per the
+# feature-flag discipline: the twin route + the per-launch cast fallback
+# compile only under this feature; the route itself is armed at runtime
+# (set_f16b_route — stage_gpu maps `RIIR_PREFILL_F16B=1` PROMOTE-ONLY).
+# Promotion to default is the T4 GOAT call (the lossy-surface decider T1 +
+# the frame A/B T3 must pass first). Implies the serving GEMM posture it
+# twins with; inert off-macOS (metal_tensor_gemm's dep leg is target-scoped).
+prefill_f16b = ["metal_tensor_gemm", "ternary_gemm_batched"]
+
 # The DQ phase-sensitivity fake-quant instrument (riir-infer Plan 614 /
 # Issue 026): on-device activation quantize→dequantize at five linear-input
 # sites per layer, per phase, on the folded ternary forward. Default-off —
@@ -987,6 +997,15 @@ required-features = ["metal_tensor_gemm", "cubecl_runtime", "ternary_gemv", "mul
 name = "issue1146_relaxed_kl"
 path = "tests/issue1146_relaxed_kl.rs"
 required-features = ["metal_tensor_gemm", "cubecl_runtime", "ternary_gemv", "multi_host", "ternary_gemm_batched", "riir-infer-core/bonsai2_hadamard"]
+
+# Issue 1225 — the f16-B retention walk (the T1 decider, pre-registered in
+# the issue BEFORE this twin landed; the file-level cfg empties it without
+# the twin feature). Run explicitly (--ignored, --release): see the file
+# header for the full command + the frozen floors.
+[[test]]
+name = "issue1225_f16b_retention_walk"
+path = "tests/issue1225_f16b_retention_walk.rs"
+required-features = ["prefill_f16b", "metal_tensor_gemm", "cubecl_runtime", "ternary_gemv", "multi_host", "ternary_gemm_batched", "ternary_gemm_simdgroup", "ternary_deltanet_chunked_prefill", "ternary_attention_batched_prefill", "riir-infer-core/bonsai2_hadamard"]
 
 [[test]]
 name = "issue1160_g0_collapse_probe"

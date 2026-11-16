@@ -3490,6 +3490,12 @@ pub struct TernaryDeltanetGpuForward {
     #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
     #[allow(dead_code, reason = "combo-scoped: read by the league prefill arms")]
     metal_zerocopy_gemm: Option<crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm>,
+    // Issue 1225 — the f16-B twin (feature `prefill_f16b`): constructed at
+    // `new()` when the twin route is armed (a construction-time posture —
+    // the compiled body pins placebo/f16 at build). `None` (route off, or a
+    // counted compile failure) leaves every site on the incumbent route.
+    #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+    metal_zerocopy_f16b: Option<crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm>,
     // riir-ai Plan 644 G4: ONE `[block × max(n−k)]` f32 scratch for every
     // channel-split seam's GPU suffix (seams are queue-serial, so one buffer
     // is reused in queue order) — sized at registration, never per seam.
@@ -4144,6 +4150,39 @@ impl TernaryDeltanetGpuForward {
                 );
                 None
             };
+
+        // Issue 1225: the f16-B twin — the same context at the patched body
+        // (or the placebo's unpatched body). CONSTRUCTION-TIME posture: pin
+        // `set_f16b_route`/`set_f16b_placebo` BEFORE `new` (the compiled body
+        // cannot flip). A compile failure demotes the route for this forward
+        // with one loud line; the walk's engagement gate catches the missing
+        // twin (the Issue-1124 T1.5 lesson, armed by construction).
+        #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+        let metal_zerocopy_f16b = if crate::prefill_f16b::f16b_route_armed() {
+            match (ctx.wgpu_device(), ctx.wgpu_queue()) {
+                (Some(device), Some(queue)) => {
+                    match crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm::new_f16b(
+                        device.clone(),
+                        queue.clone(),
+                    ) {
+                        Ok(twin) => Some(twin),
+                        Err(e) => {
+                            eprintln!(
+                                "[i1225] f16b twin compile FAILED ({e}) — route demoted \
+                                 for this forward"
+                            );
+                            None
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("[i1225] f16b route armed but no wgpu device/queue — demoted");
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         // Plan 550: initialize the ANE zero-copy IO context (raw device/queue
         // + the pack/unpack staging pipelines) — one OnceLock per process;
@@ -4894,6 +4933,8 @@ impl TernaryDeltanetGpuForward {
             metal_wgpu_gemm,
             #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
             metal_zerocopy_gemm,
+            #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+            metal_zerocopy_f16b,
             #[cfg(all(
                 feature = "ane_zc_channel_split",
                 target_os = "macos",
@@ -8946,6 +8987,54 @@ impl TernaryDeltanetGpuForward {
                 (Some(gemm), Some(cache)) => {
                     let t0 = (PREFILL_SITE_TIMING_ARMED.load(std::sync::atomic::Ordering::Relaxed))
                         .then(std::time::Instant::now);
+                    // Issue 1225: the f16-B twin route — armed postures only,
+                    // per-family admitted; a twin failure (dispatch or the
+                    // construction-time compile) falls through COUNTED, never
+                    // silently measuring the incumbent under the twin label
+                    // (the i1122 hazard's lesson, applied to the twin).
+                    #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+                    if crate::prefill_f16b::f16b_route_armed()
+                        && crate::prefill_f16b::f16b_site_admits(site)
+                    {
+                        match (&self.metal_zerocopy_f16b, &w.zerocopy_cache) {
+                            (Some(twin), Some(_)) => {
+                                let dispatched = if crate::prefill_f16b::placebo_pinned() {
+                                    twin.dispatch(client, cache, w, input, output, p)
+                                } else {
+                                    twin.dispatch_f16b(client, cache, w, input, output, p)
+                                };
+                                match dispatched {
+                                    Ok(()) => {
+                                        if crate::prefill_f16b::f16b_tap_armed() {
+                                            self.f16b_tap_site(gemm, cache, w, input, p, site);
+                                        }
+                                        if let Some(t0) = t0 {
+                                            prefill_site_timing_record(site, t0.elapsed());
+                                        }
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        eprintln!(
+                                            "[i1225] f16b twin dispatch failed ({e}) — falling \
+                                             through to the incumbent"
+                                        );
+                                    }
+                                }
+                            }
+                            (None, _) => {
+                                // One loud line per process: the route is
+                                // armed but the twin is absent (compile
+                                // failure / construction order) — the
+                                // incumbent below serves, counted.
+                                crate::prefill_f16b::warn_twin_missing_once();
+                            }
+                            (Some(_), None) => {
+                                // The weight has no zerocopy cache — the
+                                // incumbent arm below warns (i1122) and
+                                // falls through; nothing twin-shaped to do.
+                            }
+                        }
+                    }
                     if let Err(e) = gemm.dispatch(client, cache, w, input, output, p) {
                         eprintln!(
                             "[Issue 663 T5] zero-copy dispatch failed ({e}); falling through"
@@ -9328,6 +9417,74 @@ impl TernaryDeltanetGpuForward {
                 }
             }
         }
+    }
+
+    /// Issue 1225 — the matched-input retention tap (instrument-grade, tap
+    /// armed only): the INCUMBENT body dispatches the SAME input into its own
+    /// scratch (never the real output handle — the twin's result already
+    /// rides there), then one wait covers both command buffers (same queue,
+    /// in-order), and the two outputs tally per row into the census. The
+    /// wait + shared-memory reads serialize this site by design; the tap is
+    /// never armed in a timing run.
+    #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+    fn f16b_tap_site(
+        &self,
+        incumbent: &crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm,
+        cache: &crate::gemm_ternary_metal_zero_copy::ZeroCopyWeightCache,
+        w: &TernaryHandle,
+        input: &Handle,
+        p: usize,
+        site: PrefillSite,
+    ) {
+        let twin = match self.metal_zerocopy_f16b.as_ref() {
+            Some(t) => t,
+            None => return,
+        };
+        let occurrence = crate::prefill_f16b::f16b_tap_instances(site);
+        let scratch = match incumbent.dispatch_scratch(&self.client, cache, w, input, p) {
+            Ok(buf) => buf,
+            Err(e) => {
+                eprintln!("[i1225] tap scratch dispatch failed ({e}); site skipped");
+                return;
+            }
+        };
+        // The scratch committed AFTER the twin's buffer on the shared queue —
+        // one wait transitively completes the twin's commit too.
+        incumbent.wait_last();
+        let out_len_bytes = (p * w.m * std::mem::size_of::<f32>()) as u64;
+        let Some(twin_buf) = twin.dedicated_output_for(out_len_bytes) else {
+            eprintln!("[i1225] tap: twin dedicated output missing; site skipped");
+            return;
+        };
+        let n_elems = p * w.m;
+        // SAFETY: both buffers are StorageModeShared and their producing
+        // command buffers have completed (wait_last above); `contents()` is
+        // the CPU-coherent mapping.
+        let inc_slice =
+            unsafe { std::slice::from_raw_parts(scratch.contents() as *const f32, n_elems) };
+        let twin_slice =
+            unsafe { std::slice::from_raw_parts(twin_buf.contents() as *const f32, n_elems) };
+        crate::prefill_f16b::f16b_tap_tally(site, occurrence, inc_slice, twin_slice, p, w.m);
+    }
+
+    /// Issue 1225: the zero-copy dispatch counters (incumbent, twin) — the
+    /// walk's engagement gate reads them: at the same site mask, the twin's
+    /// dispatch total over the armed passes must equal the incumbent's
+    /// served-site total over the reference passes (a twin fallthrough —
+    /// compile failure, dispatch error — reads as T < R, a loud failure).
+    /// The tap's `dispatch_scratch` also increments the incumbent counter,
+    /// so deltas are taken across each pass type only.
+    #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+    pub fn f16b_route_dispatch_counts(&self) -> (u64, u64) {
+        let inc = self
+            .metal_zerocopy_gemm
+            .as_ref()
+            .map_or(0, |g| g.dispatch_count());
+        let twin = self
+            .metal_zerocopy_f16b
+            .as_ref()
+            .map_or(0, |g| g.dispatch_count());
+        (inc, twin)
     }
 
     /// Issue 726: configure the ANE hybrid prefill split (channel fraction,

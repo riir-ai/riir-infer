@@ -66,6 +66,70 @@ use crate::gemv_ternary_cubecl::TernaryHandle;
 /// directly via `metal::ComputePipelineState`.
 const MSL_SOURCE: &str = include_str!("gemm_ternary_metal_tensor.metal");
 
+/// Issue 1225 — the f16-B twin's two anchored patches (the Bench-1223 G5
+/// lever, now canonical HERE; the price-cell test consumes this const).
+/// The kernel signature's input pointer and the single downcast site —
+/// `tensor(input_rw, …)` infers its element type from the pointer, so the
+/// tensor op takes a half B with no further edits; the accumulator stays
+/// float. LOSSY by construction (the input rounds f32→f16, ≤ 2^-11 relative
+/// per element); the tolerance class + the Issue-1225 per-family retention
+/// decider are the quality gates. If mpp::tensor_ops::matmul2d rejects
+/// mixed half/half→float operands the twin compile FAILS LOUD at
+/// [`MetalTensorZeroCopyGemm::new_f16b`] and the route demotes counted —
+/// never a silently-mis-patched dispatch.
+///
+/// ⛔ Occurrence counts are asserted at twin compile ([`apply_patches_checked`])
+/// — a serving-source drift fails LOUD before any dispatch, the same guard
+/// the Bench-1223 instrument ran under.
+pub const F16_BODY_PATCHES: &[(&str, &str, usize)] = &[
+    (
+        "device const float* input_batch      [[buffer(3)]],   // X[P × K] row-major",
+        "device const half*   input_batch      [[buffer(3)]],   // X[P × K] row-major (i1225 f16-B twin)",
+        1,
+    ),
+    (
+        "device float* input_rw = (device float*)(input_batch);",
+        "device half* input_rw = (device half*)(input_batch);",
+        1,
+    ),
+];
+
+/// The f16-B cast kernel (appended to the twin's MSL library): one
+/// f32→f16 elementwise pass over the input, dispatched as the FIRST encoder
+/// of the twin's command buffer so the gemm encoder reads the rounded copy
+/// in the same commit (encoder order = guaranteed visibility within one
+/// command buffer). This is the per-launch cast fallback — the bounded
+/// worst case (measured 0.15–0.19 ms/launch, Bench 1223); a
+/// producer-writes-f16 serving shape is the tax-free upper bound.
+#[cfg(feature = "prefill_f16b")]
+const CAST_F16_MSL: &str = r#"
+kernel void cast_f32_f16_zc(device const float* src [[buffer(0)]],
+                            device half* dst [[buffer(1)]],
+                            constant uint& n [[buffer(2)]],
+                            uint gid [[thread_position_in_grid]]) {
+    if (gid < n) { dst[gid] = half(src[gid]); }
+}
+"#;
+
+/// Apply the twin patches with the occurrence-count drift guard: a find that
+/// matches a different number of times than pinned means the serving .metal
+/// moved — refuse LOUD, never emit a silently-mis-patched source.
+#[cfg(feature = "prefill_f16b")]
+fn apply_patches_checked(source: &str, patches: &[(&str, &str, usize)]) -> Result<String, String> {
+    let mut out = source.to_string();
+    for (find, replace, want) in patches {
+        let got = out.matches(find).count();
+        if got != *want {
+            return Err(format!(
+                "i1225 twin patch drift: find occurs {got}x, pin says {want}x — \
+                 the serving .metal moved; re-anchor F16_BODY_PATCHES"
+            ));
+        }
+        out = out.replacen(find, replace, *want);
+    }
+    Ok(out)
+}
+
 /// Cached raw weight buffer info for one ternary weight matrix.
 ///
 /// Stores the CubeCL handles + lazily-extracted raw buffer info. The raw
@@ -160,6 +224,21 @@ pub struct MetalTensorZeroCopyGemm {
     /// into their internals. Dropping these would invalidate `device` + `queue`.
     _wgpu_device: Arc<WgpuDevice>,
     _wgpu_queue: Arc<WgpuQueue>,
+    /// Issue 1225: the f16-B twin state (the patched pipeline replaces
+    /// `pipeline`; the cast pipeline + the dedicated f16 input cache live
+    /// here). `None` unless constructed via [`Self::new_f16b`] — and `None`
+    /// in the placebo posture (the control arm dispatches through the
+    /// unpatched [`Self::dispatch`] path).
+    #[cfg(feature = "prefill_f16b")]
+    f16b: Option<F16bState>,
+}
+
+/// Issue 1225: the f16-B twin's extra state (cast pipeline + the dedicated
+/// f16 input buffers, keyed by byte length — same shape as `output_cache`).
+#[cfg(feature = "prefill_f16b")]
+struct F16bState {
+    cast_pipeline: ComputePipelineState,
+    input_cache: Mutex<HashMap<u64, Buffer>>,
 }
 
 // SAFETY: The raw `id` pointers are Objective-C object pointers that can be
@@ -247,6 +326,8 @@ impl MetalTensorZeroCopyGemm {
             last_cmd_buffer: std::sync::Mutex::new(None),
             _wgpu_device: wgpu_device,
             _wgpu_queue: wgpu_queue,
+            #[cfg(feature = "prefill_f16b")]
+            f16b: None,
         })
     }
 
@@ -582,6 +663,316 @@ impl MetalTensorZeroCopyGemm {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Issue 1225 — the f16-B serving twin (feature `prefill_f16b`)
+    // -----------------------------------------------------------------------
+
+    /// Compile the f16-B twin: the serving zero-copy context at the
+    /// production geometry with [`F16_BODY_PATCHES`] applied to the MSL body
+    /// (B-side activations read `half`; accumulator stays float), plus the
+    /// cast kernel in the same library. The placebo posture
+    /// ([`crate::prefill_f16b::placebo_pinned`]) builds the UNPATCHED body
+    /// with no f16 state — the control arm dispatches through the standard
+    /// [`Self::dispatch`]. The flags (placebo included) must be pinned BEFORE
+    /// construction — the compiled body is a construction-time posture.
+    ///
+    /// The extra compile cost (the unpatched pipeline `new_with_config`
+    /// builds first) is accepted: one-time, opt-in lane, keeps the ctor
+    /// refactor out of the incumbent path.
+    #[cfg(feature = "prefill_f16b")]
+    pub fn new_f16b(
+        wgpu_device: Arc<WgpuDevice>,
+        wgpu_queue: Arc<WgpuQueue>,
+    ) -> Result<Self, String> {
+        let mut me = Self::new_with_config(
+            crate::gemm_ternary_metal_tensor::production_geometry(),
+            wgpu_device,
+            wgpu_queue,
+        )?;
+        if crate::prefill_f16b::placebo_pinned() {
+            eprintln!("[i1225] f16b twin built PLACEBO (unpatched body — the control arm)");
+            return Ok(me);
+        }
+        let patched = apply_patches_checked(MSL_SOURCE, F16_BODY_PATCHES)?;
+        let mut source = crate::gemm_ternary_metal_tensor::compose_msl_source(me.config, &patched);
+        source.push_str(CAST_F16_MSL);
+        let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(me.device) };
+        let library = device_ref
+            .new_library_with_source(source.as_str(), &CompileOptions::new())
+            .map_err(|e| format!("f16b twin MSL compilation failed: {e}"))?;
+        let gemm_fn = library
+            .get_function("gemm_ternary_tensor", None)
+            .map_err(|e| format!("f16b twin: function not found: {e}"))?;
+        me.pipeline = device_ref
+            .new_compute_pipeline_state_with_function(&gemm_fn)
+            .map_err(|e| format!("f16b twin pipeline failed: {e}"))?;
+        let cast_fn = library
+            .get_function("cast_f32_f16_zc", None)
+            .map_err(|e| format!("f16b twin cast kernel not found: {e}"))?;
+        let cast_pipeline = device_ref
+            .new_compute_pipeline_state_with_function(&cast_fn)
+            .map_err(|e| format!("f16b cast pipeline failed: {e}"))?;
+        me.f16b = Some(F16bState {
+            cast_pipeline,
+            input_cache: Mutex::new(HashMap::new()),
+        });
+        eprintln!("[i1225] f16b twin compiled (patched B-side half; cast kernel armed)");
+        Ok(me)
+    }
+
+    /// The f16-B twin dispatch: ONE command buffer carrying the cast encoder
+    /// (f32 input → dedicated f16 copy) → the patched gemm encoder (reads the
+    /// f16 copy) → the blit back to the CubeCL output handle. Same queue, so
+    /// CubeCL ordering and the in-buffer encoder ordering make the rounded
+    /// copy visible to the gemm and the result visible to the next consumer.
+    /// The per-launch cast is the bounded worst case (Bench 1223: 0.15–0.19
+    /// ms/launch); a producer-writes-f16 shape removes it from the frame.
+    #[cfg(feature = "prefill_f16b")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch_f16b(
+        &self,
+        client: &ComputeClient<ActiveRuntime>,
+        weights: &ZeroCopyWeightCache,
+        w: &TernaryHandle,
+        input: &Handle,
+        output: &Handle,
+        p: usize,
+    ) -> Result<(), String> {
+        let Some(f16b) = self.f16b.as_ref() else {
+            return Err(
+                "f16b twin has no f16 state (built in the placebo posture) — pin the \
+                 posture BEFORE construction"
+                    .to_string(),
+            );
+        };
+        // Same submission-ordering + zero-init law as `dispatch` (Issue 670
+        // T4 / Issue 1146 lazy-clear).
+        let _ = client.flush();
+        self.ensure_wgpu_initialized(client, output, p * w.m)?;
+
+        let (pos_ptr, pos_off) = Self::extract_raw_buffer(client, &weights.pos)?;
+        let (neg_ptr, neg_off) = Self::extract_raw_buffer(client, &weights.neg)?;
+        let (scale_ptr, scale_off) = Self::extract_raw_buffer(client, &weights.scale)?;
+        let (input_ptr, input_off) = Self::extract_raw_buffer(client, input)?;
+        let (output_ptr, output_off) = Self::extract_raw_buffer(client, output)?;
+
+        let input_ref: &BufferRef = unsafe { BufferRef::from_ptr(input_ptr) };
+        let pos_ref: &BufferRef = unsafe { BufferRef::from_ptr(pos_ptr) };
+        let neg_ref: &BufferRef = unsafe { BufferRef::from_ptr(neg_ptr) };
+        let scale_ref: &BufferRef = unsafe { BufferRef::from_ptr(scale_ptr) };
+        let cubecl_output_ref: &BufferRef = unsafe { BufferRef::from_ptr(output_ptr) };
+
+        // Dedicated f16 input copy + dedicated output (the same
+        // pool-aliasing law as `dispatch`'s output buffer).
+        let f16_bytes = (p * w.n * std::mem::size_of::<u16>()) as u64;
+        let f16_input = {
+            let mut cache = f16b.input_cache.lock().unwrap();
+            cache
+                .entry(f16_bytes)
+                .or_insert_with(|| {
+                    let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
+                    device_ref.new_buffer(f16_bytes, MTLResourceOptions::StorageModeShared)
+                })
+                .clone()
+        };
+        let output_bytes = (p * w.m * std::mem::size_of::<f32>()) as u64;
+        let dedicated_output = self.dedicated_output(output_bytes);
+
+        let nra = u64::from(self.config.nra);
+        let nrb = u64::from(self.config.nrb);
+        let num_threads = u64::from(32 * self.config.nsg);
+        let threadgroup_mem_bytes = if self.double_buffered {
+            self.config.threadgroup_mem_bytes() * 2
+        } else {
+            self.config.threadgroup_mem_bytes()
+        };
+        let grid = MTLSize {
+            width: (p as u64).div_ceil(nrb),
+            height: (w.m as u64).div_ceil(nra),
+            depth: 1,
+        };
+        let threadgroup = MTLSize {
+            width: num_threads,
+            height: 1,
+            depth: 1,
+        };
+
+        let blocks64: u32 = w.blocks64 as u32;
+        let groups_per_row: u32 = w.groups_per_row as u32;
+        let n: u32 = w.n as u32;
+        let m: u32 = w.m as u32;
+        let p_tokens: u32 = p as u32;
+
+        let queue_ref: &CommandQueueRef = unsafe { CommandQueueRef::from_ptr(self.queue) };
+        let cmd_buffer = queue_ref.new_command_buffer();
+
+        // Encoder 1: the cast (f32 → f16 dedicated copy).
+        {
+            let cast_n: u32 = p_tokens * n;
+            let enc = cmd_buffer.new_compute_command_encoder();
+            enc.set_compute_pipeline_state(&f16b.cast_pipeline);
+            enc.set_buffer(0, Some(input_ref), input_off);
+            enc.set_buffer(1, Some(&f16_input), 0);
+            enc.set_bytes(2, 4, &cast_n as *const u32 as *const _);
+            enc.use_resource(input_ref, MTLResourceUsage::Read);
+            enc.use_resource(&f16_input, MTLResourceUsage::Write);
+            let cast_grid = MTLSize {
+                width: (u64::from(p_tokens) * u64::from(n)).div_ceil(256),
+                height: 1,
+                depth: 1,
+            };
+            let cast_tg = MTLSize {
+                width: 256,
+                height: 1,
+                depth: 1,
+            };
+            enc.dispatch_thread_groups(cast_grid, cast_tg);
+            enc.end_encoding();
+        }
+
+        // Encoder 2: the patched gemm — input binding is the f16 copy.
+        {
+            let encoder = cmd_buffer.new_compute_command_encoder();
+            encoder.set_compute_pipeline_state(&self.pipeline);
+            encoder.set_buffer(0, Some(pos_ref), pos_off);
+            encoder.set_buffer(1, Some(neg_ref), neg_off);
+            encoder.set_buffer(2, Some(scale_ref), scale_off);
+            encoder.set_buffer(3, Some(&f16_input), 0);
+            encoder.set_buffer(4, Some(&dedicated_output), 0);
+            encoder.set_bytes(5, 4, &blocks64 as *const u32 as *const _);
+            encoder.set_bytes(6, 4, &groups_per_row as *const u32 as *const _);
+            encoder.set_bytes(7, 4, &n as *const u32 as *const _);
+            encoder.set_bytes(8, 4, &m as *const u32 as *const _);
+            encoder.set_bytes(9, 4, &p_tokens as *const u32 as *const _);
+            encoder.set_threadgroup_memory_length(0, threadgroup_mem_bytes);
+            encoder.use_resource(pos_ref, MTLResourceUsage::Read);
+            encoder.use_resource(neg_ref, MTLResourceUsage::Read);
+            encoder.use_resource(scale_ref, MTLResourceUsage::Read);
+            encoder.use_resource(&f16_input, MTLResourceUsage::Read);
+            encoder.use_resource(&dedicated_output, MTLResourceUsage::Write);
+            encoder.dispatch_thread_groups(grid, threadgroup);
+            encoder.end_encoding();
+        }
+
+        // Blit back to the CubeCL output handle (same-command-buffer ordering).
+        {
+            let blit = cmd_buffer.new_blit_command_encoder();
+            blit.copy_from_buffer(
+                &dedicated_output,
+                0,
+                cubecl_output_ref,
+                output_off,
+                output_bytes,
+            );
+            blit.end_encoding();
+        }
+
+        cmd_buffer.commit();
+        *self.last_cmd_buffer.lock().expect("last_cmd_buffer lock") = Some(cmd_buffer.to_owned());
+        self.dispatch_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Tap-only dispatch (the Issue-1225 retention walk): the incumbent body
+    /// into THIS instance's own dedicated output — NO blit, so the real
+    /// output handle (already carrying the twin's result) is untouched.
+    /// Returns the dedicated buffer; the caller waits
+    /// ([`Self::wait_last`]) and reads it before the next dispatch reuses
+    /// it. The tap is instrument-grade: it serializes per site by design.
+    #[cfg(feature = "prefill_f16b")]
+    pub fn dispatch_scratch(
+        &self,
+        client: &ComputeClient<ActiveRuntime>,
+        weights: &ZeroCopyWeightCache,
+        w: &TernaryHandle,
+        input: &Handle,
+        p: usize,
+    ) -> Result<Buffer, String> {
+        let _ = client.flush();
+        let (pos_ptr, pos_off) = Self::extract_raw_buffer(client, &weights.pos)?;
+        let (neg_ptr, neg_off) = Self::extract_raw_buffer(client, &weights.neg)?;
+        let (scale_ptr, scale_off) = Self::extract_raw_buffer(client, &weights.scale)?;
+        let (input_ptr, input_off) = Self::extract_raw_buffer(client, input)?;
+        let input_ref: &BufferRef = unsafe { BufferRef::from_ptr(input_ptr) };
+        let pos_ref: &BufferRef = unsafe { BufferRef::from_ptr(pos_ptr) };
+        let neg_ref: &BufferRef = unsafe { BufferRef::from_ptr(neg_ptr) };
+        let scale_ref: &BufferRef = unsafe { BufferRef::from_ptr(scale_ptr) };
+
+        let output_bytes = (p * w.m * std::mem::size_of::<f32>()) as u64;
+        let dedicated_output = self.dedicated_output(output_bytes);
+
+        let nra = u64::from(self.config.nra);
+        let nrb = u64::from(self.config.nrb);
+        let num_threads = u64::from(32 * self.config.nsg);
+        let threadgroup_mem_bytes = if self.double_buffered {
+            self.config.threadgroup_mem_bytes() * 2
+        } else {
+            self.config.threadgroup_mem_bytes()
+        };
+        let grid = MTLSize {
+            width: (p as u64).div_ceil(nrb),
+            height: (w.m as u64).div_ceil(nra),
+            depth: 1,
+        };
+        let threadgroup = MTLSize {
+            width: num_threads,
+            height: 1,
+            depth: 1,
+        };
+
+        let queue_ref: &CommandQueueRef = unsafe { CommandQueueRef::from_ptr(self.queue) };
+        let cmd_buffer = queue_ref.new_command_buffer();
+        let encoder = cmd_buffer.new_compute_command_encoder();
+        encoder.set_compute_pipeline_state(&self.pipeline);
+        encoder.set_buffer(0, Some(pos_ref), pos_off);
+        encoder.set_buffer(1, Some(neg_ref), neg_off);
+        encoder.set_buffer(2, Some(scale_ref), scale_off);
+        encoder.set_buffer(3, Some(input_ref), input_off);
+        encoder.set_buffer(4, Some(&dedicated_output), 0);
+        encoder.set_bytes(5, 4, &(w.blocks64 as u32) as *const u32 as *const _);
+        encoder.set_bytes(6, 4, &(w.groups_per_row as u32) as *const u32 as *const _);
+        encoder.set_bytes(7, 4, &(w.n as u32) as *const u32 as *const _);
+        encoder.set_bytes(8, 4, &(w.m as u32) as *const u32 as *const _);
+        encoder.set_bytes(9, 4, &(p as u32) as *const u32 as *const _);
+        encoder.set_threadgroup_memory_length(0, threadgroup_mem_bytes);
+        encoder.use_resource(pos_ref, MTLResourceUsage::Read);
+        encoder.use_resource(neg_ref, MTLResourceUsage::Read);
+        encoder.use_resource(scale_ref, MTLResourceUsage::Read);
+        encoder.use_resource(input_ref, MTLResourceUsage::Read);
+        encoder.use_resource(&dedicated_output, MTLResourceUsage::Write);
+        encoder.dispatch_thread_groups(grid, threadgroup);
+        encoder.end_encoding();
+        cmd_buffer.commit();
+        *self.last_cmd_buffer.lock().expect("last_cmd_buffer lock") = Some(cmd_buffer.to_owned());
+        self.dispatch_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(dedicated_output)
+    }
+
+    /// The dedicated output buffer last written for `byte_len` (the tap reads
+    /// the twin's result from here after [`Self::wait_last`]).
+    #[cfg(feature = "prefill_f16b")]
+    pub fn dedicated_output_for(&self, byte_len: u64) -> Option<Buffer> {
+        self.output_cache.lock().unwrap().get(&byte_len).cloned()
+    }
+
+    /// Allocate-or-reuse a dedicated output buffer of `byte_len` (the shared
+    /// body of `dispatch_f16b`/`dispatch_scratch`; plain `dispatch` keeps its
+    /// inline copy — the incumbent path is never refactored under an opt-in
+    /// lane).
+    #[cfg(feature = "prefill_f16b")]
+    fn dedicated_output(&self, byte_len: u64) -> Buffer {
+        let mut cache = self.output_cache.lock().unwrap();
+        cache
+            .entry(byte_len)
+            .or_insert_with(|| {
+                let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
+                device_ref.new_buffer(byte_len, MTLResourceOptions::StorageModeShared)
+            })
+            .clone()
     }
 
     /// Convenience: get the device pointer (for T4b-style device-equality checks).

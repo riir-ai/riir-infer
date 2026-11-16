@@ -84,10 +84,6 @@ pub mod elementwise_cubecl;
 // Issue 1222 — the batched lens R-sweep lane (kernels + host driver;
 // offline diagnostics, never a serving path). `lens_gpu` forwards
 // riir-infer-core's `lens` feature so the capture/weight types resolve.
-#[cfg(feature = "lens_gpu")]
-pub mod lens_batch;
-#[cfg(feature = "lens_gpu")]
-pub mod lens_batch_kernels;
 #[cfg(feature = "cubecl_runtime")]
 pub mod encoder_lane_cubecl;
 #[cfg(feature = "cubecl_runtime")]
@@ -120,6 +116,10 @@ pub mod gemv_q4k_lanesliced_cubecl;
 pub mod gemv_qkv_f16_cubecl;
 #[cfg(feature = "cubecl_runtime")]
 pub mod gemv_qkv_q4k_cubecl;
+#[cfg(feature = "lens_gpu")]
+pub mod lens_batch;
+#[cfg(feature = "lens_gpu")]
+pub mod lens_batch_kernels;
 #[cfg(feature = "cubecl_runtime")]
 pub mod matmul_cubecl;
 #[cfg(feature = "swap_ab_gemm")]
@@ -351,6 +351,11 @@ pub mod prefill_cuda_gdn_mma;
     not(target_os = "macos")
 ))]
 pub mod prefill_cuda_mma;
+/// Issue 1225 — the f16-B serving twin lane (route latches, per-family
+/// admission, the matched-input retention tap census). Opt-in
+/// `prefill_f16b` feature; the module doc carries the env-switch posture.
+#[cfg(feature = "prefill_f16b")]
+pub mod prefill_f16b;
 #[cfg(feature = "ternary_gemv")]
 pub mod ternary_ffn_fused;
 
@@ -734,6 +739,14 @@ pub use ternary_deltanet_gpu_forward::DequantWteRowsCubeCL;
     target_os = "macos"
 ))]
 pub use ternary_deltanet_gpu_forward::set_prefill_use_metal_tensor_zerocopy;
+// Issue 1225 — the f16-B twin's walk-facing API (the walk pins these
+// setters; stage_gpu arms them from the envs).
+#[cfg(feature = "prefill_f16b")]
+pub use prefill_f16b::{
+    F16B_SITE_MASK_ALL, f16b_flip_samples, f16b_route_armed, f16b_site_admits, f16b_tap_armed,
+    f16b_tap_reset, f16b_tap_snapshot, set_f16b_placebo, set_f16b_route, set_f16b_site_mask,
+    set_f16b_tap,
+};
 #[cfg(all(feature = "ternary_gemm_batched", feature = "ternary_gemm_simdgroup"))]
 pub use ternary_deltanet_gpu_forward::set_prefill_use_simdgroup;
 #[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
