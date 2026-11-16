@@ -1442,7 +1442,70 @@ fn g3_insitu_ablation_twins_at_serving_posture() {
 // baseline − packed is the ADDRESSABLE load+ALU delta in situ, not an
 // ablation bound, and the bit-identity check is the correctness anchor a
 // future packed serving kernel inherits for free.
+//
+// Issue 1224 (Bench 1222): the launch-weighted projection is a rung-C-class
+// instrument — calibrated on the barrier-elimination effect (multi-ms per
+// launch). At decode-effect magnitudes (sub-1%-of-wall deltas, Δ-ranges
+// straddling zero) the up-to-1024-launch weights multiply noise into
+// double-digit fake "e2e" percentages in EITHER direction (measured: −15.4%
+// then +17.5% on the same cell). The verdict therefore goes through
+// [`projection_verdict`]: sign-consistent evidence prints the percentage
+// against the bar; noise-only evidence prints UNDECIDABLE and the raw
+// number, never a verdict.
 // ---------------------------------------------------------------------------
+
+/// One weighted projection row's evidence (Bench 1222 / issue 1224).
+struct ProjectionRow {
+    /// median per-launch delta (baseline − packed), ms.
+    delta_ms: f64,
+    /// (b_lo − t_hi, b_hi − t_lo) in ms — the arms' observed-range gap:
+    /// `> 0` left ⇒ even the fastest baseline is slower than the slowest
+    /// packed run (packed consistently faster); `< 0` right ⇒ packed
+    /// consistently slower; both signs inside ⇒ the row straddles zero.
+    range_lo_ms: f64,
+    range_hi_ms: f64,
+    /// launches this row contributes per frame (per-chunk weight × chunks).
+    weight_launches: u64,
+}
+
+/// The projection verdict at a given e2e bar (percent of the frame ref).
+enum ProjectionVerdict {
+    /// Sign-consistent evidence at/over the bar — graduate.
+    Over(f64),
+    /// Sign-consistent evidence under the bar — close NEGATIVE on the price.
+    Under(f64),
+    /// EVERY weighted row's observed range straddles zero — the projection
+    /// number is a noise multiplier at this effect size; print the raw ms,
+    /// never a bar verdict.
+    Undecidable(f64),
+}
+
+/// The frame share (percent) the rows project, and whether the evidence
+/// supports reading it. A row is sign-consistent when its observed ranges
+/// separate the arms (packed always faster or always slower); if NO row is,
+/// the projection is noise folded through the launch weights (Bench 1222:
+/// −15.4% then +17.5% on the same cell) and must not adjudicate the bar.
+fn projection_verdict(
+    rows: &[ProjectionRow],
+    frame_ref_ms: f64,
+    bar_pct: f64,
+) -> ProjectionVerdict {
+    let ms: f64 = rows
+        .iter()
+        .map(|r| r.delta_ms * r.weight_launches as f64)
+        .sum();
+    let share = ms / frame_ref_ms * 100.0;
+    let any_consistent = rows
+        .iter()
+        .any(|r| r.range_lo_ms > 0.0 || r.range_hi_ms < 0.0);
+    if !any_consistent {
+        ProjectionVerdict::Undecidable(ms)
+    } else if share >= bar_pct {
+        ProjectionVerdict::Over(share)
+    } else {
+        ProjectionVerdict::Under(share)
+    }
+}
 
 /// Per-chunk GEMM launches the frame projection weights (the Bench-937
 /// census posture: `I1146C_CHUNK=512` chunks, `I1146C_FRAMES=8` per frame —
@@ -1500,7 +1563,10 @@ fn g4_packed_body_price_at_serving_posture() {
         .unwrap_or(500.86);
 
     let cfg = MetalTileConfig::KTILE64;
-    let twins = [(TwinKind::Baseline, "baseline"), (TwinKind::PackedBody, "packed")];
+    let twins = [
+        (TwinKind::Baseline, "baseline"),
+        (TwinKind::PackedBody, "packed"),
+    ];
     let compiled: Vec<(TwinKind, &str, ServingTwin)> = twins
         .iter()
         .filter_map(|&(kind, name)| match ServingTwin::new(cfg, kind) {
@@ -1522,8 +1588,9 @@ fn g4_packed_body_price_at_serving_posture() {
          · rounds={rounds} launches={launches} · buffers uploaded once per (shape, P)"
     );
 
-    // Per-P projection accumulators (ms/frame): Σ delta × launches/chunk × 8.
-    let mut projection = vec![0.0f64; ps.len()];
+    // Per-P projection evidence rows (ms/frame); the verdict is [`projection_verdict`]'s,
+    // not the raw sum — Bench 1222: the sum mints ±15–17% from sub-noise deltas.
+    let mut rows_per_p: Vec<Vec<ProjectionRow>> = (0..ps.len()).map(|_| Vec::new()).collect();
 
     for shape_ref in shapes.iter() {
         let (shape_name, m, n) = (shape_ref.0.as_str(), shape_ref.1, shape_ref.2);
@@ -1638,23 +1705,107 @@ fn g4_packed_body_price_at_serving_posture() {
             if weight == 0 {
                 println!("  (not in the frame projection weight table — raw row only)");
             } else {
-                projection[pi] += delta * 1e3 * (weight as f64) * 8.0;
+                rows_per_p[pi].push(ProjectionRow {
+                    delta_ms: delta * 1e3,
+                    range_lo_ms: (b_lo - t_hi) * 1e3,
+                    range_hi_ms: (b_hi - t_lo) * 1e3,
+                    weight_launches: (weight as u64) * 8,
+                });
             }
         }
     }
 
     for (pi, &p) in ps.iter().enumerate() {
-        let share = projection[pi] / frame_ref_ms * 100.0;
-        println!(
-            "\nPACKED PRICE projection P={p}: {:.2} ms/frame vs the {:.2} ms Bench-937 frame \
-             = {:.2}% e2e (bar 1.5% = {:.2} ms) — {}",
-            projection[pi],
-            frame_ref_ms,
-            share,
-            frame_ref_ms * 0.015,
-            if share >= 1.5 { "OVER — a G1 serving twin + decider A/B is justified" } else { "UNDER — the packed rung closes NEGATIVE on the measured price" }
-        );
+        let raw_ms: f64 = rows_per_p[pi]
+            .iter()
+            .map(|r| r.delta_ms * r.weight_launches as f64)
+            .sum();
+        match projection_verdict(&rows_per_p[pi], frame_ref_ms, 1.5) {
+            ProjectionVerdict::Undecidable(raw) => println!(
+                "\nPACKED PRICE projection P={p}: {:.2} ms/frame raw vs the {:.2} ms Bench-937 frame \
+                 — UNDECIDABLE: every weighted row's Δ-range straddles zero, so the projection is a \
+                 noise multiplier at this effect size (issue 1224) — adjudicate on the per-launch \
+                 parity rows above, not this sum",
+                raw, frame_ref_ms
+            ),
+            ProjectionVerdict::Over(share) => println!(
+                "\nPACKED PRICE projection P={p}: {:.2} ms/frame vs the {:.2} ms Bench-937 frame \
+                 = {:.2}% e2e (bar 1.5% = {:.2} ms) — OVER (sign-consistent evidence) — a G1 \
+                 serving twin + decider A/B is justified",
+                raw_ms,
+                frame_ref_ms,
+                share,
+                frame_ref_ms * 0.015
+            ),
+            ProjectionVerdict::Under(share) => println!(
+                "\nPACKED PRICE projection P={p}: {:.2} ms/frame vs the {:.2} ms Bench-937 frame \
+                 = {:.2}% e2e (bar 1.5% = {:.2} ms) — UNDER (sign-consistent evidence) — the packed \
+                 rung closes NEGATIVE on the measured price",
+                raw_ms,
+                frame_ref_ms,
+                share,
+                frame_ref_ms * 0.015
+            ),
+        }
     }
 
     print_provenance("end");
+}
+
+// ---------------------------------------------------------------------------
+// The projection-verdict guard's own arithmetic (issue 1224) — pure, no GPU.
+// Acceptance: a noise-only row set prints UNDECIDABLE, never a bar verdict;
+// one sign-consistent row restores the percentage verdict in both directions.
+// ---------------------------------------------------------------------------
+#[test]
+fn projection_verdict_guard_arithmetic() {
+    let frame_ref_ms = 500.86;
+    let bar = 1.5;
+    let noise_rows = |d: f64| ProjectionRow {
+        delta_ms: d,
+        range_lo_ms: d - 1.0,
+        range_hi_ms: d + 1.0,
+        weight_launches: 1024,
+    };
+
+    // Bench 1222's actual posture: every row straddles zero (range_lo ≤ 0 ≤ range_hi).
+    let rows = vec![noise_rows(0.044), noise_rows(-0.007), noise_rows(0.026)];
+    match projection_verdict(&rows, frame_ref_ms, bar) {
+        ProjectionVerdict::Undecidable(_) => {}
+        _ => panic!("all-straddle rows must read UNDECIDABLE, never a bar verdict"),
+    }
+
+    // One sign-consistent row (packed always faster: range_lo > 0) restores the
+    // percentage verdict — and the consistent row dominates the sum's direction.
+    let mut rows = vec![noise_rows(0.044)];
+    rows.push(ProjectionRow {
+        delta_ms: 0.6,
+        range_lo_ms: 0.2,
+        range_hi_ms: 1.0,
+        weight_launches: 1024,
+    });
+    match projection_verdict(&rows, frame_ref_ms, bar) {
+        ProjectionVerdict::Over(share) => {
+            assert!(share >= bar, "0.6ms × 1024 / 500.86 must clear the bar")
+        }
+        _ => panic!("a sign-consistent over-bar row must read OVER"),
+    }
+
+    // Sign-consistent under-bar: packed consistently slower, tiny share.
+    let rows = vec![ProjectionRow {
+        delta_ms: -0.01,
+        range_lo_ms: -0.05,
+        range_hi_ms: -0.002,
+        weight_launches: 1024,
+    }];
+    match projection_verdict(&rows, frame_ref_ms, bar) {
+        ProjectionVerdict::Under(share) => assert!(share < bar && share < 0.0),
+        _ => panic!("a sign-consistent under-bar row must read UNDER"),
+    }
+
+    // Empty evidence (no weighted rows) is UNDECIDABLE too — never a 0% verdict.
+    match projection_verdict(&[], frame_ref_ms, bar) {
+        ProjectionVerdict::Undecidable(_) => {}
+        _ => panic!("empty evidence must read UNDECIDABLE"),
+    }
 }
