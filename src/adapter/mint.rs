@@ -123,12 +123,7 @@ pub fn random_keep(n: usize, rate: f64, seed: u64) -> Vec<bool> {
 /// cols, the input dimension). Score `w_ij² / d_j²`, delete the k
 /// smallest (cheap-to-delete weights), ascending-index ties. Pure
 /// selection — the returned mask is the RIMSK v1 class.
-pub fn obs_keep(
-    weights: &[f32],
-    h_inv_diag: &[f32],
-    cols: usize,
-    rate: f64,
-) -> Vec<bool> {
+pub fn obs_keep(weights: &[f32], h_inv_diag: &[f32], cols: usize, rate: f64) -> Vec<bool> {
     assert_eq!(
         weights.len() % cols,
         0,
@@ -422,7 +417,10 @@ mod tests {
             wanda_tau_keep(&s, 0.5),
             vec![true, true, true, true, true, false]
         );
-        assert_eq!(wanda_tau_keep(&s, 0.6), vec![true, false, false, true, false, false]);
+        assert_eq!(
+            wanda_tau_keep(&s, 0.6),
+            vec![true, false, false, true, false, false]
+        );
         // τ from rate: rate 1/3 of 6 → k=2 → delete the two smallest
         // (0.0 then the first 0.5, ascending-index tie) → τ = 0.5.
         let tau = wanda_tau_for_rate(&s, 1.0 / 3.0);
@@ -434,7 +432,10 @@ mod tests {
     #[test]
     fn magnitude_floor_hand_computed() {
         let w = [-2.0_f32, 1.0, 0.5, 4.0, -1.0, 0.0];
-        assert_eq!(magnitude_keep(&w, 1.0 / 3.0), vec![true, true, false, true, true, false]);
+        assert_eq!(
+            magnitude_keep(&w, 1.0 / 3.0),
+            vec![true, true, false, true, true, false]
+        );
         // Tie law: |1| == |−1| → delete the FIRST index.
         let t = [1.0_f32, -1.0, 2.0];
         assert_eq!(magnitude_keep(&t, 1.0 / 3.0), vec![false, true, true]);
@@ -458,7 +459,10 @@ mod tests {
         // DIFFERENT columns — the metric axis is real, not renaming.
         let w = [1.0_f32, 100.0, 3.0];
         let hinv_diag = [1.0_f32, 1.0, 100.0];
-        assert_eq!(obs_keep(&w, &hinv_diag, 3, 1.0 / 3.0), vec![true, true, false]);
+        assert_eq!(
+            obs_keep(&w, &hinv_diag, 3, 1.0 / 3.0),
+            vec![true, true, false]
+        );
         assert_eq!(magnitude_keep(&w, 1.0 / 3.0), vec![false, true, true]);
     }
 
@@ -472,9 +476,10 @@ mod tests {
         let out = sparsegpt_reconstruct(&w, &h, 2, 0.5, 128, 0.01);
         assert_eq!(out.keep, vec![false, true]);
         assert_eq!(out.compensated, vec![0.0, 5.0]);
-        // loss = Σ (w−q)²/d² over the loop, halved: d = 1/2.02, so the
-        // deleted term is 1/(1/2.02)² = 2.02², loss = 2.02²/2.
-        let expected = 2.02_f32 * 2.02 / 2.0;
+        // loss = Σ (w−q)²/d² over the loop, halved: d = U00 =
+        // sqrt(1/2.02) (the chol-upper diagonal of diag(1/2.02)), so
+        // d² = 1/2.02 and the deleted term is 1·2.02; loss = 2.02/2.
+        let expected = 2.02_f32 / 2.0;
         assert!((out.loss - expected).abs() < 1.0e-4, "loss {}", out.loss);
     }
 
@@ -501,12 +506,12 @@ mod tests {
         // tri_inverse_lower
         let i11 = 1.0 / l11;
         let i22 = 1.0 / l22;
-        let i21 = -l21 / (l11 * l22);
-        // (L·Lᵀ)⁻¹ = Linvᵀ·Linv
-        let a00 = i11 * i11;
-        let a01 = i11 * i21;
-        let a10 = i21 * i11;
-        let a11 = i21 * i21 + i22 * i22;
+        let i21 = -(l21 * i11) / l22;
+        // (L·Lᵀ)⁻¹ = Linvᵀ·Linv — the FULL k sum (the fixture bug this
+        // test itself caught: a00 = i11² + i21², never i11² alone).
+        let a00 = i11 * i11 + i21 * i21;
+        let a01 = i21 * i22;
+        let a11 = i22 * i22;
         // chol_upper(A): transpose of chol_lower(A)
         let u11 = sqrt64(a00);
         let u12 = a01 / u11;
@@ -546,7 +551,9 @@ mod tests {
             .iter()
             .map(|&v| v)
             .collect();
-        let h: Vec<f32> = vec![2.0, 0.5, 0.1, 0.0, 0.5, 2.0, 0.3, 0.1, 0.1, 0.3, 2.5, 0.2, 0.0, 0.1, 0.2, 2.0];
+        let h: Vec<f32> = vec![
+            2.0, 0.5, 0.1, 0.0, 0.5, 2.0, 0.3, 0.1, 0.1, 0.3, 2.5, 0.2, 0.0, 0.1, 0.2, 2.0,
+        ];
         let cols = 4;
         let rate = 0.25; // one weight per... rate is over ELEMENTS: 8·0.25 = 2
         let out = sparsegpt_reconstruct(&w, &h, cols, rate, 2, 0.01);
@@ -605,7 +612,9 @@ mod tests {
         // A zero Hessian diagonal marks the column dead: its weights
         // delete regardless of the rate budget (upstream :66–68).
         let w = [1.0_f32, 2.0, 3.0, 4.0];
-        let h = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 3.0];
+        let h = [
+            1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 3.0,
+        ];
         let out = sparsegpt_reconstruct(&w, &h, 4, 0.0, 128, 0.01);
         // rate 0 → no live-column deletions, but col 1 is dead.
         assert_eq!(out.keep, vec![true, false, true, true]);
