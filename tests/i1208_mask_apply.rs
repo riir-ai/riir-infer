@@ -26,6 +26,9 @@ mod synth;
 
 use riir_infer_core::adapter::f32_apply::{GateMaskOverlay, apply_mask_at_load};
 use riir_infer_core::adapter::mask_codec::{MaskManifest, MaskSection, decode};
+use riir_infer_core::adapter::mint::{
+    CompensatedSidecar, CompensatedTensor, checkpoint_gate_digest,
+};
 use riir_infer_core::deltanet::forward::{
     HybridCache, HybridForwardScratch, forward_qwen_deltanet,
 };
@@ -176,7 +179,7 @@ fn g1_three_way_parity_and_identity() {
 
 #[test]
 fn wanda_capture_rides_the_forward_deterministically() {
-    use riir_infer_core::adapter::wanda::{saliency_for, WandaGateCapture};
+    use riir_infer_core::adapter::wanda::{WandaGateCapture, saliency_for};
 
     let cfg = hybrid_config();
     let weights = synth_hybrid_weights(&cfg, 0x57AC);
@@ -206,7 +209,11 @@ fn wanda_capture_rides_the_forward_deterministically() {
     let cap_a = sweep(&tokens);
     let cap_b = sweep(&tokens);
     assert_eq!(cap_a.tokens_seen(), 10);
-    assert_eq!(cap_a.sweep_digest(), cap_b.sweep_digest(), "same sweep -> same digest");
+    assert_eq!(
+        cap_a.sweep_digest(),
+        cap_b.sweep_digest(),
+        "same sweep -> same digest"
+    );
 
     // a longer sweep moves the digest AND grows the norms
     let cap_long = sweep(&tokens[..5]);
@@ -218,11 +225,12 @@ fn wanda_capture_rides_the_forward_deterministically() {
     let data = weights.layers[0].gate_proj.dense_data();
     let scores = saliency_for(data, &norms_full, cfg.n_embd);
     assert_eq!(scores.len(), data.len());
-    let first_row_sum: f32 = (0..cfg.n_embd)
-        .map(|j| data[j].abs() * norms_full[j])
-        .sum();
+    let first_row_sum: f32 = (0..cfg.n_embd).map(|j| data[j].abs() * norms_full[j]).sum();
     let scores_row_sum: f32 = scores[..cfg.n_embd].iter().sum();
-    assert!((first_row_sum - scores_row_sum).abs() < 1.0e-3, "saliency row recompute");
+    assert!(
+        (first_row_sum - scores_row_sum).abs() < 1.0e-3,
+        "saliency row recompute"
+    );
 
     // the norms are positive and grow with more sweeps folded (short < full
     // holds on AVERAGE column-wise; assert the sum, which is order-pinned)
@@ -361,4 +369,115 @@ fn length_mismatch_and_unknown_tensor_routing() {
     let mut target = synth_hybrid_weights(&cfg, 0x1234);
     assert!(apply_mask_at_load(&mut target, &deep_decoded).is_err());
     assert!(GateMaskOverlay::mount(&weights, &deep_decoded).is_err());
+}
+
+// ── T7b: the compensated mount (solver ii-b's sidecar path) ──
+
+#[test]
+fn compensated_overlay_identity_and_binding() {
+    let cfg = hybrid_config();
+    let weights = synth_hybrid_weights(&cfg, 0x5EED);
+    let tokens: Vec<usize> = (0..10).map(|i| (i * 5 + 1) % cfg.vocab_size).collect();
+    let base_digest = decode_digest(&cfg, &weights, &tokens, None);
+    let gate_count = cfg.mlp_hidden * cfg.n_embd;
+
+    // the extracted digest mirrors the writer's fold over every gate tensor
+    let mut expect = blake3::Hasher::new();
+    for (i, layer) in weights.layers.iter().enumerate() {
+        expect.update(&(i as u32).to_le_bytes());
+        for v in layer.gate_proj.dense_data() {
+            expect.update(&v.to_le_bytes());
+        }
+    }
+    assert_eq!(
+        checkpoint_gate_digest(&weights),
+        *expect.finalize().as_bytes()
+    );
+    let ckpt_digest = checkpoint_gate_digest(&weights);
+
+    // IDENTITY PIN: a sidecar whose matrices ARE the base gate data must
+    // walk byte-identically to the pristine model (the compensated path
+    // feeds the forward through the same shadow seam — nothing else moves)
+    let identity_tensors: Vec<CompensatedTensor> = (0..cfg.n_layer)
+        .map(|layer| CompensatedTensor {
+            layer,
+            data: weights.layers[layer].gate_proj.dense_data().to_vec(),
+        })
+        .collect();
+    let identity = CompensatedSidecar {
+        checkpoint_digest: ckpt_digest,
+        corpus_digest: [0u8; 32],
+        rate: 0.0,
+        tensors: identity_tensors,
+    };
+    let overlay = GateMaskOverlay::mount_compensated(&weights, &identity).unwrap();
+    let identity_digest = decode_digest(&cfg, &weights, &tokens, Some(overlay));
+    assert_eq!(
+        identity_digest, base_digest,
+        "compensated == base is the identity walk"
+    );
+
+    // round trip through the real codec layout: parse → mount equals the
+    // in-memory mount (the writer/reader one-law check)
+    let blob = identity.encode();
+    let parsed = CompensatedSidecar::parse(&blob).unwrap();
+    assert_eq!(parsed, identity);
+    let overlay_from_blob = GateMaskOverlay::mount_compensated(&weights, &parsed).unwrap();
+    let blob_digest = decode_digest(&cfg, &weights, &tokens, Some(overlay_from_blob));
+    assert_eq!(blob_digest, base_digest);
+
+    // binding: only listed layers mount
+    let one_layer = CompensatedSidecar {
+        checkpoint_digest: ckpt_digest,
+        corpus_digest: [0u8; 32],
+        rate: 0.0,
+        tensors: vec![CompensatedTensor {
+            layer: 1,
+            data: weights.layers[1].gate_proj.dense_data().to_vec(),
+        }],
+    };
+    let overlay = GateMaskOverlay::mount_compensated(&weights, &one_layer).unwrap();
+    assert!(!overlay.arms(0));
+    assert!(overlay.arms(1));
+    assert!(!overlay.arms(2));
+
+    // a perturbed matrix moves the walk (the lever numerically live)
+    let mut perturbed = weights.layers[1].gate_proj.dense_data().to_vec();
+    perturbed[0] += 0.25;
+    let perturbed_sidecar = CompensatedSidecar {
+        checkpoint_digest: ckpt_digest,
+        corpus_digest: [0u8; 32],
+        rate: 0.0,
+        tensors: vec![CompensatedTensor {
+            layer: 1,
+            data: perturbed,
+        }],
+    };
+    let overlay = GateMaskOverlay::mount_compensated(&weights, &perturbed_sidecar).unwrap();
+    let perturbed_digest = decode_digest(&cfg, &weights, &tokens, Some(overlay));
+    assert_ne!(perturbed_digest, base_digest);
+
+    // length mismatch refuses loud
+    let bad_len = CompensatedSidecar {
+        checkpoint_digest: ckpt_digest,
+        corpus_digest: [0u8; 32],
+        rate: 0.0,
+        tensors: vec![CompensatedTensor {
+            layer: 0,
+            data: vec![0.0; gate_count + 1],
+        }],
+    };
+    assert!(GateMaskOverlay::mount_compensated(&weights, &bad_len).is_err());
+
+    // a layer beyond the model refuses loud
+    let deep = CompensatedSidecar {
+        checkpoint_digest: ckpt_digest,
+        corpus_digest: [0u8; 32],
+        rate: 0.0,
+        tensors: vec![CompensatedTensor {
+            layer: 9,
+            data: vec![0.0; gate_count],
+        }],
+    };
+    assert!(GateMaskOverlay::mount_compensated(&weights, &deep).is_err());
 }

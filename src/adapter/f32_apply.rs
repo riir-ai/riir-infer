@@ -213,6 +213,39 @@ impl GateMaskOverlay {
         Ok(Self { shadows })
     }
 
+    /// The compensated mount (solver ii-b, Issue 1208 T7b): shadows
+    /// carried DIRECTLY by the sidecar's compensated matrices (deleted
+    /// positions are baked to 0 in them; survivors carry the error
+    /// feedback) — the mask is not applied on this path. Only listed
+    /// layers mount (the bind-where-bound law); a layer beyond the model
+    /// or a length mismatch against the base gate refuses loudly.
+    pub fn mount_compensated(
+        weights: &QwenDeltaNetWeights,
+        sidecar: &crate::adapter::mint::CompensatedSidecar,
+    ) -> Result<Self, MaskCodecError> {
+        let mut shadows = Vec::new();
+        for t in &sidecar.tensors {
+            let Some(layer) = weights.layers.get(t.layer) else {
+                return Err(MaskCodecError::SectionRange(format!(
+                    "sidecar names layer {} beyond the model's {} layers",
+                    t.layer,
+                    weights.layers.len()
+                )));
+            };
+            let data = layer.gate_proj.dense_data();
+            if data.len() != t.data.len() {
+                return Err(MaskCodecError::SectionRange(format!(
+                    "sidecar layer {} carries {} weights, tensor holds {}",
+                    t.layer,
+                    t.data.len(),
+                    data.len()
+                )));
+            }
+            shadows.push((t.layer, t.data.clone()));
+        }
+        Ok(Self { shadows })
+    }
+
     /// The masked gate data for `layer`, if the overlay arms it.
     pub fn shadow_for(&self, layer: usize) -> Option<&[f32]> {
         self.shadows

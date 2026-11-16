@@ -389,6 +389,159 @@ fn tri_inverse_lower(l: &[f32], d: usize) -> Vec<f32> {
     inv
 }
 
+// ─── The ii-b compensated sidecar (I1208COMP1) ─────────────────────────────
+//
+// The delta-sidecar artifact class beside the RIMSK mask (the scope's
+// artifact-class split): solver (ii-b)'s compensation produces NEW weight
+// values, which ride this sidecar — never packed into RIMSK v1. One full
+// compensated gate matrix per listed layer (deleted positions baked to 0,
+// survivors error-feedback'd), checkpoint + corpus bound in the header.
+
+/// One compensated gate matrix (row-major, same layout as the base
+/// `Proj::dense` — the overlay mount's shape law).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompensatedTensor {
+    pub layer: usize,
+    pub data: Vec<f32>,
+}
+
+/// The compensated sidecar. Layout (f32 LE, no padding, no trailing
+/// bytes):
+/// `b"I1208COMP1" | ckpt[32] | corpus[32] | rate f64 | count u32 |
+///   per tensor: layer u32 | len u64 | len× f32`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompensatedSidecar {
+    pub checkpoint_digest: [u8; 32],
+    pub corpus_digest: [u8; 32],
+    pub rate: f64,
+    pub tensors: Vec<CompensatedTensor>,
+}
+
+const SIDECAR_MAGIC: &[u8; 10] = b"I1208COMP1";
+#[cfg(test)]
+const SIDECAR_HEADER: usize = 10 + 32 + 32 + 8 + 4;
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CompensatedSidecarError {
+    #[error("bad magic: expected I1208COMP1, found {0:02x?}")]
+    Magic([u8; 10]),
+    #[error("truncated: needed {needed} bytes at offset {offset}, blob holds {got}")]
+    Truncated {
+        needed: usize,
+        offset: usize,
+        got: usize,
+    },
+    #[error("trailing bytes: {0} byte(s) past the last tensor")]
+    Trailing(usize),
+}
+
+impl CompensatedSidecar {
+    /// Encode — byte-identical to the mint bin's original inline writer
+    /// (the existing sidecars' blake3 digests pin the layout).
+    pub fn encode(&self) -> Vec<u8> {
+        let mut blob = Vec::new();
+        blob.extend_from_slice(SIDECAR_MAGIC);
+        blob.extend_from_slice(&self.checkpoint_digest);
+        blob.extend_from_slice(&self.corpus_digest);
+        blob.extend_from_slice(&self.rate.to_le_bytes());
+        blob.extend_from_slice(&(self.tensors.len() as u32).to_le_bytes());
+        for t in &self.tensors {
+            blob.extend_from_slice(&(t.layer as u32).to_le_bytes());
+            blob.extend_from_slice(&(t.data.len() as u64).to_le_bytes());
+            for v in &t.data {
+                blob.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        blob
+    }
+
+    /// Parse — strict: exact magic, every field in range, no trailing
+    /// bytes (the loud-refusal law; a half-written sidecar never parses
+    /// into a plausible-looking half-lane).
+    pub fn parse(bytes: &[u8]) -> Result<Self, CompensatedSidecarError> {
+        let need = |offset: usize, n: usize| -> Result<(), CompensatedSidecarError> {
+            if offset + n > bytes.len() {
+                Err(CompensatedSidecarError::Truncated {
+                    needed: n,
+                    offset,
+                    got: bytes.len(),
+                })
+            } else {
+                Ok(())
+            }
+        };
+        need(0, SIDECAR_MAGIC.len())?;
+        if &bytes[..10] != SIDECAR_MAGIC {
+            let mut found = [0u8; 10];
+            found.copy_from_slice(&bytes[..10]);
+            return Err(CompensatedSidecarError::Magic(found));
+        }
+        let mut off = SIDECAR_MAGIC.len();
+        let mut checkpoint_digest = [0u8; 32];
+        need(off, 32)?;
+        checkpoint_digest.copy_from_slice(&bytes[off..off + 32]);
+        off += 32;
+        let mut corpus_digest = [0u8; 32];
+        need(off, 32)?;
+        corpus_digest.copy_from_slice(&bytes[off..off + 32]);
+        off += 32;
+        need(off, 8)?;
+        let rate = f64::from_le_bytes(bytes[off..off + 8].try_into().unwrap());
+        off += 8;
+        need(off, 4)?;
+        let count = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
+        off += 4;
+        let mut tensors = Vec::with_capacity(count);
+        for _ in 0..count {
+            need(off, 12)?;
+            let layer = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
+            let len = u64::from_le_bytes(bytes[off + 4..off + 12].try_into().unwrap()) as usize;
+            off += 12;
+            need(
+                off,
+                len.checked_mul(4)
+                    .ok_or(CompensatedSidecarError::Truncated {
+                        needed: usize::MAX,
+                        offset: off,
+                        got: bytes.len(),
+                    })?,
+            )?;
+            let mut data = vec![0.0f32; len];
+            for (i, slot) in data.iter_mut().enumerate() {
+                let b = &bytes[off + i * 4..off + i * 4 + 4];
+                *slot = f32::from_le_bytes(b.try_into().unwrap());
+            }
+            off += len * 4;
+            tensors.push(CompensatedTensor { layer, data });
+        }
+        if off < bytes.len() {
+            return Err(CompensatedSidecarError::Trailing(bytes.len() - off));
+        }
+        Ok(Self {
+            checkpoint_digest,
+            corpus_digest,
+            rate,
+            tensors,
+        })
+    }
+}
+
+/// The checkpoint digest the mask AND the sidecar bind: BLAKE3 over
+/// every gate tensor's loaded bytes (layer index u32 LE prefixed per
+/// layer, every layer armed or not — the wrong-base law; the mask binds
+/// the whole checkpoint). Extracted from the mint bin so the writer and
+/// every verifier share one fold order.
+pub fn checkpoint_gate_digest(weights: &crate::deltanet::weights::QwenDeltaNetWeights) -> [u8; 32] {
+    let mut ckpt = blake3::Hasher::new();
+    for (i, layer) in weights.layers.iter().enumerate() {
+        ckpt.update(&(i as u32).to_le_bytes());
+        for v in layer.gate_proj.dense_data() {
+            ckpt.update(&v.to_le_bytes());
+        }
+    }
+    *ckpt.finalize().as_bytes()
+}
+
 use std::collections::BTreeMap;
 
 /// The SparseGPT-class calibration capture (T7 increment 2): the
@@ -527,6 +680,83 @@ mod tests {
         deletion_count(4, 1.0);
     }
 
+    // ── the I1208COMP1 sidecar (T7b) ──
+
+    fn fixture_sidecar() -> CompensatedSidecar {
+        CompensatedSidecar {
+            checkpoint_digest: [7u8; 32],
+            corpus_digest: [9u8; 32],
+            rate: 0.001,
+            tensors: vec![
+                CompensatedTensor {
+                    layer: 0,
+                    data: vec![1.5, -2.25, 0.0, 3.0e-8],
+                },
+                CompensatedTensor {
+                    layer: 3,
+                    data: vec![-0.5; 5],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn compensated_sidecar_round_trip() {
+        let sc = fixture_sidecar();
+        let blob = sc.encode();
+        let parsed = CompensatedSidecar::parse(&blob).unwrap();
+        assert_eq!(parsed, sc);
+        // byte-stability: encoding the parsed sidecar reproduces the blob
+        // (the layout law — the bench-1228 sidecars' digests pin it)
+        assert_eq!(parsed.encode(), blob);
+    }
+
+    #[test]
+    fn compensated_sidecar_refuses_garbage() {
+        // bad magic
+        let mut blob = fixture_sidecar().encode();
+        blob[0] = b'X';
+        assert!(matches!(
+            CompensatedSidecar::parse(&blob),
+            Err(CompensatedSidecarError::Magic(_))
+        ));
+        // truncated mid-tensor (one byte short)
+        let mut blob = fixture_sidecar().encode();
+        blob.pop();
+        assert!(matches!(
+            CompensatedSidecar::parse(&blob),
+            Err(CompensatedSidecarError::Truncated { .. })
+        ));
+        // trailing byte
+        let mut blob = fixture_sidecar().encode();
+        blob.push(0);
+        assert_eq!(
+            CompensatedSidecar::parse(&blob),
+            Err(CompensatedSidecarError::Trailing(1))
+        );
+        // header-only blob: truncated at the tensor list
+        let mut blob = fixture_sidecar().encode();
+        blob.truncate(SIDECAR_HEADER);
+        assert!(matches!(
+            CompensatedSidecar::parse(&blob),
+            Err(CompensatedSidecarError::Truncated { .. })
+        ));
+    }
+
+    #[test]
+    fn compensated_sidecar_header_round_trip() {
+        // zero tensors: the header alone parses, count 0
+        let sc = CompensatedSidecar {
+            checkpoint_digest: [1u8; 32],
+            corpus_digest: [2u8; 32],
+            rate: 0.0,
+            tensors: Vec::new(),
+        };
+        let blob = sc.encode();
+        assert_eq!(blob.len(), SIDECAR_HEADER);
+        assert_eq!(CompensatedSidecar::parse(&blob).unwrap(), sc);
+    }
+
     #[test]
     fn wanda_tau_hand_computed() {
         // The T5 module's own saliency golden, reused.
@@ -647,16 +877,16 @@ mod tests {
             ref_w[j] -= err * u[p * 2 + j];
         }
         ref_w[p] = 0.0;
-        for j in 0..2 {
+        for (j, rw) in ref_w.iter().enumerate() {
             let got = out.compensated[j] as f64;
-            let want = if out.keep[j] { ref_w[j] } else { 0.0 };
+            let want = if out.keep[j] { *rw } else { 0.0 };
             let scale = want.abs().max(1.0);
             assert!(
                 (got - want).abs() / scale < 1.0e-3,
                 "col {j}: got {got} want {want}"
             );
         }
-        assert_eq!(out.keep[p], false);
+        assert!(!out.keep[p]);
     }
 
     #[test]
@@ -665,10 +895,7 @@ mod tests {
         // calibration objective vs deleting without compensation. Same
         // H, same mask; the no-compensation twin recomputes the loss
         // with q = 0 and no feedback.
-        let w: Vec<f32> = [1.0, -3.0, 5.0, -7.0, 2.0, 0.5, 4.0, -1.5]
-            .iter()
-            .map(|&v| v)
-            .collect();
+        let w: Vec<f32> = [1.0, -3.0, 5.0, -7.0, 2.0, 0.5, 4.0, -1.5].to_vec();
         let h: Vec<f32> = vec![
             2.0, 0.5, 0.1, 0.0, 0.5, 2.0, 0.3, 0.1, 0.1, 0.3, 2.5, 0.2, 0.0, 0.1, 0.2, 2.0,
         ];

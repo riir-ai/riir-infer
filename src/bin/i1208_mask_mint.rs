@@ -19,8 +19,8 @@
 //!   [--layers 0,1,..] [--max-tokens N] [--emit-compensated <out.bin>]
 use riir_infer_core::adapter::mask_codec::{MaskManifest, MaskSection};
 use riir_infer_core::adapter::mint::{
-    SparseGptGateCapture, magnitude_keep, random_keep, sparsegpt_reconstruct, wanda_tau_for_rate,
-    wanda_tau_keep,
+    CompensatedSidecar, CompensatedTensor, SparseGptGateCapture, magnitude_keep, random_keep,
+    sparsegpt_reconstruct, wanda_tau_for_rate, wanda_tau_keep,
 };
 use riir_infer_core::adapter::wanda::{WandaGateCapture, saliency_for};
 use riir_infer_core::corpus_text::{load_corpus_pages, load_corpus_text};
@@ -280,25 +280,27 @@ fn main() -> anyhow::Result<()> {
     println!("# rimsk blake3 {}", hex(blake3::hash(&artifact).as_bytes()));
 
     // the delta sidecar (solver ii-b's compensation — a DIFFERENT
-    // artifact class, never packed into the RIMSK v1 artifact)
+    // artifact class, never packed into the RIMSK v1 artifact). The
+    // layout lives in mint.rs (`CompensatedSidecar::encode`) so the
+    // writer and the audit's parser share one law; the bytes are
+    // identical to the original inline writer (the bench-1228 sidecar
+    // digest pins them).
     if let (Some(path), Some(all)) = (emit_compensated, compensated_out) {
-        let mut blob = Vec::new();
-        blob.extend_from_slice(b"I1208COMP1");
-        blob.extend_from_slice(&checkpoint_digest);
-        blob.extend_from_slice(&corpus_digest);
-        blob.extend_from_slice(&(rate.to_le_bytes()));
-        blob.extend_from_slice(&(all.len() as u32).to_le_bytes());
-        for (idx, comp) in all.iter().enumerate() {
-            blob.extend_from_slice(&(layers[idx] as u32).to_le_bytes());
-            blob.extend_from_slice(&(comp.len() as u64).to_le_bytes());
-            for v in comp {
-                blob.extend_from_slice(&v.to_le_bytes());
-            }
-        }
+        let sidecar = CompensatedSidecar {
+            checkpoint_digest,
+            corpus_digest,
+            rate,
+            tensors: all
+                .into_iter()
+                .zip(layers.iter())
+                .map(|(data, &layer)| CompensatedTensor { layer, data })
+                .collect(),
+        };
+        let blob = sidecar.encode();
         std::fs::write(Path::new(&path), &blob)?;
         println!(
             "# compensated sidecar: {path} ({} tensors, blake3 {})",
-            all.len(),
+            sidecar.tensors.len(),
             hex(blake3::hash(&blob).as_bytes())
         );
     }
