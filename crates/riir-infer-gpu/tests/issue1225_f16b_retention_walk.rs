@@ -336,7 +336,7 @@ fn print_provenance(when: &str) {
 /// measurement premises says so, never a green-zero). `I1225_LOAD_OK=1`
 /// overrides for diagnosis — the run then stamps itself DIAGNOSTIC and its
 /// numbers are void-by-default in the record.
-fn load_tripwire() -> f64 {
+fn load_tripwire(phase: &str) -> f64 {
     const LOAD_CEILING: f64 = 16.0;
     let one_min: f64 = std::fs::read_to_string("/proc/loadavg")
         .ok()
@@ -355,7 +355,7 @@ fn load_tripwire() -> f64 {
     let override_ok = std::env::var("I1225_LOAD_OK").as_deref() == Ok("1");
     if one_min > LOAD_CEILING && !override_ok {
         panic!(
-            "i1226 load tripwire: 1-min load {one_min} > {LOAD_CEILING} — the reference \
+            "i1226 load tripwire [{phase}]: 1-min load {one_min} > {LOAD_CEILING} — the reference \
              pass is load-sensitively nondeterministic at pp32768 (the 1226 VOID \
              record's cross-arm table); rerun on a quiet box, or \
              I1225_LOAD_OK=1 for a DIAGNOSTIC (void-by-default) run"
@@ -371,7 +371,7 @@ fn load_tripwire() -> f64 {
 #[ignore = "requires the Metal GPU + the Bonsai-2 PQ2_0 model; run explicitly with --release"]
 fn f16b_retention_walk() {
     print_provenance("start");
-    let load = load_tripwire();
+    let load = load_tripwire("start");
     println!("[provenance load-1min] {load}");
     let model = std::env::var_os("BONSAI2_G1_MODEL")
         .map(PathBuf::from)
@@ -472,6 +472,15 @@ fn f16b_retention_walk() {
     let mut twin_total = 0u64;
 
     for (fi, (family, text)) in FAMILIES.iter().enumerate() {
+        // Issue 1226 (second failure, 19:19Z): the launch tripwire cannot see
+        // a MID-RUN ramp — the relaxed run launched at load 2.78 and hit the
+        // placebo HARD gate under an evening ramp to 59.71 (the strict twin
+        // refused at launch). One check per family boundary: the run dies
+        // loudly at the ramp instead of spending ~24 min producing
+        // void-prone numbers; the per-family line also gives the record a
+        // mid-run load trace (the box-state law).
+        let mid_load = load_tripwire(&format!("mid-run family {family}"));
+        println!("[provenance load-1min {family}] {mid_load}");
         let base_toks = tok.encode(text);
         // The corpus at p_max: the frozen text's tokens CYCLED to the scored
         // length (deterministic; the pre-registration's corpus amendment —

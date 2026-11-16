@@ -1,0 +1,21 @@
+    Finished `release` profile [optimized] target(s) in 0.81s
+     Running tests/issue1225_f16b_retention_walk.rs (/tmp/i1225f16b/release/deps/issue1225_f16b_retention_walk-69bb9e71dfaa1263)
+
+running 1 test
+test f16b_retention_walk ... [provenance start]  2:19  up 14 days, 15:17, 5 users, load averages: 59.71 29.11 17.26 · GPU-exclusive per the AGENTS rule (no sibling compute workload)
+
+thread 'f16b_retention_walk' (130126543) panicked at crates/riir-infer-gpu/tests/issue1225_f16b_retention_walk.rs:357:9:
+i1226 load tripwire: 1-min load 59.71 > 16 — the reference pass is load-sensitively nondeterministic at pp32768 (the 1226 VOID record's cross-arm table); rerun on a quiet box, or I1225_LOAD_OK=1 for a DIAGNOSTIC (void-by-default) run
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    f16b_retention_walk
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p riir-infer-gpu --test issue1225_f16b_retention_walk`
+STRICT_EXIT=101
+PP32K_RUNS_DONE

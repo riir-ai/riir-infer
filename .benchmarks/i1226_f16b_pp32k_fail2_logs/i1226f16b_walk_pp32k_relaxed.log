@@ -1,0 +1,117 @@
+   Compiling riir-infer-gpu v0.1.0 (/Users/katopz/git/riir-infer/crates/riir-infer-gpu)
+    Finished `release` profile [optimized] target(s) in 1.22s
+     Running tests/issue1225_f16b_retention_walk.rs (/tmp/i1225f16b/release/deps/issue1225_f16b_retention_walk-69bb9e71dfaa1263)
+
+running 1 test
+test f16b_retention_walk ... [provenance start]  1:55  up 14 days, 14:54, 5 users, load averages: 2.78 5.45 9.89 · GPU-exclusive per the AGENTS rule (no sibling compute workload)
+[provenance load-1min] 2.78
+CubeCL runtime initialized: wgpu<msl>
+# issue1225 f16-B retention walk · posture relaxed · P=[32768] · frame 128 · families 4
+[Issue 864] attention KV working set = 4097 MiB (block_size 32776 × kvd 1024 × K+V × 16 attention layers) — above the 256 MiB warn line. If the workload never drives this many positions, clamp `config.block_size` to the real sequence bound BEFORE construction (the riir-train driver pattern); the unbounded variant measured a ~50 s first-touch burst at a 262,144-token context (riir-train Bench 573). Steady-state throughput is unaffected.
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x101d3e510, queue=0x101d48980)
+[i1225] f16b twin compiled (patched B-side half; cast kernel armed)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# code@32767: ref done (route back on)
+  flip code@32767 gdn_in_proj_z occ=7 row=119 inc=879 twin=5304 margin=9.990e-5
+  flip code@32767 gdn_in_proj_z occ=9 row=16 inc=1237 twin=4542 margin=2.122e-5
+  flip code@32767 gdn_in_proj_qkv occ=16 row=112 inc=6771 twin=7164 margin=2.441e-4
+  flip code@32767 ffn_down occ=28 row=62 inc=2438 twin=3994 margin=3.332e-5
+  flip code@32767 gdn_out_proj occ=28 row=65 inc=3986 twin=3994 margin=4.017e-5
+  flip code@32767 ffn_down occ=37 row=116 inc=4973 twin=1788 margin=6.154e-5
+  flip code@32767 ffn_gate occ=52 row=104 inc=7588 twin=11176 margin=7.439e-5
+  flip code@32767 ffn_down occ=55 row=0 inc=1332 twin=5028 margin=4.649e-6
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x101d3e510, queue=0x101d48980)
+[i1225] f16b twin built PLACEBO (unpatched body — the control arm)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# placebo code@32767: KL max 0.000e0 · top1 1/1 · flips 0 · worst_rel 0.000e0 → PASS
+code   n= 1 · KL mean 1.565e-7 max 1.565e-7 nats · top1 1/1 · ΔNLL mean +2.056e-4 · NLL(ref) mean 0.155
+# math@32767: ref done (route back on)
+  flip math@32767 gdn_in_proj_z occ=8 row=97 inc=5587 twin=3492 margin=1.106e-4
+  flip math@32767 ffn_up occ=14 row=25 inc=6958 twin=8613 margin=4.005e-5
+  flip math@32767 ffn_up occ=14 row=26 inc=6882 twin=14855 margin=1.907e-5
+  flip math@32767 gdn_out_proj occ=13 row=24 inc=4382 twin=253 margin=3.889e-6
+  flip math@32767 gdn_in_proj_z occ=15 row=23 inc=2022 twin=200 margin=1.421e-4
+  flip math@32767 ffn_gate occ=24 row=115 inc=8497 twin=5865 margin=1.794e-4
+  flip math@32767 ffn_gate occ=30 row=96 inc=10628 twin=7669 margin=4.386e-4
+  flip math@32767 gdn_in_proj_qkv occ=24 row=40 inc=17 twin=2015 margin=5.426e-4
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x101d3e510, queue=0x101d48980)
+[i1225] f16b twin built PLACEBO (unpatched body — the control arm)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# placebo math@32767: KL max 5.428e-5 · top1 1/1 · flips 0 · worst_rel 0.000e0 → FAIL — instrument defect, posture VOID
+math   n= 1 · KL mean 5.083e-5 max 5.083e-5 nats · top1 1/1 · ΔNLL mean +2.442e-4 · NLL(ref) mean 0.013
+# prose@32767: ref done (route back on)
+  flip prose@32767 ffn_up occ=8 row=62 inc=9199 twin=62 margin=8.726e-5
+  flip prose@32767 ffn_down occ=17 row=26 inc=3531 twin=3840 margin=6.542e-6
+  flip prose@32767 gdn_out_proj occ=16 row=13 inc=3684 twin=3456 margin=3.271e-5
+  flip prose@32767 gdn_in_proj_z occ=22 row=52 inc=2172 twin=4616 margin=1.993e-4
+  flip prose@32767 gdn_out_proj occ=23 row=40 inc=685 twin=3586 margin=7.057e-5
+  flip prose@32767 ffn_up occ=38 row=40 inc=9101 twin=11574 margin=3.839e-5
+  flip prose@32767 ffn_up occ=47 row=56 inc=3692 twin=6038 margin=2.933e-5
+  flip prose@32767 gdn_in_proj_z occ=37 row=16 inc=722 twin=2877 margin=9.012e-5
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x101d3e510, queue=0x101d48980)
+[i1225] f16b twin built PLACEBO (unpatched body — the control arm)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# placebo prose@32767: KL max 0.000e0 · top1 1/1 · flips 0 · worst_rel 0.000e0 → PASS
+prose  n= 1 · KL mean 7.573e-7 max 7.573e-7 nats · top1 1/1 · ΔNLL mean +6.294e-4 · NLL(ref) mean 0.296
+# zh@32767: ref done (route back on)
+  flip zh@32767 gdn_in_proj_z occ=7 row=43 inc=580 twin=554 margin=4.240e-4
+  flip zh@32767 gdn_in_proj_z occ=7 row=55 inc=3107 twin=5655 margin=4.077e-5
+  flip zh@32767 ffn_gate occ=15 row=103 inc=9465 twin=10757 margin=7.635e-5
+  flip zh@32767 gdn_in_proj_z occ=14 row=55 inc=3009 twin=3064 margin=3.121e-4
+  flip zh@32767 ffn_gate occ=19 row=35 inc=15017 twin=1535 margin=1.559e-4
+  flip zh@32767 gdn_in_proj_qkv occ=15 row=110 inc=4688 twin=4990 margin=3.910e-5
+  flip zh@32767 ffn_gate occ=20 row=32 inc=7418 twin=1380 margin=2.221e-4
+  flip zh@32767 gdn_out_proj occ=17 row=63 inc=3014 twin=4588 margin=2.035e-5
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x101d3e510, queue=0x101d48980)
+[i1225] f16b twin built PLACEBO (unpatched body — the control arm)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# placebo zh@32767: KL max 0.000e0 · top1 1/1 · flips 0 · worst_rel 0.000e0 → PASS
+zh     n= 1 · KL mean 4.251e-7 max 4.251e-7 nats · top1 1/1 · ΔNLL mean +7.928e-5 · NLL(ref) mean 0.192
+
+── per-GEMM-family matched-input retention (relaxed) ──
+  family         instances       rows   flips flip_rate  worst_rel
+  attn_q                64       8128       0    0.00e0  4.647e-4
+  attn_kv               64       8128       0    0.00e0  6.042e-4
+  attn_out_proj         64       8128       0    0.00e0  2.049e-4
+  gdn_in_proj_qkv       192      24384       4   1.64e-4  4.630e-4
+  gdn_in_proj_z        192      24384      13   5.33e-4  5.064e-4
+  gdn_in_proj_a          0          0       0       NaN  0.000e0 
+  (engagement note: gdn_in_proj_a admitted but zero twin instances — the incumbent never served this site in this stack either, T==R holds)
+  gdn_in_proj_b          0          0       0       NaN  0.000e0 
+  (engagement note: gdn_in_proj_b admitted but zero twin instances — the incumbent never served this site in this stack either, T==R holds)
+  gdn_out_proj         192      24384       5   2.05e-4  3.980e-4
+  ffn_gate             256      32512       9   2.77e-4  5.298e-4
+  ffn_up               256      32512       5   1.54e-4  4.787e-4
+  ffn_down             256      32512       7   2.15e-4  3.715e-4
+  other                  0          0       0       NaN  0.000e0 
+  (engagement note: other admitted but zero twin instances — the incumbent never served this site in this stack either, T==R holds)
+
+engagement totals: incumbent 393216 · twin 393216 → EQUAL
+
+WALK VERDICT relaxed: FAIL — 1 floor finding(s):
+  - relaxed math@32767: PLACEBO control failed (KL 5.428e-5, flips 0) — the armed numbers are VOID
+
+thread 'f16b_retention_walk' (129974050) panicked at crates/riir-infer-gpu/tests/issue1225_f16b_retention_walk.rs:755:9:
+issue1225 walk floors failed at relaxed: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    f16b_retention_walk
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 1430.46s
+
+error: test failed, to rerun pass `-p riir-infer-gpu --test issue1225_f16b_retention_walk`
+RELAXED_EXIT=101
