@@ -355,6 +355,47 @@ fn pp32k_placebo_repro() {
             p_flips,
             p_worst,
         ));
+
+        // I1226_REPRO_REFREPLAY=1 — the third discriminator: a SECOND
+        // route-off ref pass on fwd RIGHT NOW (after this family's armed
+        // pass and pfwd's construction+pass+drop), compared against the
+        // family's ORIGINAL in-loop reference. Nonzero ⇒ fwd's incumbent
+        // pass is history-dependent (each pass shifts the next — the state
+        // class lives inside fwd). Then one more ref pass: a third
+        // comparison shows whether the drift settles after one more pass
+        // (the base arm's fresh-vs-now EXACT hints it does).
+        if std::env::var("I1226_REPRO_REFREPLAY").as_deref() == Ok("1") {
+            set_f16b_route(false);
+            let (ref2, _, _) = pass_logits(&mut fwd, prefix, n_layer, false);
+            let (ref3, _, _) = pass_logits(&mut fwd, prefix, n_layer, false);
+            set_f16b_route(true);
+            let ref2_vs_orig = kl_between(&ref2, &ref_logits);
+            let ref3_vs_ref2 = kl_between(&ref3, &ref2);
+            print_row(
+                &format!("REFREPLAY ref#2 vs orig ref ({fam}) — history discriminator"),
+                ref2_vs_orig,
+                0,
+                0.0,
+            );
+            print_row(
+                &format!("REFREPLAY ref#3 vs ref#2 ({fam}) — settle check"),
+                ref3_vs_ref2,
+                0,
+                0.0,
+            );
+            results.push((
+                format!("refreplay #2-vs-orig ({fam}, informational)"),
+                ref2_vs_orig,
+                0,
+                0.0,
+            ));
+            results.push((
+                format!("refreplay #3-vs-#2 ({fam}, informational)"),
+                ref3_vs_ref2,
+                0,
+                0.0,
+            ));
+        }
     }
 
     // ── The fresh-forward third reference (the discriminator) ─────────────
