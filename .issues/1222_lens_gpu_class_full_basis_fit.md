@@ -45,10 +45,14 @@
   `debug_layer_step_readback` / `debug_sublayer_readback` / `debug_mlp_readback`
   / `debug_attn_stage` / `debug_gdn_stage` + `tests/lens_batch_bisect.rs`
   (report-only cells that localized every bug above).
-- **Remaining**: the real-model full-basis run (option 1's ~20-30 h/1k docs
-  on the 4090 at fp32 via wgpu-spirv) — the `lens_gpu_fit_t3` example is the
-  follow-up commit; the fixture tolerance numbers above do NOT transfer to
-  the real model (its own parity cell calibrates the production bar).
+- **The fit runner landed**: `crates/riir-infer-gpu/examples/lens_gpu_fit_t3.rs`
+  ([[example]], required-features `lens_gpu`) — the lens_fit_t3 protocol
+  with the J sweep on GPU direction blocks (K stays on CPU workers; the
+  same accumulator semantics, G3 gate, artifact layout).
+- **Remaining**: the real-model full-basis RUN (option 1's ~20-30 h/1k docs
+  on the 4090 at fp32 via wgpu-spirv — or Metal on amo post-fit) via
+  `lens_gpu_fit_t3`; the fixture tolerance numbers do NOT transfer to the
+  real model (its own parity cell calibrates the production bar).
 
 **Claimed:** zed-a081f5f1@amo, 1794829271, expires 2026-11-17T22:21Z
 
