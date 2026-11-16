@@ -1,15 +1,9 @@
 # Issue 1208: deletion-mask adapter substrate — codec, PQ2_0 in-distribution application, released-mask league cell, geometry audit
 
 **Status:** Open — GOAT (cell-gated) per riir-train Research 493 track (a)
-**Claimed:** zed-5cdf3ece@amo, 1794465951, expires 2026-11-14T06:45:51+00:00
-**Claimed:** zed-5cdf3ece@amo, 1794468020, expires 2026-11-14T07:20:20+00:00
-**Claimed:** zed-5cdf3ece@amo, 1794469123, expires 2026-11-14T07:38:43+00:00
-**Claimed:** zed-5cdf3ece@amo, 1794470592, expires 2026-11-14T08:03:12+00:00
-**Claimed:** zed-5cdf3ece@amo, 1794471292, expires 2026-11-14T08:14:52+00:00
-**Claimed:** zed-5cdf3ece@amo, 1794475919, expires 2026-11-14T09:31:59+00:00
-**Claimed:** zed-1df3fef0@amo, 1794647258, expires 2026-11-16T12:00:00+00:00
-**Claimed:** zed-44ddcbf5@amo, 1794861756, expires 2026-11-18T20:45:00+00:00
-**Claimed:** zed-amo-i1208-t7b@amo, 1794865800, expires 2026-11-18T22:00:00+00:00 — the T7b compensated-forward harness (this thread's continuation of the 44ddcbf5 code half): the I1208COMP1 sidecar parser + `GateMaskOverlay::mount_compensated` + the `--fk-lab-comp` audit arm + the mint-bin writer fold (byte-identical layout) + fixture tests; authoring now, compile+RUN gates at the next quiet window (amo Arm-A exclusive running — the poison discipline)
+**Claimed:** zed-amo-i1208-t7b@amo, 1794865800, expires 2026-11-18T22:00:00+00:00
+
+Lease history (reshaped, the fold-in law): zed-5cdf3ece@amo ×6 (2026-11-13..14, the T5/T6 code halves — all expired 11-14) · zed-1df3fef0@amo (the T6 FKL arm, expired 2026-11-16T12:00Z) · zed-44ddcbf5@amo, 1794861756 (the T7 code half + first mint cells, exp 2026-11-18T20:45Z — this thread's own prior lease).
 Scope: T7 only — CLOSED-FORM CONTENT SOLVERS, design half LANDED this window (2026-11-16T20:45Z, zed-44ddcbf5@amo, the i1226 F1 walk-continuation thread); the CODE half compiles only in the post-walk quiet window — the F1 walk's mid-run load tripwire makes ANY amo compile during the walk evidence-poisoning, not merely slow, so the box stays text-only until the walk's verdict (wake tree armed on this thread: 21:03Z health check + 21:40Z adjudication). Design (paper-first, pre-registered before any code):
 1. **Substrate adjudication (done):** the nearest substrate is the cq3 lane's T2a Hessian machinery (`crates/riir-infer-gpu/src/qwen38_cq3.rs` `fit_smooth` + `quantize_residual`: per-tensor Hessian accumulation, O(n_cal·d_in²) sequential f32 fold per the Issue-940 law, damped Cholesky, closed-form update). Same mathematical class, DIFFERENT consumer and lane feature (cq3: LUT centroid residual over g×g blocks; T7(ii): mask-constrained least-squares with deleted columns forced to 0, full gate matrices) — T7 re-derives inside the `deletion_mask` lane; a shared H-accumulation helper extraction is a FOLLOW-UP DRY pass once both consumers exist (never cross-couple two independently opt-in lanes at landing).
 2. **(i) Wanda-τ solver** — consumes the LANDED T5 `ScoredArtifact` (IWANDA1): per-tensor saliency s_ij, mask = s_ij < τ, τ swept over a pre-registered grid; trivially deterministic, zero new forward code.
