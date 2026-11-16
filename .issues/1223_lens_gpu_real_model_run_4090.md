@@ -16,12 +16,23 @@ corpus at the T3 protocol shape — the full-basis fit that motivated the lane.
 # sync first (the lane landed 2026-11-16, f20ac53b tip)
 schtasks /run /tn gitsync   # then poll E:\git\sync-repos.log for SYNC DONE
 cd E:\git\riir-infer
-cargo run --release --features lens_gpu --example lens_gpu_fit_t3 -- \
+cargo run --release -p riir-infer-gpu --features lens_gpu --example lens_gpu_fit_t3 -- \
   --gguf ../riir-train/data/Qwen3.5-0.8B-Base-Q8_0.gguf \
   --corpus-dir ../riir-reflex/.raw/datasets/ag_news \
   --docs 1000 --t 128 --dim-batch 128 \
   --box-state "4090 <PROVENANCE line>"
 ```
+
+(`-p riir-infer-gpu` is REQUIRED — `lens_gpu` lives on the gpu crate, not the
+root package; the bare `--features` spelling refused with `error: no feature
+named lens_gpu` + `help: package with the missing feature: riir-infer-gpu`.
+Measured on the 4090 2026-11-16.)
+
+**Run (in flight 2026-11-16):** 4090 rig job `01a1e1bd-16b4-7280-b071-96e6437ab1ec`
+(EXCLUSIVE, notify `zed-ba521963@amo`; wrapper `E:\git\lens_fit_t3_run.ps1` v2 —
+preflight → build → run → artifact listing; log `E:\git\lens_fit_t3_run.log`).
+Boot confirmed: CubeCL `wgpu<spirv>`, model load 5.6 s, corpus 1000 docs
+128k tokens blake3 `22cb3c582d73cbc6`, J sweep 8×B128 blocks on GPU.
 
 - The GGUF: `riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf` is the league
   model; the lens lane needs the 0.8B dense checkpoint — restore if missing
