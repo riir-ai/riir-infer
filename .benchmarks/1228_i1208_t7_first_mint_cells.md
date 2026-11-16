@@ -44,6 +44,20 @@ cargo run --release --features deletion_mask,deltanet_inference --bin i1208_mask
   --solver <wanda|sparsegpt|magnitude|random> --rate 0.001 --max-tokens 512
 ```
 
+## The T7 geometry rows on the produced masks (2026-11-17 ~05:35 local, zed-6d55f8cd@amo — T6's "real-model rows with REAL T7-produced content" closed)
+
+`i1208_mask_audit <model> <mask> [seed] [k]` on the two 0.01 artifacts — the default seed 0xc0ffee, k=64 asked (the rows print k=80: the Halko rung rounds up inside `rand_trunc_svd`; disclosed here so a cross-box rebuild does not chase the 16-step gap). Report-only, exit 0; the audit bin now also prints a per-section `deleted n/total` census beside the geometry (the "what the mask did" axis — added this window; clippy -D clean).
+
+| mask | drift max/mean | overlap | stable rank | deleted/tensor |
+|---|---|---|---|---|
+| sparsegpt 0.01 (`i1208t7b_sparsegpt01.rimsk`) | 1.000 / 1.000, all 24 tensors | 1.000 | unchanged to 2 dp | 36,700 / 3,670,016 (exactly 1.00%) |
+| magnitude 0.01 (`i1208t7b_mag01.rimsk`) | 1.000 / 1.000, all 24 tensors | 1.000 | unchanged to 2 dp | 36,700 / 3,670,016 |
+
+The two artifacts' deletion sets PROVABLY differ — payload blake3 `7ed3931f…60ed` (sparsegpt) vs `44c8a12d…f33d` (magnitude), 24/24 sections differ, 187,608 bit positions differ overall — yet both read at the identity pole in principal-subspace geometry (3-dp print resolution; both sit ≥ 0.9995 on every axis). Deletion-set Jaccard measured **0.8075** (786,996 shared of 880,800 per mask; 93,804 solver-only positions each) — the OBS metric re-ranks ~10.7% of the deletion set away from magnitude while the kept count stays exactly floor(n·rate) per tensor. The re-minted magnitude artifact reproduced bench 1228's recorded digest `5f5c5461…56c1` BYTE-IDENTICALLY — the mint lane's g2a determinism pin holds cross-session on the real model.
+
+**Envelope verdict: the falsifier does not fire — closed-form masks land INSIDE the FFT envelope, at the identity pole.** Trained-mask geometry reads drift ≤1.4× and overlap 0.43–0.46 (the paper's axis); 1% tail-scattered deletion moves the principal subspace by less than the print resolution (the top-80 left subspace is carried by the non-deleted mass — σ-leading structure survives its smallest-1% elements). The geometry axis therefore does not DISCRIMINATE closed-form masks from each other at paper-class rates (the census + payload digests do), and both sit far from the trained-mask regime — the "FFT-like geometry inheritance" question is only live at deletion rates that actually bite the principal subspace (T8's trained-vs-closed-form cell owns that comparison at matched sparsity).
+
+
 ## The T7b compensated-forward rows (2026-11-16 ~22:15Z, zed-e2bf92a2 — the ii-b sidecar's FKL, the lane's "next instrument" landed)
 
 The harness: `CompensatedSidecar` (I1208COMP1) extracted into `mint.rs` (parser/encoder; byte-identical to the original inline writer — the re-minted 0.001 sidecar reproduced `9ae9d9a5…ca83` EXACTLY, and the 0.01 rimsk reproduced `e58e6fdf…c6b9`), `GateMaskOverlay::mount_compensated` (bind-where-bound, loud refusals), and the audit's `--fk-lab-comp` posture (checkpoint binding verified loud; two-walk KL with the compensated matrices mounted directly — deleted positions baked to 0, survivors carry the error feedback). Gates: 16 lib (adapter::mint, incl. the sidecar round-trip/refusal/header tests) + 6 apply-gate (incl. `compensated_overlay_identity_and_binding`: identity pin, codec round trip, bind-where-bound, perturbation-moves-the-walk, length/deep-layer refusals) — clippy clean at the gated posture. NOTE: this session's model+corpus copies rode `/tmp` (`/tmp/i1208_model.gguf`, `/tmp/i1208_corpus/` — byte-copies of the riir-train data paths; digests bind regardless).

@@ -63,6 +63,22 @@ fn mask_geometry(args: &[String]) -> anyhow::Result<()> {
         "# FFT envelope axis: trained masks drift ≤1.4x, overlap 0.43-0.46; identity -> overlap 1.0"
     );
     let layers = &weights.layers;
+    // the per-section deleted census: the "what the mask did" axis
+    // beside the geometry's "what it cost" axis — two masks at the same
+    // rate can read identical geometry at print resolution and still
+    // differ in where the deletions land.
+    let mut deleted_of: std::collections::HashMap<&str, (u64, u64)> =
+        std::collections::HashMap::with_capacity(decoded.manifest.sections.len());
+    for section in &decoded.manifest.sections {
+        let mut zeros = 0u64;
+        for p in section.bit_offset..section.bit_offset + section.bit_len {
+            let b = decoded.bits.get((p / 8) as usize).copied().unwrap_or(0);
+            if (b >> (p % 8)) & 1 == 0 {
+                zeros += 1;
+            }
+        }
+        deleted_of.insert(section.tensor_name.as_str(), (zeros, section.bit_len));
+    }
     let rows = audit_mask(&decoded, seed, |layer| {
         layers.get(layer).map(|l| {
             let data = l.gate_proj.dense_data();
@@ -75,15 +91,21 @@ fn mask_geometry(args: &[String]) -> anyhow::Result<()> {
         return Ok(());
     }
     for row in &rows {
+        let census = deleted_of
+            .get(row.tensor_name.as_str())
+            .copied()
+            .unwrap_or((0, 0));
         println!(
-            "# {} | stable rank {:.2} -> {:.2} | drift max {:.3} mean {:.3} | overlap {:.3} (k={})",
+            "# {} | stable rank {:.2} -> {:.2} | drift max {:.3} mean {:.3} | overlap {:.3} (k={}) | deleted {}/{}",
             row.tensor_name,
             row.stable_rank_base,
             row.stable_rank_masked,
             row.drift_max,
             row.drift_mean,
             row.overlap,
-            row.k
+            row.k,
+            census.0,
+            census.1
         );
     }
     Ok(())
