@@ -22,9 +22,19 @@ Sweep wall: 26.0 s (magnitude/wanda posture), 50.3 s (sparsegpt posture — the 
 2. **Artifact-size spread validates the codec design**: wanda's 0.1% mask compresses to 1,066 bytes (99.9% ones + RLE + zstd — the T1 premise verbatim), magnitude/sparsegpt-at-0.001 to 137 KB, the 1% masks to ~1.2 MB. The wanda selection's deletions cluster (a few columns) → near-perfect RLE; magnitude's scatter → 137× worse.
 3. The per-layer loss print at 0.1% shows 0.000000 — print precision (3670 deleted weights of the bottom-0.1% tiny-|w| tail); at 1% it reads 1.9e-5 (blk.23). Not a zero-defect: the loss path is exercised and nonzero in the fixtures.
 
-## The FKL/geometry audit rows
+## The FKL audit rows (2026-11-16 ~21:20Z, the same window — the T6 `--fk-lab` arm over the minted masks, 64 probe tokens, 2×64 walks ≈ 9–10 s per cell)
 
-NOT in this bench — the produced masks' FKL (the T6 `--fk-lab` arm) + geometry rows are the NEXT cell (the audit consumes these artifacts on disk); the T7 pre-registration's floor comparison (ours vs magnitude at matched rate, one frozen read) rides it. This bench records: the mint chain works end-to-end on the real fixture, the artifacts exist, the digests are the pins.
+| solver | rate | FKL mean | p95 | p99 | table digest |
+|---|---|---|---|---|---|
+| wanda | 0.001 | 0.000000 | 0.000000 | 0.000000 | `bfa61215…39c56c24` (= magnitude's — both all-zero) |
+| magnitude | 0.001 | 0.000000 | 0.000000 | 0.000000 | `bfa61215…39c56c24` |
+| random | 0.001 | **0.001182** | 0.003115 | 0.004725 | `41eab4ac…9e9b` |
+| wanda | 0.01 | 0.000000 | 0.000001 | 0.000002 | `418f83df…08ab7` |
+| magnitude | 0.01 | 0.000001 | 0.000002 | 0.000002 | `ee9b987c…4f60c` |
+| sparsegpt | 0.01 | 0.000001 | 0.000003 | 0.000004 | `fdbd4769…263c2` |
+| random | 0.01 | **0.022466** | 0.069802 | **0.258598** | `4bbf56e8…1037135` |
+
+**The floor comparison (pre-registered, one frozen read):** the three principled arms tie WITHIN INSTRUMENT RESOLUTION at both rates (≤2e-6 mean at 1%) and crush random by 4 orders of magnitude (0.0225 vs 0.000001 at 1%). The falsifier's bad case (principled ≤ magnitude) did not fire — **closed-form content is ALIVE on this fixture**; solver CHOICE is immaterial for SELECTION at ≤1% on RMSNorm-fed gates (finding 1's whitening explanation extends to the KL axis). The sparsegpt differentiation therefore rides entirely on the ii-b COMPENSATION sidecar — whose FKL needs a compensated-forward harness (the audit applies RIMSK masks only); that harness is the lane's next instrument, not this cell. All cells: instrument-grade (random resolved loudly at both rates — the instrument is not blind), one frozen read, digests pinned per row.
 
 ## Reproduce
 
