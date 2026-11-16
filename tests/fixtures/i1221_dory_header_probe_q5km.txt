@@ -1,0 +1,711 @@
+# dory header probe | arch dory | tensors 507 | metadata kvs 44
+
+## general.* keys
+  general.architecture = "dory"
+  general.type = "model"
+  general.sampling.top_p = F32(0.95)
+  general.sampling.temp = F32(1.0)
+  general.name = "Ss Rl 0927 Rl0923S200 Gbs6144 Lc030 Identity20 Nos35 Cp8 Bf16Kv Lr2E 6_iter21"
+  general.finetune = "6_iter21"
+  general.basename = "ss-rl-0927-rl0923s200-gbs6144-lc030-identity20-nos35-cp8-bf16kv-lr2e"
+  general.size_label = "4.0B"
+  general.quantization_version = U32(2)
+  general.file_type = U32(17)
+
+## non-tokenizer, non-general keys (the loop-count hunt)
+  dory.block_count  [LOOPISH] = U32(72)
+  dory.context_length  [LOOPISH] = U32(262144)
+  dory.embedding_length  [LOOPISH] = U32(2560)
+  dory.feed_forward_length  [LOOPISH] = U32(7168)
+  dory.attention.head_count  [LOOPISH] = U32(16)
+  dory.attention.head_count_kv  [LOOPISH] = U32(4)
+  dory.rope.freq_base  [LOOPISH] = F32(10000000.0)
+  dory.attention.key_length  [LOOPISH] = U32(256)
+  dory.attention.value_length  [LOOPISH] = U32(256)
+  dory.rope.dimension_count  [LOOPISH] = U32(256)
+  dory.attention.sliding_window  [LOOPISH] = U32(1024)
+  dory.input_layer_count  [LOOPISH] = U32(16)
+  dory.recurrent_layer_count  [LOOPISH] = U32(40)
+  dory.output_layer_count  [LOOPISH] = U32(16)
+  dory.num_loops  [LOOPISH] = U32(4)
+  dory.layer_pattern  [LOOPISH] = "S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-"
+  dory.recurrent_kv_cache_mode  [LOOPISH] = "per_loop"
+  dory.rope.profile  [LOOPISH] = [72 items]
+  dory.rope.freq_base_2  [LOOPISH] = F32(10000.0)
+  dory.init_std  [LOOPISH] = F32(0.0177)
+  dory.alpha_init  [LOOPISH] = F32(0.05)
+  dory.gate_init  [LOOPISH] = F32(50.596443)
+  loopish keys: 22
+  tokenizer.* kvs: 12 (not dumped)
+
+## full tensor inventory (file order)
+  output_scale.weight | BF16 | shape [131072] | 262144 B
+  output.weight | BF16 | shape [2560, 131072] | 671088640 B
+  token_embd.weight | BF16 | shape [2560, 131072] | 671088640 B
+  blk.0.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.0.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.0.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.0.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.0.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.0.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.0.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.0.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.1.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.1.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.1.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.1.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.1.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.1.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.2.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.2.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.2.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.2.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.2.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.2.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.2.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.2.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.3.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.3.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.3.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.3.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.3.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.3.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.4.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.4.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.4.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.4.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.4.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.4.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.4.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.4.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.5.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.5.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.5.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.5.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.5.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.5.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.6.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.6.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.6.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.6.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.6.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.6.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.6.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.6.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.7.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.7.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.7.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.7.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.7.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.7.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.8.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.8.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.8.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.8.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.8.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.8.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.8.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.8.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.9.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.9.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.9.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.9.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.9.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.9.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.10.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.10.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.10.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.10.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.10.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.10.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.10.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.10.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.11.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.11.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.11.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.11.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.11.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.11.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.12.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.12.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.12.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.12.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.12.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.12.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.12.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.12.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.13.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.13.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.13.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.13.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.13.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.13.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.14.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.14.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.14.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.14.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.14.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.14.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.14.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.14.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.15.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.15.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.15.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.15.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.15.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.15.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.16.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.16.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.16.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.16.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.16.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.16.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.16.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.16.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.17.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.17.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.17.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.17.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.17.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.17.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.18.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.18.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.18.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.18.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.18.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.18.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.18.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.18.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.19.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.19.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.19.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.19.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.19.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.19.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.20.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.20.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.20.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.20.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.20.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.20.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.20.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.20.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.21.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.21.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.21.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.21.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.21.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.21.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.22.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.22.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.22.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.22.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.22.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.22.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.22.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.22.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.23.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.23.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.23.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.23.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.23.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.23.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.24.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.24.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.24.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.24.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.24.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.24.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.24.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.24.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.25.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.25.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.25.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.25.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.25.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.25.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.26.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.26.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.26.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.26.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.26.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.26.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.26.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.26.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.27.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.27.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.27.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.27.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.27.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.27.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.28.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.28.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.28.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.28.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.28.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.28.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.28.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.28.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.29.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.29.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.29.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.29.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.29.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.29.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.30.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.30.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.30.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.30.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.30.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.30.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.30.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.30.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.31.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.31.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.31.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.31.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.31.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.31.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.32.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.32.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.32.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.32.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.32.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.32.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.32.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.32.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.33.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.33.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.33.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.33.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.33.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.33.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.34.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.34.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.34.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.34.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.34.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.34.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.34.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.34.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.35.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.35.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.35.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.35.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.35.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.35.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.36.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.36.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.36.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.36.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.36.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.36.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.36.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.36.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.37.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.37.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.37.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.37.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.37.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.37.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.38.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.38.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.38.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.38.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.38.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.38.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.38.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.38.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.39.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.39.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.39.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.39.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.39.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.39.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.40.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.40.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.40.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.40.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.40.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.40.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.40.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.40.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.41.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.41.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.41.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.41.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.41.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.41.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.42.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.42.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.42.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.42.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.42.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.42.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.42.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.42.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.43.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.43.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.43.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.43.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.43.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.43.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.44.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.44.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.44.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.44.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.44.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.44.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.44.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.44.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.45.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.45.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.45.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.45.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.45.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.45.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.46.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.46.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.46.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.46.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.46.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.46.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.46.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.46.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.47.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.47.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.47.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.47.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.47.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.47.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.48.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.48.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.48.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.48.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.48.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.48.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.48.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.48.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.49.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.49.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.49.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.49.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.49.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.49.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.50.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.50.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.50.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.50.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.50.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.50.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.50.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.50.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.51.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.51.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.51.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.51.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.51.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.51.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.52.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.52.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.52.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.52.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.52.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.52.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.52.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.52.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.53.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.53.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.53.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.53.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.53.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.53.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.54.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.54.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.54.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.54.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.54.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.54.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.54.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.54.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.55.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.55.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.55.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.55.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.55.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.55.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.56.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.56.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.56.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.56.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.56.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.56.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.56.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.56.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.57.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.57.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.57.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.57.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.57.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.57.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.58.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.58.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.58.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.58.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.58.attn_v.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.58.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.58.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.58.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.59.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.59.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.59.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.59.ffn_down.weight | Q5_K | shape [7168, 2560] | 12615680 B
+  blk.59.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.59.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.60.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.60.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.60.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.60.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.60.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.60.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.60.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.60.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.61.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.61.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.61.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.61.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.61.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.61.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.62.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.62.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.62.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.62.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.62.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.62.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.62.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.62.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.63.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.63.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.63.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.63.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.63.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.63.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.64.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.64.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.64.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.64.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.64.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.64.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.64.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.64.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.65.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.65.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.65.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.65.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.65.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.65.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.66.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.66.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.66.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.66.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.66.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.66.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.66.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.66.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.67.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.67.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.67.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.67.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.67.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.67.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.68.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.68.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.68.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.68.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.68.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.68.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.68.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.68.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.69.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.69.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.69.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.69.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.69.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.69.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.70.attn_gate.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.70.attn_k.weight | Q5_K | shape [2560, 1024] | 1802240 B
+  blk.70.attn_output.weight | Q5_K | shape [4096, 2560] | 7208960 B
+  blk.70.attn_q.weight | Q5_K | shape [2560, 4096] | 7208960 B
+  blk.70.attn_v.weight | Q6_K | shape [2560, 1024] | 2150400 B
+  blk.70.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.70.attn_gate_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.70.attn_qk_scale.weight | BF16 | shape [4096] | 8192 B
+  blk.71.residual_alpha.weight | BF16 | shape [2560] | 5120 B
+  blk.71.ffn_gate_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.71.ffn_up_scale.weight | BF16 | shape [7168] | 14336 B
+  blk.71.ffn_down.weight | Q6_K | shape [7168, 2560] | 15052800 B
+  blk.71.ffn_gate.weight | Q5_K | shape [2560, 7168] | 12615680 B
+  blk.71.ffn_up.weight | Q5_K | shape [2560, 7168] | 12615680 B
+
+## dory.rope.profile (per-block)
+  I32(2) I32(1) I32(2) I32(1) I32(2) I32(1) I32(1) I32(1) I32(2) I32(1) I32(2) I32(1) I32(2) I32(1) I32(1) I32(1) I32(2) I32(1) I32(2) I32(1) I32(2) I32(1) I32(1) I32(1) I32(2) I32(1) I32(2) I32(1) I32(2) I32(1) I32(1) I32(1) I32(2) I32(1) I32(2) I32(1) I32(2) I32(1) I32(1) I32(1) I32(2) I32(1) I32(2) I32(1) I32(2) I32(1) I32(1) I32(1) I32(2) I32(1) I32(2) I32(1) I32(2) I32(1) I32(1) I32(1) I32(2) I32(1) I32(2) I32(1) I32(2) I32(1) I32(1) I32(1) I32(2) I32(1) I32(2) I32(1) I32(2) I32(1) I32(1) I32(1)
+
+## full metadata (file order, tokenizer included)
+  general.architecture = "dory"
+  general.type = "model"
+  general.sampling.top_p = F32(0.95)
+  general.sampling.temp = F32(1.0)
+  general.name = "Ss Rl 0927 Rl0923S200 Gbs6144 Lc030 Identity20 Nos35 Cp8 Bf16Kv Lr2E 6_iter21"
+  general.finetune = "6_iter21"
+  general.basename = "ss-rl-0927-rl0923s200-gbs6144-lc030-identity20-nos35-cp8-bf16kv-lr2e"
+  general.size_label = "4.0B"
+  dory.block_count = U32(72)
+  dory.context_length = U32(262144)
+  dory.embedding_length = U32(2560)
+  dory.feed_forward_length = U32(7168)
+  dory.attention.head_count = U32(16)
+  dory.attention.head_count_kv = U32(4)
+  dory.rope.freq_base = F32(10000000.0)
+  dory.attention.key_length = U32(256)
+  dory.attention.value_length = U32(256)
+  dory.rope.dimension_count = U32(256)
+  dory.attention.sliding_window = U32(1024)
+  dory.input_layer_count = U32(16)
+  dory.recurrent_layer_count = U32(40)
+  dory.output_layer_count = U32(16)
+  dory.num_loops = U32(4)
+  dory.layer_pattern = "S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-S-S-S-*-"
+  dory.recurrent_kv_cache_mode = "per_loop"
+  dory.rope.profile = [72 items]
+  dory.rope.freq_base_2 = F32(10000.0)
+  dory.init_std = F32(0.0177)
+  dory.alpha_init = F32(0.05)
+  dory.gate_init = F32(50.596443)
+  tokenizer.ggml.model = "gpt2"
+  tokenizer.ggml.pre = "pixtral"
+  tokenizer.ggml.tokens = [131072 items]
+  tokenizer.ggml.token_type = [131072 items]
+  tokenizer.ggml.merges = [269443 items]
+  tokenizer.ggml.bos_token_id = U32(1)
+  tokenizer.ggml.eos_token_id = U32(11)
+  tokenizer.ggml.unknown_token_id = U32(0)
+  tokenizer.ggml.padding_token_id = U32(11)
+  tokenizer.ggml.add_bos_token = Bool(false)
+  tokenizer.ggml.add_eos_token = Bool(false)
+  tokenizer.chat_template = "{% macro render_extra_keys(json_dict, handled_keys) %}
+    {%- if json_dict is m…" (10152 B)
+  general.quantization_version = U32(2)
+  general.file_type = U32(17)
+
+## layer histogram
+  layered tensors: 504 (unlayered 3), layer span 0..=71
+  layers 0..=0: 8 tensors/layer
+  layers 1..=1: 6 tensors/layer
+  layers 2..=2: 8 tensors/layer
+  layers 3..=3: 6 tensors/layer
+  layers 4..=4: 8 tensors/layer
+  layers 5..=5: 6 tensors/layer
+  layers 6..=6: 8 tensors/layer
+  layers 7..=7: 6 tensors/layer
+  layers 8..=8: 8 tensors/layer
+  layers 9..=9: 6 tensors/layer
+  layers 10..=10: 8 tensors/layer
+  layers 11..=11: 6 tensors/layer
+  layers 12..=12: 8 tensors/layer
+  layers 13..=13: 6 tensors/layer
+  layers 14..=14: 8 tensors/layer
+  layers 15..=15: 6 tensors/layer
+  layers 16..=16: 8 tensors/layer
+  layers 17..=17: 6 tensors/layer
+  layers 18..=18: 8 tensors/layer
+  layers 19..=19: 6 tensors/layer
+  layers 20..=20: 8 tensors/layer
+  layers 21..=21: 6 tensors/layer
+  layers 22..=22: 8 tensors/layer
+  layers 23..=23: 6 tensors/layer
+  layers 24..=24: 8 tensors/layer
+  layers 25..=25: 6 tensors/layer
+  layers 26..=26: 8 tensors/layer
+  layers 27..=27: 6 tensors/layer
+  layers 28..=28: 8 tensors/layer
+  layers 29..=29: 6 tensors/layer
+  layers 30..=30: 8 tensors/layer
+  layers 31..=31: 6 tensors/layer
+  layers 32..=32: 8 tensors/layer
+  layers 33..=33: 6 tensors/layer
+  layers 34..=34: 8 tensors/layer
+  layers 35..=35: 6 tensors/layer
+  layers 36..=36: 8 tensors/layer
+  layers 37..=37: 6 tensors/layer
+  layers 38..=38: 8 tensors/layer
+  layers 39..=39: 6 tensors/layer
+  layers 40..=40: 8 tensors/layer
+  layers 41..=41: 6 tensors/layer
+  layers 42..=42: 8 tensors/layer
+  layers 43..=43: 6 tensors/layer
+  layers 44..=44: 8 tensors/layer
+  layers 45..=45: 6 tensors/layer
+  layers 46..=46: 8 tensors/layer
+  layers 47..=47: 6 tensors/layer
+  layers 48..=48: 8 tensors/layer
+  layers 49..=49: 6 tensors/layer
+  layers 50..=50: 8 tensors/layer
+  layers 51..=51: 6 tensors/layer
+  layers 52..=52: 8 tensors/layer
+  layers 53..=53: 6 tensors/layer
+  layers 54..=54: 8 tensors/layer
+  layers 55..=55: 6 tensors/layer
+  layers 56..=56: 8 tensors/layer
+  layers 57..=57: 6 tensors/layer
+  layers 58..=58: 8 tensors/layer
+  layers 59..=59: 6 tensors/layer
+  layers 60..=60: 8 tensors/layer
+  layers 61..=61: 6 tensors/layer
+  layers 62..=62: 8 tensors/layer
+  layers 63..=63: 6 tensors/layer
+  layers 64..=64: 8 tensors/layer
+  layers 65..=65: 6 tensors/layer
+  layers 66..=66: 8 tensors/layer
+  layers 67..=67: 6 tensors/layer
+  layers 68..=68: 8 tensors/layer
+  layers 69..=69: 6 tensors/layer
+  layers 70..=70: 8 tensors/layer
+  layers 71..=71: 6 tensors/layer
+
+## tensor stems (count = per-loop duplication tell; total bytes 3665387520)
+  attn_gate.weight  x36  layers 0..=70  types ["Q5_K"]  shapes 2560,4096 [Q5_K]
+  attn_gate_scale.weight  x36  layers 0..=70  types ["BF16"]  shapes 4096 [BF16]
+  attn_k.weight  x36  layers 0..=70  types ["Q5_K"]  shapes 2560,1024 [Q5_K]
+  attn_output.weight  x36  layers 0..=70  types ["Q5_K"]  shapes 4096,2560 [Q5_K]
+  attn_q.weight  x36  layers 0..=70  types ["Q5_K"]  shapes 2560,4096 [Q5_K]
+  attn_qk_scale.weight  x36  layers 0..=70  types ["BF16"]  shapes 4096 [BF16]
+  attn_v.weight  x36  layers 0..=70  types ["Q6_K", "Q5_K"]  shapes 2560,1024 [Q6_K] | 2560,1024 [Q5_K]
+  ffn_down.weight  x36  layers 1..=71  types ["Q6_K", "Q5_K"]  shapes 7168,2560 [Q6_K] | 7168,2560 [Q5_K]
+  ffn_gate.weight  x36  layers 1..=71  types ["Q5_K"]  shapes 2560,7168 [Q5_K]
+  ffn_gate_scale.weight  x36  layers 1..=71  types ["BF16"]  shapes 7168 [BF16]
+  ffn_up.weight  x36  layers 1..=71  types ["Q5_K"]  shapes 2560,7168 [Q5_K]
+  ffn_up_scale.weight  x36  layers 1..=71  types ["BF16"]  shapes 7168 [BF16]
+  output.weight  x1  -  types ["BF16"]  shapes 2560,131072 [BF16]
+  output_scale.weight  x1  -  types ["BF16"]  shapes 131072 [BF16]
+  residual_alpha.weight  x72  layers 0..=71  types ["BF16"]  shapes 2560 [BF16]
+  token_embd.weight  x1  -  types ["BF16"]  shapes 2560,131072 [BF16]
+
+## tie check (repeated stems, full byte compare)
+  attn_gate.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (7208960 B/row)
+  attn_gate_scale.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (8192 B/row)
+  attn_k.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (1802240 B/row)
+  attn_output.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (7208960 B/row)
+  attn_q.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (7208960 B/row)
+  attn_qk_scale.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (8192 B/row)
+  attn_v.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (2150400 B/row)
+  ffn_down.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (15052800 B/row)
+  ffn_gate.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (12615680 B/row)
+  ffn_gate_scale.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (14336 B/row)
+  ffn_up.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (12615680 B/row)
+  ffn_up_scale.weight  x36  DIVERGES (first mismatch at byte 0, row 1)  (14336 B/row)
+  residual_alpha.weight  x72  DIVERGES (first mismatch at byte 0, row 1)  (5120 B/row)
+
+## T0 verdict inputs
+  arch key: dory
+  I/R/O partition: explicit-metadata YES / naming-convention only
+  per-loop weights: 13 stem(s) repeat: ["attn_gate.weight", "attn_gate_scale.weight", "attn_k.weight", "attn_output.weight", "attn_q.weight", "attn_qk_scale.weight", "attn_v.weight", "ffn_down.weight", "ffn_gate.weight", "ffn_gate_scale.weight", "ffn_up.weight", "ffn_up_scale.weight", "residual_alpha.weight"]
