@@ -260,10 +260,29 @@ fn pp32k_placebo_repro() {
         model.display()
     );
 
-    // The walk's posture, verbatim (relaxed).
+    // The walk's posture, verbatim (relaxed) — with ONE deliberate
+    // divergence knob: the walk's relaxed posture sets
+    // `set_metal_tensor_relaxed_precision(!strict)` = TRUE (walk L401),
+    // while this repro previously pinned it FALSE (a strict-precision
+    // “relaxed” — the harness delta candidate after the third failure
+    // reproduced the walk's digit-class at quiet load; the prior repro
+    // arms produced a DIFFERENT fingerprint, 4.141e-5 vs the walk's
+    // 5.428e-5, consistent with a posture delta moving the stale bytes).
+    // `I1226_REPRO_RELAXED=1` matches the walk exactly; the default stays
+    // the historical strict-pinned posture so the prior arms reproduce.
+    let relaxed_precision = std::env::var("I1226_REPRO_RELAXED").as_deref() == Ok("1");
     set_prefill_use_metal_tensor_zerocopy(true);
     set_prefill_attn_metal_tensor(true);
-    set_metal_tensor_relaxed_precision(false);
+    set_metal_tensor_relaxed_precision(relaxed_precision);
+    println!(
+        "# posture: metal_tensor_relaxed_precision={} {}",
+        relaxed_precision,
+        if relaxed_precision {
+            "(the walk's relaxed posture)"
+        } else {
+            "(the historical strict-pinned repro posture)"
+        }
+    );
     set_f16b_placebo(false);
     set_f16b_route(true);
     set_f16b_site_mask(F16B_SITE_MASK_ALL);
