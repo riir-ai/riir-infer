@@ -81,6 +81,13 @@ pub mod dq_fakequant;
 pub mod dq_fakequant_cubecl;
 #[cfg(feature = "cubecl_runtime")]
 pub mod elementwise_cubecl;
+// Issue 1222 — the batched lens R-sweep lane (kernels + host driver;
+// offline diagnostics, never a serving path). `lens_gpu` forwards
+// riir-infer-core's `lens` feature so the capture/weight types resolve.
+#[cfg(feature = "lens_gpu")]
+pub mod lens_batch;
+#[cfg(feature = "lens_gpu")]
+pub mod lens_batch_kernels;
 #[cfg(feature = "cubecl_runtime")]
 pub mod encoder_lane_cubecl;
 #[cfg(feature = "cubecl_runtime")]

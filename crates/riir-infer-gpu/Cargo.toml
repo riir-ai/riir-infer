@@ -429,6 +429,12 @@ deltanet_recurrence_parallel = []
 # one). Gates hybrid_dispatch's internals.
 deltanet_inference = ["cubecl_runtime", "riir-infer-core/deltanet_inference"]
 
+# Issue 1222 — the batched lens R-sweep lane (GPU-class full-basis fit;
+# katgpt-rs 999 T3 follow-up). Offline diagnostics, never a serving path;
+# NOT in `production`. Forwards riir-infer-core's `lens` feature so the
+# StackWeights/StackCapture vocabulary resolves.
+lens_gpu = ["cubecl_runtime", "riir-infer-core/lens"]
+
 # ---------------------------------------------------------------------------
 # P3 slice 5 mirrors (the gemma kernel cluster). Each cfg key found in the
 # moved code gets a mirror here + a forward leg on the engine gpu crate's
@@ -495,6 +501,18 @@ gemma4_gpu = ["cubecl_runtime", "riir-infer-core/gemma4_inference"]
 [[test]]
 name = "bench_1004_r1_staged_recurrence_ab"
 required-features = ["deltanet_recurrence_smem_staged"]
+
+[[test]]
+name = "lens_batch_parity"
+required-features = ["lens_gpu"]
+
+[[test]]
+name = "lens_batch_kernel_units"
+required-features = ["lens_gpu"]
+
+[[test]]
+name = "lens_batch_bisect"
+required-features = ["lens_gpu"]
 
 # Issue 1186 T1 — the CQ3 G1 fixture battery (never-unpack GEMV prototype;
 # whole-file #![cfg(feature = "cq3")] + this row = reader AND count honest).
