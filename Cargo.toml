@@ -565,6 +565,15 @@ name = "i1208_wanda_score"
 path = "src/bin/i1208_wanda_score.rs"
 required-features = ["deletion_mask", "deltanet_inference"]
 
+# Issue 1208 T7 — the closed-form mask minting arm (calibration sweep ->
+# solver -> RIMSK artifact; the T7 solvers live in adapter::mint).
+# Reader protection row (the green-zero law): a default build skips the
+# bin loudly.
+[[bin]]
+name = "i1208_mask_mint"
+path = "src/bin/i1208_mask_mint.rs"
+required-features = ["deletion_mask", "deltanet_inference"]
+
 # Issue 1208 T6 — the mask geometry audit (stable rank / spectrum drift /
 # principal overlap vs the FFT envelope). REPORT-ONLY, exit 0.
 [[bin]]

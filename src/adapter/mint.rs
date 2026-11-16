@@ -389,6 +389,124 @@ fn tri_inverse_lower(l: &[f32], d: usize) -> Vec<f32> {
     inv
 }
 
+use std::collections::BTreeMap;
+
+/// The SparseGPT-class calibration capture (T7 increment 2): the
+/// per-layer Gram fold `H = 2XXᵀ` at the gate GEMV input — the online
+/// form upstream `add_batch` uses (sparsegpt.py :43–46: a running
+/// normalization folds the factor 2), so the caller never buffers rows.
+/// Rides `HybridForwardScratch` beside `WandaGateCapture` (the same
+/// hook, the same one-`Option`-check posture, cfg-gated, `None` unless
+/// armed).
+///
+/// Determinism law (Issue-940): the fold is sequential token order,
+/// scalar f32 adds in pinned order — the digest rebuilds byte-for-byte
+/// on any box.
+#[derive(Debug, Clone)]
+pub struct SparseGptGateCapture {
+    layers: Vec<usize>,
+    d: usize,
+    /// `layer -> d×d` row-major Gram (the damped-solver input BEFORE
+    /// damping; the solver applies the dead-guard + λ itself).
+    gram: BTreeMap<usize, Vec<f32>>,
+    tokens_seen: u64,
+}
+
+impl SparseGptGateCapture {
+    /// Arm for `layers` at width `d`. Same loud caller-bug law as the
+    /// wanda capture (empty / non-ascending layer sets refuse).
+    pub fn new(layers: &[usize], d: usize) -> Self {
+        assert!(!layers.is_empty(), "sparsegpt capture: empty layer set");
+        assert!(
+            layers.windows(2).all(|w| w[0] < w[1]),
+            "sparsegpt capture: layer set must be ascending + distinct"
+        );
+        Self {
+            gram: layers.iter().map(|&l| (l, vec![0.0_f32; d * d])).collect(),
+            layers: layers.to_vec(),
+            d,
+            tokens_seen: 0,
+        }
+    }
+
+    pub fn layers(&self) -> &[usize] {
+        &self.layers
+    }
+
+    pub fn width(&self) -> usize {
+        self.d
+    }
+
+    pub fn tokens_seen(&self) -> u64 {
+        self.tokens_seen
+    }
+
+    /// Fold one gate-GEMV input: the online running-normalized Gram
+    /// (upstream :43–46 verbatim): `H *= n/(n+m)`, then
+    /// `H += sqrt(2/(n+m))·x·xᵀ` — sequential, pinned order. Unlisted
+    /// layers: silent no-op (the bind-where-bound law).
+    pub fn capture(&mut self, layer: usize, x: &[f32]) {
+        debug_assert_eq!(x.len(), self.d, "sparsegpt capture width mismatch");
+        let Some(g) = self.gram.get_mut(&layer) else {
+            return;
+        };
+        let n = self.tokens_seen;
+        let m = if layer == self.layers[0] { 1 } else { 0 };
+        let _ = m;
+        // token count advances on the FIRST armed layer, matching the
+        // wanda capture's convention; the normalization below uses the
+        // count INCLUDING this token (upstream's nsamples-after-add).
+        let total = n + 1;
+        let scale = (2.0_f32 / total as f32).sqrt();
+        // H = (n/total)·H + scale²·x·xᵀ — upstream folds the rescale
+        // into the SAME add (`inp = sqrt(2/ns)·inp; H += inp·inpᵀ` with
+        // the rescale before it), which algebraically equals
+        // (n/total)·H_prev + (2/total)·x·xᵀ. The rescale first, then the
+        // rank-1 add, scalar sequential.
+        let w_old = n as f32 / total as f32;
+        for v in g.iter_mut() {
+            *v *= w_old;
+        }
+        for (r, &xr) in x.iter().enumerate() {
+            for (c, &xc) in x.iter().enumerate() {
+                g[r * self.d + c] += scale * xr * scale * xc;
+            }
+        }
+        if layer == self.layers[0] {
+            self.tokens_seen += 1;
+        }
+    }
+
+    /// The converged Gram for one layer (after the LAST token the
+    /// running normalization has already folded every earlier rank-1;
+    /// this is `H = 2·mean(x·xᵀ)·tokens`... precisely upstream's H at
+    /// `nsamples == tokens_seen`). No post-scaling — the solver's
+    /// damping is relative to THIS matrix's mean diagonal, matching
+    /// upstream's posture exactly.
+    pub fn gram(&self, layer: usize) -> Option<&[f32]> {
+        self.gram.get(&layer).map(|v| v.as_slice())
+    }
+
+    /// The sweep digest: BLAKE3 over the pinned structure (layer ids,
+    /// width, token count, every Gram's raw f32 bytes, little-endian).
+    pub fn sweep_digest(&self) -> [u8; 32] {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"i1208-sparsegpt-sweep-v1");
+        hasher.update(&(self.layers.len() as u32).to_le_bytes());
+        for &l in &self.layers {
+            hasher.update(&(l as u32).to_le_bytes());
+        }
+        hasher.update(&(self.d as u32).to_le_bytes());
+        hasher.update(&self.tokens_seen.to_le_bytes());
+        for &l in &self.layers {
+            for v in &self.gram[&l] {
+                hasher.update(&v.to_le_bytes());
+            }
+        }
+        *hasher.finalize().as_bytes()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,5 +737,59 @@ mod tests {
         // rate 0 → no live-column deletions, but col 1 is dead.
         assert_eq!(out.keep, vec![true, false, true, true]);
         assert_eq!(out.compensated[1], 0.0);
+    }
+
+    #[test]
+    fn gram_capture_matches_upstream_running_mean() {
+        // The online fold equals upstream's running form: after N tokens
+        // H = 2·mean(x·xᵀ) — NOT the raw 2Σ (the /n is load-bearing in
+        // upstream's recurrence `H *= n/(n+m); H += sqrt(2/(n+m))²·xxᵀ`).
+        // The solver is scale-invariant (rate thresholds and the relative
+        // damping both cancel a global scale), so this is the right
+        // converged posture. Two tokens over one layer, d = 2.
+        let mut cap = SparseGptGateCapture::new(&[0], 2);
+        cap.capture(0, &[1.0, 2.0]);
+        cap.capture(0, &[3.0, 4.0]);
+        assert_eq!(cap.tokens_seen(), 2);
+        let g = cap.gram(0).unwrap();
+        // Σx·xᵀ = [10, 14; 14, 20]; 2·mean = (2/2)·Σ = Σ here.
+        assert_eq!(g, &[10.0, 14.0, 14.0, 20.0]);
+        // three tokens: (2/3)·Σ
+        cap.capture(0, &[0.5, 1.5]);
+        let g3 = cap.gram(0).unwrap();
+        let s00 = 10.0_f32 + 0.25;
+        let s01 = 14.0_f32 + 0.75;
+        let s11 = 20.0_f32 + 2.25;
+        let two_thirds = 2.0_f32 / 3.0;
+        assert_eq!(
+            g3,
+            &[
+                s00 * two_thirds,
+                s01 * two_thirds,
+                s01 * two_thirds,
+                s11 * two_thirds
+            ]
+        );
+        // unlisted layer: silent no-op
+        cap.capture(1, &[9.0, 9.0]);
+        assert_eq!(cap.gram(1), None);
+    }
+
+    #[test]
+    fn gram_capture_deterministic_and_order_sensitive() {
+        let toks = [[1.0_f32, 2.0], [3.0, 4.0], [0.5, 1.5]];
+        let fold = |order: &[[f32; 2]]| {
+            let mut cap = SparseGptGateCapture::new(&[1], 2);
+            for t in order {
+                cap.capture(1, t);
+            }
+            cap.sweep_digest()
+        };
+        let a = fold(&toks);
+        let b = fold(&toks);
+        assert_eq!(a, b, "same fold -> same digest");
+        let mut reversed = toks;
+        reversed.reverse();
+        assert_ne!(a, fold(&reversed), "token order is pinned in the fold");
     }
 }

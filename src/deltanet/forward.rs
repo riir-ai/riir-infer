@@ -1322,6 +1322,10 @@ pub struct HybridForwardScratch {
     /// arms it; cfg-gated so a flag-off build compiles the field out.
     #[cfg(feature = "deletion_mask")]
     pub wanda_gate_capture: Option<crate::adapter::wanda::WandaGateCapture>,
+    /// The SparseGPT-class Gram capture (T7 increment 2) — the same
+    /// hook, armed only in the offline mint sweep.
+    #[cfg(feature = "deletion_mask")]
+    pub sparsegpt_gate_capture: Option<crate::adapter::mint::SparseGptGateCapture>,
 }
 
 impl HybridForwardScratch {
@@ -1348,6 +1352,8 @@ impl HybridForwardScratch {
             gate_mask_overlay: None,
             #[cfg(feature = "deletion_mask")]
             wanda_gate_capture: None,
+            #[cfg(feature = "deletion_mask")]
+            sparsegpt_gate_capture: None,
         }
     }
 }
@@ -1484,6 +1490,10 @@ fn forward_qwen_deltanet_body<'a>(
         // per-column squares — armed only in the offline sweep pass.
         #[cfg(feature = "deletion_mask")]
         if let Some(cap) = scratch.wanda_gate_capture.as_mut() {
+            cap.capture(layer_idx, &x[..n]);
+        }
+        #[cfg(feature = "deletion_mask")]
+        if let Some(cap) = scratch.sparsegpt_gate_capture.as_mut() {
             cap.capture(layer_idx, &x[..n]);
         }
         layer_weights.up_proj.matvec(&x[..n], &mut scratch.up);
