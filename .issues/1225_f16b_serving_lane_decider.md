@@ -2,7 +2,8 @@
 
 **Status:** OPEN — filed 2026-11-16 from [Bench 1223](../.benchmarks/1223_i1167_g5_f16b_price.md): the f16-B price cleared the graduate bar by two orders (per-launch NET ≈ 65% of the GEMM wall, sign-consistent on all seven census shapes, disjoint Δ-ranges, strict-arm reproduced). The lever: the ternary prefill GEMM's B-side activations read f16 instead of f32 — the serving GEMM at prefill shapes is B-side-bandwidth-bound (each workgroup re-reads its B slice per K-tile; f16 halves exactly that term), and the win is posture-independent (relaxed AND strict arms agree).
 
-**Claimed:** (unclaimed — the next session's engagement claims this line per the lease protocol)
+**Claimed:** amo-idle-i1225f16b@amo, 1794835595, expires 2026-11-18T13:26:35+00:00
+(scope: T1–T4, starting at T1 — the per-family retention decider at the shipped posture, P=512 AND P=4096; T2's twin shape depends on T1's per-family outcome)
 
 **Repos:** [riir-infer] (kernels + host in `riir-infer-gpu`; the league-side adoption re-prices riir-ai Issue 1154's ceiling — separate lane, per 1167's boundary note)
 
