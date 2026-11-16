@@ -200,7 +200,7 @@ impl LensScaleTableCL {
         // the FACTORS. table_len is the modulus row length, so n = rows ×
         // table_len always — a non-multiple refuses loud instead of rounding.
         assert!(
-            table_len > 0 && n % table_len == 0,
+            table_len > 0 && n.is_multiple_of(table_len),
             "LensScaleTableCL: n ({n}) must be a positive multiple of table_len ({table_len})"
         );
         let rows = n / table_len;
@@ -260,7 +260,7 @@ impl LensAddInplaceCL {
         // f32-exact params discipline: n (batch·t_len·d) exceeds 2^24 at real
         // geometry — take the factors, range by `tid / row_len < rows`.
         assert!(
-            row_len > 0 && n % row_len == 0,
+            row_len > 0 && n.is_multiple_of(row_len),
             "LensAddInplaceCL: n ({n}) must be a positive multiple of row_len ({row_len})"
         );
         let rows = n / row_len;
@@ -341,7 +341,7 @@ impl LensHalfRule2CL {
         // geometry — the kernel takes the factors; table_len is the modulus
         // row length, so the multiple relation always holds.
         assert!(
-            table_len > 0 && n % table_len == 0,
+            table_len > 0 && n.is_multiple_of(table_len),
             "LensHalfRule2CL: n ({n}) must be a positive multiple of table_len ({table_len})"
         );
         let rows = n / table_len;
