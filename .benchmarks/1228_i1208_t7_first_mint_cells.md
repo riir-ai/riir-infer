@@ -43,3 +43,27 @@ cargo run --release --features deletion_mask,deltanet_inference --bin i1208_mask
   riir-train/data/Qwen3.5-0.8B-Base-Q8_0.gguf riir-train/data/chat_probe /tmp/out.rimsk \
   --solver <wanda|sparsegpt|magnitude|random> --rate 0.001 --max-tokens 512
 ```
+
+## The T7b compensated-forward rows (2026-11-16 ~22:15Z, zed-e2bf92a2 — the ii-b sidecar's FKL, the lane's "next instrument" landed)
+
+The harness: `CompensatedSidecar` (I1208COMP1) extracted into `mint.rs` (parser/encoder; byte-identical to the original inline writer — the re-minted 0.001 sidecar reproduced `9ae9d9a5…ca83` EXACTLY, and the 0.01 rimsk reproduced `e58e6fdf…c6b9`), `GateMaskOverlay::mount_compensated` (bind-where-bound, loud refusals), and the audit's `--fk-lab-comp` posture (checkpoint binding verified loud; two-walk KL with the compensated matrices mounted directly — deleted positions baked to 0, survivors carry the error feedback). Gates: 16 lib (adapter::mint, incl. the sidecar round-trip/refusal/header tests) + 6 apply-gate (incl. `compensated_overlay_identity_and_binding`: identity pin, codec round trip, bind-where-bound, perturbation-moves-the-walk, length/deep-layer refusals) — clippy clean at the gated posture. NOTE: this session's model+corpus copies rode `/tmp` (`/tmp/i1208_model.gguf`, `/tmp/i1208_corpus/` — byte-copies of the riir-train data paths; digests bind regardless).
+
+| solver | rate | FKL mean | p95 | p99 | table digest | sidecar blake3 |
+|---|---|---|---|---|---|---|
+| sparsegpt **ii-b compensated** | 0.001 | 0.000000 | 0.000000 | 0.000000 | `bfa61215…39c56c24` (= the ii-a all-zero table) | `9ae9d9a5…ca83` |
+| sparsegpt **ii-b compensated** | 0.01 | **0.000000** | **0.000000** | **0.000000** | `feb5184b…ff50ed` | `5e2ef4b6…923c` |
+
+**Reading (the instrument honest, the claim bounded):** at 0.001 the ii-b row ties the ii-a all-zero table byte-for-byte (same digest) — selection choice immaterial, compensation indistinguishable. At **0.01 the compensation clears the mask-only arms by a full resolution class**: ii-a read 1e-6-class means with 2–4e-6 p99s; the compensated walk reads all-zero at the 6-dp print resolution (true values < 5e-7 per position), with the model digest binding verified and the synthetic battery proving the mount is numerically live (a perturbed matrix moves the walk). Random at 0.01 read 0.0225 mean / 0.2586 p99 (bench 1228) — four orders above the compensated arm. 64-token probe, one frozen read; the zero is "below print resolution", never an exact-zero claim.
+
+## The geometry rows (the T6 arms over real T7-produced content — first real-content rows; same window, seed 0xc0ffee k=80)
+
+| mask | drift max/mean (per-layer, all 24) | overlap (all 24) | vs the trained envelope (drift ≤1.4×, overlap 0.43–0.46) |
+|---|---|---|---|
+| sparsegpt ii-a 0.001 (`22b30aa4…`) | 1.000 / 1.000 | 1.000 | far inside — identity-class |
+| sparsegpt ii-a 0.01 (`e58e6fdf…`) | 1.000 / 1.000 | 1.000 | far inside — identity-class |
+
+**The falsifier did NOT fire** (the pre-registered kill: closed-form geometry OUTSIDE the envelope would kill the FFT-like inheritance claim). The closed-form masks preserve the principal subspace BETTER than trained FFT masks — consistent with the FKL axis (bottom-|w|-tail deletion does not move the top-80 left subspace; the per-layer stable ranks read identical to 2dp). Honest note: at these rates the geometry axis is resolution-limited (the full-row deletion golden moves it; tail deletion does not) — the rows are the first real-content pins, not a discrimination between the two rates.
+
+## The τ/rate operating-point pick (the pre-registered relative-to-magnitude rule, ONE frozen read — this section is the pick)
+
+At 0.001 every principled arm ties within instrument resolution (all-zero tables across ii-a and ii-b) — no solver separation, matching finding 1's whitening explanation. At 0.01 the **sparsegpt ii-b compensated arm dominates magnitude ii-a** (all-zero vs 1e-6-class mean, 2–4e-6 vs <5e-7 p99). **The pick: `--solver sparsegpt --rate 0.01 --emit-compensated` is T7's operating point** — the rate where deletion actually bites AND the compensation provably restores the distribution; 0.001 is the conservative point where solver choice is immaterial. The floor arms (magnitude/random) stay mandatory at any future rate; the falsifier (no operating point clearing the quality floor → closed-form content dead) did not fire — closed-form content is ALIVE with a proven operating point.
