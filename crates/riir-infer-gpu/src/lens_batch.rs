@@ -538,7 +538,7 @@ unsafe fn layer_step<R: Runtime>(
         sublayer_step(client, stack, cap, li, t)?;
     }
     unsafe {
-        LensAddInplaceCL::launch(client, t.clone(), stack.t2.clone(), td_b);
+        LensAddInplaceCL::launch(client, t.clone(), stack.t2.clone(), td_b, t_len * d);
     }
     unsafe {
         mlp_step(client, stack, cap, li, t)?;
@@ -626,7 +626,7 @@ unsafe fn mlp_step<R: Runtime>(
         );
     }
     unsafe {
-        LensAddInplaceCL::launch(client, t.clone(), stack.dmlp.clone(), td_b);
+        LensAddInplaceCL::launch(client, t.clone(), stack.dmlp.clone(), td_b, t_len * d);
     }
     Ok(())
 }

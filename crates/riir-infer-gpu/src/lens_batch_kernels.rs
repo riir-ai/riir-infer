@@ -158,11 +158,15 @@ impl LensGemmCL {
 #[cfg(feature = "cubecl_runtime")]
 #[cube(launch_unchecked)]
 fn lens_scale_table_f32(a: &[f32], table: &[f32], out: &mut [f32], params: &[u32]) {
-    let n = params[0usize] as usize;
-    let table_len = params[1usize] as usize;
+    let rows = params[0usize] as usize;
+    let row_len = params[1usize] as usize;
     let tid = ((CUBE_POS_Y * CUBE_COUNT_X + CUBE_POS_X) * CUBE_DIM_X + UNIT_POS_X) as usize;
-    if tid < n {
-        out[tid] = a[tid] * table[tid % table_len];
+    // Factors, never the monolithic count: f32-exact params cap at 2^24,
+    // and `batch·t_len·X` exceeds it at real geometry. `tid / row_len < rows`
+    // ⇔ `tid < rows·row_len` exactly (integer division), and the modulus is
+    // unchanged (row_len == table_len).
+    if tid / row_len < rows {
+        out[tid] = a[tid] * table[tid % row_len];
     }
 }
 
@@ -191,7 +195,16 @@ impl LensScaleTableCL {
         debug_assert_binding_at_least(&a, n, "lens_scale a");
         debug_assert_binding_at_least(&table, table_len, "lens_scale table");
         debug_assert_binding_at_least(&out, n, "lens_scale out");
-        let params: [u32; 2] = [f32_exact(n) as u32, f32_exact(table_len) as u32];
+        // f32-exact params discipline (plan 611 S2/S3): the total `n` =
+        // batch·t_len·X exceeds 2^24 at real geometry, so the kernel takes
+        // the FACTORS. table_len is the modulus row length, so n = rows ×
+        // table_len always — a non-multiple refuses loud instead of rounding.
+        assert!(
+            table_len > 0 && n % table_len == 0,
+            "LensScaleTableCL: n ({n}) must be a positive multiple of table_len ({table_len})"
+        );
+        let rows = n / table_len;
+        let params: [u32; 2] = [f32_exact(rows) as u32, f32_exact(table_len) as u32];
         let ph = crate::params_cache::params_handle(client, u32::as_bytes(&params));
         let n_wg = n.div_ceil(WG as usize) as u64;
         unsafe {
@@ -213,9 +226,10 @@ impl LensScaleTableCL {
 #[cfg(feature = "cubecl_runtime")]
 #[cube(launch_unchecked)]
 fn lens_add_inplace_f32(acc: &mut [f32], add: &[f32], params: &[u32]) {
-    let n = params[0usize] as usize;
+    let rows = params[0usize] as usize;
+    let row_len = params[1usize] as usize;
     let tid = ((CUBE_POS_Y * CUBE_COUNT_X + CUBE_POS_X) * CUBE_DIM_X + UNIT_POS_X) as usize;
-    if tid < n {
+    if tid / row_len < rows {
         acc[tid] += add[tid];
     }
 }
@@ -239,10 +253,18 @@ impl LensAddInplaceCL {
         acc: Handle,
         add: Handle,
         n: usize,
+        row_len: usize,
     ) {
         debug_assert_binding_at_least(&acc, n, "lens_add acc");
         debug_assert_binding_at_least(&add, n, "lens_add add");
-        let params: [u32; 1] = [f32_exact(n) as u32];
+        // f32-exact params discipline: n (batch·t_len·d) exceeds 2^24 at real
+        // geometry — take the factors, range by `tid / row_len < rows`.
+        assert!(
+            row_len > 0 && n % row_len == 0,
+            "LensAddInplaceCL: n ({n}) must be a positive multiple of row_len ({row_len})"
+        );
+        let rows = n / row_len;
+        let params: [u32; 2] = [f32_exact(rows) as u32, f32_exact(row_len) as u32];
         let ph = crate::params_cache::params_handle(client, u32::as_bytes(&params));
         let n_wg = n.div_ceil(WG as usize) as u64;
         unsafe {
@@ -252,7 +274,7 @@ impl LensAddInplaceCL {
                 CubeDim::new_1d(WG),
                 BufferArg::from_raw_parts(acc, n),
                 BufferArg::from_raw_parts(add, n),
-                BufferArg::from_raw_parts(ph, 1),
+                BufferArg::from_raw_parts(ph, 2),
             );
         }
     }
@@ -274,11 +296,11 @@ fn lens_half_rule2_f32(
     out: &mut [f32],
     params: &[u32],
 ) {
-    let n = params[0usize] as usize;
-    let table_len = params[1usize] as usize;
+    let rows = params[0usize] as usize;
+    let row_len = params[1usize] as usize;
     let tid = ((CUBE_POS_Y * CUBE_COUNT_X + CUBE_POS_X) * CUBE_DIM_X + UNIT_POS_X) as usize;
-    if tid < n {
-        let m = tid % table_len;
+    if tid / row_len < rows {
+        let m = tid % row_len;
         out[tid] = f32::new(0.5f32) * (a_tab[m] * x[tid] + b_tab[m] * c_tab[m] * y[tid]);
     }
 }
@@ -315,7 +337,15 @@ impl LensHalfRule2CL {
         debug_assert_binding_at_least(&x, n, "half2 x");
         debug_assert_binding_at_least(&y, n, "half2 y");
         debug_assert_binding_at_least(&out, n, "half2 out");
-        let params: [u32; 2] = [f32_exact(n) as u32, f32_exact(table_len) as u32];
+        // f32-exact params discipline: n (batch·t_len·X) exceeds 2^24 at real
+        // geometry — the kernel takes the factors; table_len is the modulus
+        // row length, so the multiple relation always holds.
+        assert!(
+            table_len > 0 && n % table_len == 0,
+            "LensHalfRule2CL: n ({n}) must be a positive multiple of table_len ({table_len})"
+        );
+        let rows = n / table_len;
+        let params: [u32; 2] = [f32_exact(rows) as u32, f32_exact(table_len) as u32];
         let ph = crate::params_cache::params_handle(client, u32::as_bytes(&params));
         let n_wg = n.div_ceil(WG as usize) as u64;
         unsafe {
