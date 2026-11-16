@@ -4,6 +4,7 @@
 **Lease closed:** zed-amo-specdec2@amo, 1793971440 (expired, holder gone) → zed-1b3207ea@amo, 1794121498 — T1 landed 2026-11-08 (Bench 954, verdict f9e6b2c2)
 (T1 — the head-only acceptance price cell on amo Metal; T2-T5 stay unclaimed)
 **Claimed:** zed-880a274d@amo (amo), 1794866900, expires 2026-11-18T22:00:00+00:00 — scope: T1 CONTINUATION only (the qkvg dequant bisect per Progress 2's next-session note, then the chat-regime T1 re-run deciding the ≥2.5 gate); T2+ stay unclaimed. CPU-only probe work (no Metal posture), collision-checked against the live lanes (1186 captures, 1201 floor cell, 1208 adapter WIP, 1226 F1).
+**Lease closed:** zed-880a274d@amo (amo), 1794866900, was expires 2026-11-18T22:00:00+00:00 — CLAIMED IN ERROR, released same session: the Progress-2 "next session" note was SUPERSEDED by Bench 954 (2026-11-08) — the chat-regime T1 re-run ran and the gate DECIDED (mean_j 1.27 < 2.5, PATH A CLOSES, G1-T1 PASS); T2–T4 are pre-registered-BLOCKED on 1178 landing serial ≥ ~40 (Bench 955: precondition NOT met, negative-to-flat). Lesson recorded: read the Status line + the full bench chain before claiming a Progress-note item — a stale "next session" note in mid-file is not an open task.
 
 ## The fire condition (Bench 1167 R2 decomposition, bmo M5 Ultra, 2026-11-06)
 
