@@ -40,7 +40,7 @@ Additional standing bars:
 - [ ] T3 — the league cell: pp2048/pp4096 + decode vs llama.cpp Q3_K matched-bpw (4090 window, run ALONE, `PROVENANCE:` line quoted); per-family retention cells alongside the perf cells.
 - [ ] T4 — verdict: GOAT gate per the league law (G1 correctness / G2 perf / G3 no-regression / G4 alloc); win → demote-only env promotion per the env-switch law; loss → recorded verdict, the corpus note filed.
 
-### T2b OURS half — the design (paper-first 2026-11-16T19:47Z, implementation next quiet window)
+### T2b OURS half — the design (paper-first 2026-11-16T19:47Z, CODE LANDED 2026-11-16T20:35Z `7448b321`; the heavy RUN phases stay in the post-walk quiet window)
 
 The two T2a APIs (`fit_smooth`, `quantize_residual`) take RAW CALIBRATION ROWS (`cal: &[f32]`, `n_cal × d_in`) and derive H internally — so the capture seam records activations per watched tensor input, not precomputed Hessians. Three pieces:
 
@@ -49,6 +49,8 @@ The two T2a APIs (`fit_smooth`, `quantize_residual`) take RAW CALIBRATION ROWS (
 3. **Serving arm** (T3's measured path): `QuantWeight::Cq3(Cq3Handle)` — the never-unpack GEMV (`gemv_i8_sdot`, the phone-kernel shape from T1; the LUT arm stays the G1 reference) with the per-group activation rotation fused into the load (x_rot = FWHT(x) per group — the T1 bit-exactness law carries: the comparison basis is W_rot·x_rot, never W·x). Engagement proof = the T1 counter class (dispatch counts asserted per pass type, the Issue-1124 T1.5 lesson).
 
 Schedule (serialized behind the F1 walk — the top gate): shard download resumed network-bound 2026-11-16T19:42Z (`cq3-prep/shard_download_resume.log`; both stages land ~20:30Z); imatrix ×2 + quantize ×3 (the prep's heavy phases — the fork build is DONE, binaries on disk from 11-09) run post-walk ~22:30Z; capture pass + driver implementation in the same post-walk quiet window; T3 queues 4090-exclusive after both arms' artifacts verify.
+
+**CODE HALF LANDED (2026-11-16T20:35Z, this lane, `7448b321`):** the capture seam (`qwen38_cq3_capture.rs`: per-(layer, site) sinks, budget = a PIN, lazy writes, ledger.json; the dense forward's census-pattern tap at 6 sites on the ACTUAL gemm inputs, sync-then-read, one-bool disarmed posture), the `cq3_quantize` driver (capture + quantize subcommands; CQ3ART1 container v1 + blake3 manifest; g=32 b=3 a=0.25 the pre-registered pins), the `qwen38_cq3_t2b` fixture battery (4/4 — it caught the suffix-parsing bug pre-landing), feature `cq3_calibrate` (implies cq3 + qwen38_wgpu + blake3; all three serving postures compile clean; clippy clean via the rulewright; T1 g1 11/11 unchanged). Design deltas pinned by the landing: (a) the capture-session constructor takes explicit dir/tokens — NO env latch on the capture path; (b) the ours-side corpus identity field is BLAKE3 (this repo's hash law; the plan-629 sha256 pins stay verified by the opponent prep script); (c) per-(layer, site) FILES (~288, not ~6) — SmoothQuant fit is per-matrix and per-layer calibration is the imatrix standard. REMAINING (post-walk quiet window, per the schedule): the capture RUN (league model + both corpora, minutes of prefill), the quantize RUN (b1/b2 artifacts — the Hessian accumulation is O(n_cal·d_in²) sequential, the mlp_down tensors dominate, run quiet-box serialized), the opponent prep's heavy phases (imatrix ×2 + quantize ×3), then the T3 4090-exclusive queue.
 
 ## Constraints
 
