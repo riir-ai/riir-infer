@@ -1,6 +1,7 @@
 # Issue 1227: fence F2 flags the workspace's own member crates — the exemption list predates them
 
 **Status:** Open — the gate is red on every workstation run; CI is main-only so `develop` never sees it (the spending-limit posture that hides it).
+**Claimed:** amo-i1227, 1794870995, expires 2026-11-18T23:16:24Z
 
 ## The defect
 
