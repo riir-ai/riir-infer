@@ -510,6 +510,10 @@ required-features = ["lens_gpu"]
 name = "lens_batch_kernel_units"
 required-features = ["lens_gpu"]
 
+[[example]]
+name = "lens_gpu_fit_t3"
+required-features = ["lens_gpu"]
+
 [[test]]
 name = "lens_batch_bisect"
 required-features = ["lens_gpu"]
