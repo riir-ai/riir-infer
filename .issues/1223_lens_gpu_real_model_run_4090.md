@@ -1,6 +1,6 @@
 # Issue 1223: the lens full-basis REAL-model run — 4090 cell (i1222 follow-up)
 
-**Status:** open — unclaimed.
+**Status:** open — **Claimed:** zed-ba521963@amo, epoch 1794788174, expires 2026-11-18T00:16:00+00:00 (4090 real-model run launch; amo session).
 
 ## What this is
 
