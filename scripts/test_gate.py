@@ -55,6 +55,15 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # verifies on dedicated GPU boxes; its 6-test EB battery passes standalone).
 ROWS = [
     (
+        "i1186 T2b capture-seam battery (hermetic)",
+        "riir-infer-gpu",
+        "cq3_calibrate",
+        "--test qwen38_cq3_t2b",
+        "",
+        4,
+        300,
+    ),
+    (
         "int_ref CPU core suite",
         "riir-infer-laya",
         "laya-riir,int_ref",

@@ -11,5 +11,6 @@ pub mod geometry;
 pub mod hf_ingest;
 pub mod fkl;
 pub mod mask_codec;
+pub mod mint;
 pub mod q2_apply;
 pub mod wanda;
