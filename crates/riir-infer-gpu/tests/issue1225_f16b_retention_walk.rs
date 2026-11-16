@@ -500,6 +500,32 @@ fn f16b_retention_walk() {
             8
         };
         let lengths = scored_lengths(p_max, k);
+        // Issue 1226 (Arm A verdict, `7d9776f8`): the incumbent route's
+        // per-history state converges to a fixed point after ~2 route-off
+        // passes; a family-start ref taken before that point sits
+        // pre-fixed-point while the placebo pass runs post (armed pass +
+        // the placebo forward's construction+drop in between), and the
+        // placebo HARD gate compares across that boundary — reading the
+        // incumbent-history drift as an instrument defect (digit-identical
+        // 5.428e-5 relaxed / 4.141e-5 strict). Two settle passes bring the
+        // family into the stable regime before its ref — the exact shape
+        // the REFREPLAY discriminator proved (two extra route-off passes at
+        // the code position made the second family's placebo read 0.000e0;
+        // ref#3-vs-ref#2 exact pins the stability). Settled state persists
+        // across `reset_state()` (the drift is pool/lazy-clear state, not
+        // KV), and route-off passes at the stable state keep it — so the
+        // ref, armed and placebo rows all compare same-state and the armed
+        // rows read the honest twin drift (9.3e-8-class at pp32768).
+        set_f16b_route(false);
+        let settle_prefix = &toks[..lengths[0]];
+        for _ in 0..2 {
+            let _ = pass_logits(&mut fwd, settle_prefix, n_layer);
+        }
+        set_f16b_route(true);
+        eprintln!(
+            "# {family}: settled (2 route-off passes @ len {})",
+            lengths[0]
+        );
         let mut placebos_left = 1usize; // the control at the FIRST length of each family
         for &len in &lengths {
             let prefix = &toks[..len];
