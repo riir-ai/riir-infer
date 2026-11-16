@@ -1,9 +1,8 @@
 # Issue 1186 — CQ3 league cell on the qwen3.8 dense lane (Cactus whole-model quant, katgpt-rs issue 987 lead A3)
 
 **Status:** IN PROGRESS — T1 + T2a LANDED 2026-11-09 (this box); T2b/T3/T4 open. Execution routes 4090 (league lane — the Bout law applies; run ALONE, box state recorded, engagement proof first).
-**Lease closed:** zed-m3-cq3@0, 1794167021, was expires 2026-11-10T19:43:41+00:00 — EXPIRED (T2b opponent-half state: amo job 01a1bceb has NO log on amo 2026-11-11 — its artifacts need re-verification or a re-run of scripts/cq3_league/prep_opponent_arm.sh before T3); lane re-taken by amo-zed-1186cq3
-**Claimed:** amo-zed-1186cq3, 1794385650, expires 2026-11-13T08:27:30+00:00
-(scope: T2b ours half — the capture seam + cq3_quantize driver + its fixture battery; then T3 the 4090 window ALONE with the PROVENANCE line, T4 the GOAT verdict)
+**Lease closed:** amo-zed-1186cq3, 1794385650, was expires 2026-11-13T08:27:30+00:00 — holder gone, scope unlanded (T2b opponent half never started; the queued prep job died mid-download 2026-11-09: shard 1 stalled at 5.28/46.5 GB on `curl (92) HTTP/2 stream not closed cleanly`, no imatrix/quant/ledger artifacts — verified on disk 2026-11-16T19:40Z).
+**Claimed:** amo-i1186t2b@amo (zed-2d5bbc91 thread), 1794849600, expires 2026-11-17T20:00:00+00:00 — scope: (1) T2b opponent half — resume the shard download NOW (network-bound, ~50 MB/s, no load impact on the F1 walk window; the script is resume-friendly: complete shards skip, the fork build is DONE from 11-09, both binaries on disk) and serialize the heavy phases (imatrix ×2 + quantize ×3) AFTER the i1226 F1 walk completes (~22:30Z) — the prep is amo-only by the RAM law (the 54.66 GB BF16 pair), never the 4090; (2) T2b OURS half (the T3 critical path) — the capture seam + `cq3_quantize` driver design, paper-first this window, implementation + fixture battery in the post-walk quiet window; (3) T3 queues 4090-exclusive after both arms exist (Bout law, PROVENANCE, matched-calibration both arms per the gate above).
 
 ## What the lead asks (from 987)
 
