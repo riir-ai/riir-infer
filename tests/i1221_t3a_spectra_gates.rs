@@ -35,7 +35,7 @@ mod synth_dory;
 
 use riir_infer_core::dory::spectra::{
     KL_VECTOR_EPS, agreement_exit, argmax_and_margin, effective_depth, exit_kl, exit_row,
-    kl_loop1_vs_exit, kl_positions, monotone_fraction, run_lens, spectra_row,
+    halter_traces, kl_loop1_vs_exit, kl_positions, monotone_fraction, run_lens, spectra_row,
     verify_resume_lineage,
 };
 use riir_infer_core::dory::{DoryForward, DoryKvCache, load_dory_weights};
@@ -332,15 +332,15 @@ fn row_serde_and_resume_accept_path() {
     let header = concat!(
         "{\"record\":\"i1221_t3a_kl_spectra_header\",\"schema_version\":1,",
         "\"model\":{\"path\":\"p.gguf\",\"blake3\":\"abc\",\"arch\":\"dory\",\"k_full\":2,",
-        "\"n_embd\":16,\"vocab\":11,\"blocks\":6,\"kv_cache_mode\":\"per_loop\"}},",
+        "\"n_embd\":16,\"vocab\":11,\"blocks\":6,\"kv_cache_mode\":\"per_loop\"},",
         "\"ks\":\"1..=2\",",
-        "\"prompts\":{\"sets\":3,\"seq_len\":8,\"seed\":0,\"law\":\"x\"}},",
+        "\"prompts\":{\"sets\":3,\"seq_len\":8,\"seed\":0,\"law\":\"x\"},",
         "\"threshold_nats\":1.0,",
-        "\"box_state\":{\"utc_rfc3339\":\"t\",\"profile\":\"release\",\"threads\":1}},",
+        "\"box_state\":{\"utc_rfc3339\":\"t\",\"profile\":\"release\",\"threads\":1},",
         "\"repo_commit\":\"deadbeef\"}\n"
     );
     std::fs::write(&rows, format!("{header}{}", serde_json::to_string(&row).unwrap())).expect("write");
-    let done = verify_resume_lineage(&rows, "abc", "deadbeef", 2, 8, 3, 0);
+    let done = verify_resume_lineage(&rows, "abc", "deadbeef", 2, 8, 3, 0, "i1221_t3a_kl_spectra_row");
     assert_eq!(done, std::collections::BTreeSet::from([(1usize, 2usize)]));
     let _ = std::fs::remove_file(&rows);
 }
@@ -397,4 +397,135 @@ fn prefill_refactor_keeps_the_incremental_identity() {
             .all(|(x, y)| x.to_bits() == y.to_bits()),
         "incremental final-row logits != prefill final row (T2 identity broken by the refactor)"
     );
+}
+
+// ── T3(b) gates: the halter traces (plan 636 leg (b)) ────────────────────
+
+/// The halter traces derive from the (a) lens snapshots verbatim: the
+/// trace row count is t × (k−1), the depth-2 step IS the episode scale,
+/// and the trace determinism holds (two lens runs → identical traces).
+#[test]
+fn halter_traces_derive_from_the_lens_deterministically() {
+    let (_path, w) = loaded_weights();
+    let fwd = DoryForward::new(&w);
+    let toks = prompt();
+    let k = w.meta.num_loops;
+    let t = SEQ;
+    let n_embd = w.dims.n_embd;
+
+    let mut c1 = DoryKvCache::new(&w, k);
+    let mut s1 = Vec::new();
+    run_lens(&fwd, &toks, &mut c1, &mut s1).expect("lens1");
+    let mut c2 = DoryKvCache::new(&w, k);
+    let mut s2 = Vec::new();
+    run_lens(&fwd, &toks, &mut c2, &mut s2).expect("lens2");
+
+    let (tr1, cal1) = halter_traces(0, &s1, t, n_embd, &[0.01, 0.5]);
+    let (tr2, _) = halter_traces(0, &s2, t, n_embd, &[0.01, 0.5]);
+
+    assert_eq!(tr1.len(), t * (k - 1), "trace row count != t×(k−1)");
+    assert_eq!(cal1.len(), t, "calibration row count != t");
+    // Determinism: identical snapshots → identical traces (bit-exact f32).
+    for (a, b) in tr1.iter().zip(tr2.iter()) {
+        assert_eq!(a.step_size.to_bits(), b.step_size.to_bits(), "step differs");
+        assert_eq!(a.cos_theta.to_bits(), b.cos_theta.to_bits(), "cos differs");
+        assert_eq!(a.depth, b.depth);
+        assert_eq!(a.pos, b.pos);
+    }
+    // The episode scale: depth-2 rows carry first_step for every posture cell
+    // (rows are depth-major: [(d−2)·t + pos] → pos's depth-2 row is tr1[pos]).
+    for (pos, cal) in cal1.iter().enumerate() {
+        let d2_step = tr1[pos].step_size;
+        assert_eq!(cal.first_step.to_bits(), d2_step.to_bits(), "first_step != depth-2 step");
+        assert_eq!(cal.k_full, k);
+        assert_eq!(cal.postures.len(), 2);
+        for cell in &cal.postures {
+            let want = cell.cost_floor_frac * d2_step;
+            assert!(
+                (cell.cost - want).abs() < 1e-3,
+                "cost != frac × first_step ({} vs {})",
+                cell.cost,
+                want
+            );
+            assert_eq!(cell.verdict_shape.len(), k - 1, "shape length != k−1");
+        }
+    }
+}
+
+/// The halter semantics on REAL traces: the verdict_shape is always a
+/// well-formed walk (one decision char per depth, at most one H,
+/// everything after H padded with `.`), and halt_depth/halt_reason
+/// agree with the shape — the answer format's structural law.
+#[test]
+fn halter_posture_cells_are_wellformed() {
+    let (_path, w) = loaded_weights();
+    let fwd = DoryForward::new(&w);
+    let toks = prompt();
+    let k = w.meta.num_loops;
+
+    let mut cache = DoryKvCache::new(&w, k);
+    let mut snaps = Vec::new();
+    run_lens(&fwd, &toks, &mut cache, &mut snaps).expect("lens");
+    let (_, cal) = halter_traces(7, &snaps, SEQ, w.dims.n_embd, &[0.01, 0.6]);
+
+    for row in &cal {
+        assert_eq!(row.prompt_idx, 7, "prompt_idx stamped");
+        for cell in &row.postures {
+            let hs = cell.verdict_shape.chars().collect::<Vec<_>>();
+            let h_count = hs.iter().filter(|&&c| c == 'H').count();
+            assert!(h_count <= 1, "more than one H in a shape: {}", cell.verdict_shape);
+            assert!(hs.iter().all(|&c| matches!(c, 'C' | 'F' | 'H' | '.')));
+            if h_count == 1 {
+                assert!(cell.halt_reason != "-", "H in shape but no reason");
+                let h_idx = hs.iter().position(|&c| c == 'H').expect("H exists");
+                assert_eq!(cell.halt_depth, h_idx + 2, "halt_depth != shape position + 2");
+                assert!(hs[h_idx + 1..].iter().all(|&c| c == '.'), "post-halt non-padding");
+            } else {
+                assert_eq!(cell.halt_reason, "-", "reason without H");
+                assert_eq!(cell.halt_depth, k, "no H but halt_depth != k_full");
+                assert!(hs.iter().all(|&c| c != '.'), "no H but padding present");
+            }
+        }
+    }
+}
+
+/// Monotone-decay synthetic regimes (the Plan-304 G2/G3 reference
+/// shapes) through the SAME halter kernel the cell drives: crowd
+/// (decay 0.3, floor 0.6) halts early; important (decay 0.95, floor
+/// 0.01) never halts within the trained depth. The kernel contract the
+/// calibration table's reading relies on.
+#[test]
+fn halter_kernel_contract_on_the_synthetic_regimes() {
+    use katgpt_core::gain_cost_halt::{GainCostLoopHalter, HaltDecision};
+
+    let k = 4usize;
+    let first: f32 = 1.0;
+    let decay = 0.3f32;
+    let cost = 0.6f32 * first; // the synthetic G2 override band
+    let mut h = GainCostLoopHalter::new(1.0, 1, 1);
+    let mut halt_at = 0usize;
+    for depth in 2..=k {
+        let gain = first * decay.powi((depth - 2) as i32);
+        if let HaltDecision::Halt { .. } = h.halt_decision(depth, gain, cost, 1.0) {
+            halt_at = depth;
+            break;
+        }
+    }
+    assert!(
+        (2..=3).contains(&halt_at),
+        "crowd regime (decay 0.3, floor 0.6) should halt at depth 2-3, got {halt_at}"
+    );
+
+    // Important regime: slow decay 0.95, wiring default floor 0.01 —
+    // must NEVER halt within the trained depth (Plan 304's G3 law).
+    let mut h = GainCostLoopHalter::new(1.0, 1, 1);
+    let cost = 0.01f32 * first;
+    for depth in 2..=k {
+        let gain = first * 0.95f32.powi((depth - 2) as i32);
+        let d = h.halt_decision(depth, gain, cost, 1.0);
+        assert!(
+            !matches!(d, HaltDecision::Halt { .. }),
+            "important regime halted at depth {depth} — the G3 contract broke"
+        );
+    }
 }

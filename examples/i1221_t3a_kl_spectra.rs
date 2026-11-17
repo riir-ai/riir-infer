@@ -119,6 +119,7 @@ fn main() {
         seq_len,
         prompt_sets,
         seed,
+        "i1221_t3a_kl_spectra_row",
     );
     let mut rows_file = fs::OpenOptions::new()
         .create(true)

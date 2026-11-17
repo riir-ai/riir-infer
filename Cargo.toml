@@ -97,7 +97,7 @@ gdn_delta_roll = ["deltanet_inference"]
 # Pure-local opt-in (same posture as `lens`/`sink_audit`): zero serving-
 # path cost, unarmed builds compile the module to nothing. T1 forward +
 # proofs land behind the same gate.
-dory = []
+dory = ["katgpt-core/gain_cost_halt"]
 # Plan 622 (2026-10-22) — the TokenGate prompt-skimming lane (per-key-bias
 # attention + the exact pruned-prefill quartet + the deterministically-
 # constructed gate overlay). Pure-local opt-in. The kernel CAPABILITY
@@ -1209,6 +1209,11 @@ required-features = ["deltanet_inference"]
 [[example]]
 name = "i1221_t3a_kl_spectra"
 path = "examples/i1221_t3a_kl_spectra.rs"
+required-features = ["dory"]
+
+[[example]]
+name = "i1221_t3b_halter_traces"
+path = "examples/i1221_t3b_halter_traces.rs"
 required-features = ["dory"]
 
 [[test]]
