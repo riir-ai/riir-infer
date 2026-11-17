@@ -11752,6 +11752,12 @@ impl TernaryDeltanetGpuForward {
                             // one the plan's G1 pins).
                             let rec_mr = crate::deltanet_recurrence_mr_cubecl::rec_mr_planes();
                             if let Some(planes) = rec_mr {
+                                // Issue 1235: the q-defer fusion arm rides the MR
+                                // launch as its own comptime specialization —
+                                // PROMOTE-ONLY env (`RIIR_REC_QDEFER=1`), unset
+                                // keeps the incumbent bytes.
+                                let q_defer =
+                                    crate::deltanet_recurrence_mr_cubecl::rec_qdefer_armed();
                                 crate::deltanet_recurrence_mr_cubecl::DeltanetRecurrenceMultiTokenMRCubeCL::launch_with_gpu_handles::<
                                     ActiveRuntime,
                                 >(
@@ -11765,6 +11771,7 @@ impl TernaryDeltanetGpuForward {
                                     head_dim,
                                     p,
                                     planes,
+                                    q_defer,
                                 );
                             } else if staged {
                                 #[cfg(feature = "deltanet_recurrence_smem_staged")]

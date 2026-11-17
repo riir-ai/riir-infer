@@ -46,6 +46,17 @@ use cubecl::server::Handle;
 
 /// Multi-token recurrence, `planes` row-planes per cube, one plane per row.
 /// See the module docs for the bit-identity argument.
+///
+/// `q_defer` (issue 1235, PROMOTE-ONLY `RIIR_REC_QDEFER=1`): the q-side
+/// partials + its `plane_sum` + the output write are OFF the recurrence
+/// dependency chain — they feed only the output buffer. With the arm on,
+/// each token's q-dot DRAINS one iteration late (after the next token's
+/// k-partials have issued), so the second butterfly never sits between the
+/// state update and the next token's k-side on the critical path. Bit-exact
+/// by construction: every fp op's inputs are unchanged (same accumulators,
+/// same reduction tree inside `plane_sum`, same per-token order of state
+/// mutations) — only the ISSUE ORDER of independent work moves; the G1
+/// sweep pins it against the incumbent at the bit level.
 #[cfg(all(
     feature = "cubecl_runtime",
     feature = "ternary_deltanet_chunked_prefill"
@@ -59,6 +70,7 @@ fn deltanet_recurrence_multi_token_mr_f32(
     state: &mut [f32],
     output: &mut [f32],
     #[comptime] planes: usize,
+    #[comptime] q_defer: bool,
 ) {
     let head_dim_f32 = params[0usize];
     let head_dim = head_dim_f32 as u32;
@@ -107,6 +119,14 @@ fn deltanet_recurrence_multi_token_mr_f32(
 
     let scale = f32::new(1.0f32) / head_dim_f32.sqrt();
 
+    // The deferred-q pipeline's carry (issue 1235, `q_defer` only): the
+    // previous token's q-dot input, its token index, and a warp-uniform
+    // pending flag. Three registers + the flag — no smem, no barriers, the
+    // same comptime specialization discipline as the planes ladder.
+    let mut pending_q = f32::new(0.0f32);
+    let mut pending_t = 0u32;
+    let mut q_pending = false;
+
     let mut t = 0u32;
     while t < p {
         let t_row = (t * qkvx_stride) as usize;
@@ -118,6 +138,18 @@ fn deltanet_recurrence_multi_token_mr_f32(
         let k1 = qkvx[t_row + k_base as usize + c1];
         let k2 = qkvx[t_row + k_base as usize + c2];
         let k3 = qkvx[t_row + k_base as usize + c3];
+
+        if q_defer && q_pending {
+            // Drain the PREVIOUS token's off-chain q-dot here — after this
+            // token's k-partials have been requested (the loads + FMAs the
+            // compiler can overlap with the butterfly below) and before the
+            // recurrence's own butterfly. Warp-uniform branch: `q_pending`
+            // is the same on every lane.
+            let prev_dot = plane_sum(pending_q);
+            if lane == 0u32 {
+                output[(pending_t * v_dim + head * head_dim + row) as usize] = prev_dot * scale;
+            }
+        }
 
         // Step 1: decay (registers).
         s0 *= decay_val;
@@ -139,19 +171,36 @@ fn deltanet_recurrence_multi_token_mr_f32(
         s2 += k2 * delta_row;
         s3 += k3 * delta_row;
 
-        // Step 5: read out[row] = (Σ_c S[row, c] · q[c]) / sqrt(d).
+        // Step 5: out[row] = (Σ_c S[row, c] · q[c]) / sqrt(d).
         let q0 = qkvx[t_row + head_off as usize + c0];
         let q1 = qkvx[t_row + head_off as usize + c1];
         let q2 = qkvx[t_row + head_off as usize + c2];
         let q3 = qkvx[t_row + head_off as usize + c3];
         let acc_q = s0 * q0 + s1 * q1 + s2 * q2 + s3 * q3;
-        let dot = plane_sum(acc_q);
+        if q_defer {
+            // Hold: this token's q-dot drains INSIDE the next iteration
+            // (or after the loop) — off the recurrence chain.
+            pending_q = acc_q;
+            pending_t = t;
+            q_pending = true;
+        } else {
+            let dot = plane_sum(acc_q);
 
-        if lane == 0u32 {
-            output[(t * v_dim + head * head_dim + row) as usize] = dot * scale;
+            if lane == 0u32 {
+                output[(t * v_dim + head * head_dim + row) as usize] = dot * scale;
+            }
         }
 
         t += 1;
+    }
+
+    if q_defer && q_pending {
+        // The last token's q-dot: drained after the loop — the chain is done,
+        // the butterfly costs nothing off it.
+        let last_dot = plane_sum(pending_q);
+        if lane == 0u32 {
+            output[(pending_t * v_dim + head * head_dim + row) as usize] = last_dot * scale;
+        }
     }
 
     // ── Single global write pass: the updated row ──
@@ -170,6 +219,15 @@ fn deltanet_recurrence_multi_token_mr_f32(
 ))]
 static REC_MR_LAUNCHES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+/// The q-defer arm's own vacuous guard (issue 1235) — the same lesson, one
+/// counter per arm: a fused launch that never reaches the kernel must not
+/// read as a tie in the price cell.
+#[cfg(all(
+    feature = "cubecl_runtime",
+    feature = "ternary_deltanet_chunked_prefill"
+))]
+static REC_QDEFER_LAUNCHES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// Total multi-plane-recurrence dispatches in this process.
 #[cfg(all(
     feature = "cubecl_runtime",
@@ -178,6 +236,35 @@ static REC_MR_LAUNCHES: std::sync::atomic::AtomicUsize = std::sync::atomic::Atom
 #[must_use]
 pub fn rec_mr_launch_count() -> usize {
     REC_MR_LAUNCHES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Total q-deferred multi-plane dispatches in this process (issue 1235).
+#[cfg(all(
+    feature = "cubecl_runtime",
+    feature = "ternary_deltanet_chunked_prefill"
+))]
+#[must_use]
+pub fn rec_qdefer_launch_count() -> usize {
+    REC_QDEFER_LAUNCHES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Issue 1235 — the q-defer arm's PROMOTE-ONLY env latch. An opt-in arm's
+/// env only ever arms (the env-switch law): the exact literal `1` turns the
+/// arm on; unset, `0`, or anything else keeps the incumbent bytes. Read once
+/// per process (the OnceLock house pattern) — the comptime specialization
+/// is chosen at the launch, so a mid-process change is impossible by
+/// construction.
+#[cfg(all(
+    feature = "cubecl_runtime",
+    feature = "ternary_deltanet_chunked_prefill"
+))]
+pub fn rec_qdefer_armed() -> bool {
+    static ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENV.get_or_init(|| {
+        std::env::var("RIIR_REC_QDEFER")
+            .ok()
+            .is_some_and(|s| matches!(s.trim(), "1"))
+    })
 }
 
 /// Plan 607 B1 — the rows-per-cube ladder. `1` is the incumbent's shape (the
@@ -321,7 +408,8 @@ impl DeltanetRecurrenceMultiTokenMRCubeCL {
     /// Process ALL `p` tokens of a layer in ONE dispatch at `planes` rows per
     /// cube — bit-identical to the incumbent multi-token kernel at every
     /// ladder arm (each plane's chain IS the incumbent's chain; only the
-    /// cube geometry differs).
+    /// cube geometry differs). `q_defer` (issue 1235) is bit-exact too — the
+    /// q-dot drains one iteration late, off the recurrence chain.
     ///
     /// # Safety
     ///
@@ -343,6 +431,7 @@ impl DeltanetRecurrenceMultiTokenMRCubeCL {
         head_dim: usize,
         p: usize,
         planes: usize,
+        q_defer: bool,
     ) {
         debug_assert!(
             Self::supports(head_dim),
@@ -362,6 +451,9 @@ impl DeltanetRecurrenceMultiTokenMRCubeCL {
         let output_len = p * v_dim;
 
         REC_MR_LAUNCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if q_defer {
+            REC_QDEFER_LAUNCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         unsafe {
             deltanet_recurrence_multi_token_mr_f32::launch_unchecked::<R>(
                 client,
@@ -375,6 +467,7 @@ impl DeltanetRecurrenceMultiTokenMRCubeCL {
                 BufferArg::from_raw_parts(state_handle, state_len),
                 BufferArg::from_raw_parts(output_handle, output_len),
                 planes,
+                q_defer,
             );
         }
     }
@@ -451,13 +544,15 @@ mod tests {
         }
     }
 
-    /// Run one arm; `mr = None` is the shipping multi-token kernel.
+    /// Run one arm; `mr = None` is the shipping multi-token kernel. `q_defer`
+    /// composes with any planes value (issue 1235).
     fn run(
         client: &ComputeClient<ActiveRuntime>,
         c: &Case,
         n_head: usize,
         p: usize,
         mr: Option<usize>,
+        q_defer: bool,
     ) -> (Vec<u32>, Vec<u32>) {
         let qkvx = client.create_from_slice(f32::as_bytes(&c.qkvx));
         let beta = client.create_from_slice(f32::as_bytes(&c.beta));
@@ -491,6 +586,7 @@ mod tests {
                         128,
                         p,
                         planes,
+                        q_defer,
                     )
                 }
             }
@@ -533,21 +629,25 @@ mod tests {
         for adversarial in [false, true] {
             for &p in &[1usize, 7, 16, 63, 64, 130] {
                 let c = case(n_head, p, 0x607 + p as u64, adversarial);
-                let (ref_out, ref_state) = run(&client, &c, n_head, p, None);
+                let (ref_out, ref_state) = run(&client, &c, n_head, p, None, false);
                 assert!(
                     ref_out.iter().any(|&b| b != 0),
                     "reference output is all zero at p={p} adversarial={adversarial}"
                 );
                 for planes in REC_MR_PLANES_LADDER {
-                    let (out, st) = run(&client, &c, n_head, p, Some(planes));
-                    let out_diff = out.iter().zip(&ref_out).filter(|(a, b)| a != b).count();
-                    let st_diff = st.iter().zip(&ref_state).filter(|(a, b)| a != b).count();
-                    assert_eq!(
-                        (out_diff, st_diff),
-                        (0, 0),
-                        "planes={planes} p={p} adversarial={adversarial}: \
-                         {out_diff} output / {st_diff} state words differ"
-                    );
+                    // Issue 1235: the q-defer fusion arm is in the same sweep —
+                    // its reordering may not move one bit, at any planes value.
+                    for q_defer in [false, true] {
+                        let (out, st) = run(&client, &c, n_head, p, Some(planes), q_defer);
+                        let out_diff = out.iter().zip(&ref_out).filter(|(a, b)| a != b).count();
+                        let st_diff = st.iter().zip(&ref_state).filter(|(a, b)| a != b).count();
+                        assert_eq!(
+                            (out_diff, st_diff),
+                            (0, 0),
+                            "planes={planes} q_defer={q_defer} p={p} adversarial={adversarial}: \
+                             {out_diff} output / {st_diff} state words differ"
+                        );
+                    }
                 }
             }
         }
@@ -555,6 +655,13 @@ mod tests {
         assert!(
             launches_after > launches_before,
             "the vacuous guard: the G1 sweep must have dispatched the MR kernel"
+        );
+        // Issue 1235's own vacuous guard: the sweep's q-defer arms must have
+        // reached the kernel (a silently-dead comptime specialization would
+        // otherwise read as a tie).
+        assert!(
+            rec_qdefer_launch_count() > 0,
+            "the vacuous guard: the G1 sweep must have dispatched the q-defer arm"
         );
         launches_before = launches_after;
         let _ = launches_before;
@@ -606,7 +713,7 @@ mod tests {
             let state_h = client.create_from_slice(f32::as_bytes(&state));
             let output_h = client.create_from_slice(f32::as_bytes(&vec![0.0f32; p * v_dim]));
 
-            let timed = |arm: Option<usize>| -> f64 {
+            let timed = |arm: Option<usize>, q_defer: bool| -> f64 {
                 let t0 = std::time::Instant::now();
                 unsafe {
                     match arm {
@@ -624,6 +731,7 @@ mod tests {
                                 hd,
                                 p,
                                 planes,
+                                q_defer,
                             )
                         }
                         None => DeltanetRecurrenceMultiTokenCubeCL::launch_with_gpu_handles::<
@@ -646,20 +754,28 @@ mod tests {
                 t0.elapsed().as_secs_f64() * 1e3
             };
 
+            // Arms: the plain incumbent, every ladder arm, and the q-defer
+            // fusion arm composed with every ladder arm (issue 1235 — the
+            // bar reads the SERVING posture, planes=8 ± defer).
+            let arms: Vec<(Option<usize>, bool)> = std::iter::once((None, false))
+                .chain(REC_MR_PLANES_LADDER.iter().flat_map(|&pl| {
+                    [(Some(pl), false), (Some(pl), true)]
+                }))
+                .collect();
+
             // Warmup: every arm once, then the baseline hard (JIT + caches).
-            for planes in REC_MR_PLANES_LADDER {
-                let _ = timed(Some(planes));
+            for arm in &arms {
+                let _ = timed(arm.0, arm.1);
             }
             for _ in 0..3 {
-                let _ = timed(None);
+                let _ = timed(None, false);
             }
 
-            let n_arms = REC_MR_PLANES_LADDER.len();
-            let mut samples: Vec<Vec<f64>> = vec![Vec::with_capacity(ROUNDS); n_arms + 1];
+            let n_arms = arms.len();
+            let mut samples: Vec<Vec<f64>> = vec![Vec::with_capacity(ROUNDS); n_arms];
             for _ in 0..ROUNDS {
-                samples[0].push(timed(None)); // baseline interleaved every round
-                for (a, &planes) in REC_MR_PLANES_LADDER.iter().enumerate() {
-                    samples[a + 1].push(timed(Some(planes)));
+                for (a, arm) in arms.iter().enumerate() {
+                    samples[a].push(timed(arm.0, arm.1)); // baseline interleaved every round
                 }
             }
             for row in &mut samples {
@@ -671,11 +787,23 @@ mod tests {
             );
             println!("  planes=1-equivalent baseline: {:8.3} ms (1.000x)", med[0]);
             for (a, m) in med.iter().enumerate().skip(1) {
+                let (pl, qd) = arms[a];
+                let tag = if qd { " qdefer" } else { "" };
                 println!(
-                    "  planes={:<2}: {:8.3} ms ({:.3}x)",
-                    REC_MR_PLANES_LADDER[a - 1],
+                    "  planes={:<2}{tag:<8}: {:8.3} ms ({:.3}x)",
+                    pl.unwrap_or_default(),
                     m,
                     med[0] / m,
+                );
+            }
+            // The serving-posture pair, spelled out (the bar: qdefer ≥3% over
+            // plain at planes=8, p=512).
+            let i_plain = arms.iter().position(|a| *a == (Some(8usize), false));
+            let i_defer = arms.iter().position(|a| *a == (Some(8usize), true));
+            if let ((Some(ip), Some(id))) = (i_plain, i_defer) {
+                println!(
+                    "  [bar] planes=8 qdefer vs plain: {:.3}x (>= 1.03 graduates)",
+                    med[ip] / med[id]
                 );
             }
         }
