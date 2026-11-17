@@ -80,7 +80,6 @@ fn shadow_bit_identity_case(label: &str, width: usize, p: usize, hblock: usize, 
 
     let total = p * width;
     let input = input_vec(total, seed.wrapping_add(1));
-    let input_handle = client.create_from_slice(f32::as_bytes(&input));
 
     // The shadow run: a COPY of the input, rotated by the shadow kernel.
     let shadow_input = client.create_from_slice(f32::as_bytes(&input));
@@ -112,16 +111,18 @@ fn shadow_bit_identity_case(label: &str, width: usize, p: usize, hblock: usize, 
             hblock,
         );
     }
-    client.flush();
+    let _ = client.flush();
     let ref_f16 = gemm
         .cast_f16_reference(&client, &ref_input, total)
         .expect("cast reference");
 
     // The shadow, read back as u16s (packed pairs → lo | hi<<16).
-    client.flush();
+    let _ = client.flush();
     let shadow_bytes = client.read_one(shadow).expect("read shadow");
     let shadow_u32: Vec<u32> = shadow_bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect();
     assert_eq!(shadow_u32.len(), total / 2, "shadow pair count");
@@ -199,7 +200,7 @@ fn f2_shadow_bit_identity_tie_classes() {
     let inputs: Vec<f32> = [tie_pattern, tie_up, carry, tiny, 0x3F80_0000, 0xBF80_0000]
         .iter()
         .map(|&b| f32::from_bits(b))
-        .chain(std::iter::repeat(0.5f32).take(502))
+        .chain(std::iter::repeat_n(0.5f32, 506))
         .collect();
     let width = 512usize;
     let p = 1usize;
@@ -247,13 +248,15 @@ fn f2_shadow_bit_identity_tie_classes() {
             256,
         );
     }
-    client.flush();
+    let _ = client.flush();
     let ref_f16 = gemm
         .cast_f16_reference(&client, &ref_input, total)
         .expect("cast reference");
     let shadow_bytes = client.read_one(shadow).expect("read shadow");
     let shadow_u32: Vec<u32> = shadow_bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect();
     assert_eq!(shadow_u32.len(), total / 2, "shadow pair count");

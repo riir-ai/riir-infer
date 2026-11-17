@@ -161,7 +161,7 @@ pub(crate) fn f16_round_bits(bits: u32) -> f32 {
 )]
 #[cube]
 pub(crate) fn f16_bits(bits: u32) -> u32 {
-    let sign = bits & 0x8000_0000u32;
+    let sign = (bits >> 16) & 0x8000u32;
     let exp_f = ((bits >> 23) & 0xFFu32) as i32;
     let mant = bits & 0x007F_FFFFu32;
     let mut r = sign | 0x7C00u32;
