@@ -32,6 +32,15 @@ pub mod forward;
 // Measurement-only; OPT-IN behind the root `issue929_bonsai2_probe` feature.
 #[cfg(feature = "issue929_bonsai2_probe")]
 pub mod loop_probe;
+
+// i1221 T3(d) / plan 636 read-order leg 1 (Research 672 §3) — the DENSE-GGUF
+// loopability predictor: chunk a dense hybrid checkpoint's middle layer
+// range, iterate the loop recurrence over it, and read per-depth contraction
+// (λ_t) + readout cost (KL(full ‖ loop-k)). Report-only offline instrument —
+// the serving path never calls it; it rides this module's own
+// `deltanet_inference` gate (unarmed builds compile it to nothing, the T5
+// gate law). The runner example is `examples/i1221_t3d_loopability.rs`.
+pub mod loopability;
 pub mod reference;
 #[cfg(feature = "gdn_tree_verify")]
 pub mod tree_forward;
@@ -161,6 +170,73 @@ pub(crate) fn unit_test_config(
     config.block_size = 256;
     config.mlp_hidden = 512;
     config
+}
+
+/// Deterministic pseudo-random weight fill for this lane's unit tests (the
+/// forward.rs LCG convention): near-zero projections, gamma ≈ 0.5–1.0,
+/// small conv/dt params, `a_log` ≈ −1 (decaying recurrence). Zero weights
+/// make every forward degenerate (all-zero logits through the zero norm
+/// gammas), which would pass any composition or loop pin vacuously.
+#[cfg(test)]
+pub(crate) fn fill_random_weights(weights: &mut QwenDeltaNetWeights, seed: u64) {
+    fn fill_proj(proj: &mut Proj, next: &mut impl FnMut() -> f32) {
+        for v in proj.dense_data_mut() {
+            *v = next();
+        }
+    }
+
+    let mut s = seed | 1;
+    let mut next = move || {
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((s >> 40) as f32 / (1u64 << 24) as f32) * 0.04 - 0.02
+    };
+    for v in weights.wte.iter_mut() {
+        *v = next();
+    }
+    for v in weights.final_norm.iter_mut() {
+        *v = 0.5 + 0.5 * next().abs();
+    }
+    fill_proj(&mut weights.lm_head, &mut next);
+    for layer in &mut weights.layers {
+        for proj in [
+            &mut layer.attn_wq,
+            &mut layer.attn_wk,
+            &mut layer.attn_wv,
+            &mut layer.attn_wo,
+            &mut layer.in_proj_qkv,
+            &mut layer.in_proj_a,
+            &mut layer.in_proj_b,
+            &mut layer.in_proj_z,
+            &mut layer.out_proj,
+            &mut layer.gate_proj,
+            &mut layer.up_proj,
+            &mut layer.down_proj,
+        ] {
+            fill_proj(proj, &mut next);
+        }
+        for norms in [
+            layer.attn_q_norm.as_mut_slice(),
+            layer.attn_k_norm.as_mut_slice(),
+            layer.linear_norm.as_mut_slice(),
+            layer.input_norm.as_mut_slice(),
+            layer.post_attn_norm.as_mut_slice(),
+        ] {
+            for x in norms.iter_mut() {
+                *x = 0.5 + 0.5 * next().abs();
+            }
+        }
+        for x in layer.conv1d_weight.iter_mut() {
+            *x = next();
+        }
+        for x in layer.a_log.iter_mut() {
+            *x = -1.0 + next();
+        }
+        for x in layer.dt_bias.iter_mut() {
+            *x = next();
+        }
+    }
 }
 
 /// The TERNARY decode forwards' entry: with `decode_spin_pool` compiled in

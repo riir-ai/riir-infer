@@ -1201,6 +1201,11 @@ name = "closed_form_write_cell"
 path = "examples/closed_form_write_cell.rs"
 required-features = ["closed_form_write"]
 
+[[example]]
+name = "i1221_t3d_loopability"
+path = "examples/i1221_t3d_loopability.rs"
+required-features = ["deltanet_inference"]
+
 # katgpt-rs Issue 999 T3 — the real-corpus R/S lens fit (offline, compute-bound;
 # never a serving path). Compiled only at the lens posture.
 [[example]]

@@ -1960,6 +1960,24 @@ pub struct PrefillContext {
 }
 
 impl PrefillContext {
+    /// The prompt's hidden-state rows `[seq_len * n_embd]` — the layer-range
+    /// boundary buffer the i1221 T3(d) loopability predictor reads (input-half
+    /// anchor) and re-injects (per-loop `u_t`) between range passes. Capacity
+    /// is `max_prompt_len * n_embd`; only rows `..seq_len * n_embd` are live.
+    pub fn hidden_rows(&self) -> &[f32] {
+        &self.hidden
+    }
+
+    /// Mutable twin of [`PrefillContext::hidden_rows`].
+    pub fn hidden_rows_mut(&mut self) -> &mut [f32] {
+        &mut self.hidden
+    }
+
+    /// Prefill row capacity (rows, not elements).
+    pub fn max_prompt_len(&self) -> usize {
+        self.max_prompt_len
+    }
+
     /// Create a new prefill context with the given capacity.
     pub fn new(config: &Config, max_prompt_len: usize) -> Self {
         let n = config.n_embd;
@@ -2208,7 +2226,9 @@ pub fn prefill_qwen_deltanet_into(
         prefill_ctx.hidden[p * n..(p + 1) * n].copy_from_slice(&weights.wte[tok_off..tok_off + n]);
     }
 
-    // 2. Layer-by-layer processing.
+    // 2. Layer-by-layer processing over the FULL stack (the range helper
+    //    holds the loop verbatim — the i1221 T3(d) loopability predictor's
+    //    layer-range entry shares this body; pure code motion).
     //
     // Issue 598: the per-position loop is split into a sequential phase
     // (DeltaNet recurrence or attention scoring — inherently position-
@@ -2227,6 +2247,62 @@ pub fn prefill_qwen_deltanet_into(
     // The DeltaNet recurrence cannot be batched (each position depends on
     // the recurrent state left by the previous one — would need parallel-
     // scan / Blelloch). Only its MLP tail is batched.
+    prefill_layer_range(
+        weights,
+        config,
+        cache,
+        scratch,
+        rope_freq,
+        prefill_ctx,
+        seq_len,
+        0..weights.layers.len(),
+        key_bias,
+    );
+
+    // 3. Final RMSNorm on last position
+    let last_off = (seq_len - 1) * n;
+    rmsnorm_with_gamma_eps(
+        &mut prefill_ctx.hidden[last_off..last_off + n],
+        &weights.final_norm,
+        config.rms_norm_eps,
+    );
+
+    // 4. LM head (logits from last position hidden state) — write into the
+    // caller-supplied buffer (zero-alloc).
+    let last_hidden = &prefill_ctx.hidden[last_off..last_off + n];
+    assert!(
+        logits_out.len() >= v,
+        "logits_out too short: {} < {v}",
+        logits_out.len()
+    );
+    weights.lm_head.matvec(last_hidden, &mut logits_out[..v]);
+}
+
+/// The prefill layer loop verbatim (`prefill_qwen_deltanet_into` step 2),
+/// bounded to `layer_range` — the code-motion home the incumbent full-stack
+/// pass and the i1221 T3(d) loopability predictor's per-range passes share.
+/// `prefill_ctx.hidden` is the boundary state: input rows in, output rows
+/// out; every other phase behavior (batched MLP/QKV, sequential recurrence
+/// and scoring, per-pass cache overwrite) is the incumbent's, unchanged.
+#[allow(clippy::too_many_arguments)]
+fn prefill_layer_range(
+    weights: &QwenDeltaNetWeights,
+    config: &Config,
+    cache: &mut HybridCache,
+    scratch: &mut HybridForwardScratch,
+    rope_freq: &crate::rope::RopeFreqTable,
+    prefill_ctx: &mut PrefillContext,
+    seq_len: usize,
+    layer_range: std::ops::Range<usize>,
+    key_bias: Option<(&[f32], crate::transformer::KeyBiasLayout)>,
+) {
+    debug_assert!(
+        layer_range.end <= weights.layers.len(),
+        "layer range {:?} exceeds {} layers",
+        layer_range,
+        weights.layers.len()
+    );
+    let n = config.n_embd;
     let q_dim = config.n_head * config.head_dim;
     let kvd = crate::types::kv_dim(config);
     let hd = config.head_dim;
@@ -2235,7 +2311,8 @@ pub fn prefill_qwen_deltanet_into(
     let rotary_dim = effective_rotary_dim(config);
     let scale = 1.0 / (hd as f32).sqrt();
 
-    for (layer_idx, layer_weights) in weights.layers.iter().enumerate() {
+    for layer_idx in layer_range {
+        let layer_weights = &weights.layers[layer_idx];
         let is_linear = weights.layer_types[layer_idx] == DeltaNetLayerType::DeltaNet;
 
         if is_linear {
@@ -2279,24 +2356,44 @@ pub fn prefill_qwen_deltanet_into(
             );
         }
     }
+}
 
-    // 3. Final RMSNorm on last position
-    let last_off = (seq_len - 1) * n;
-    rmsnorm_with_gamma_eps(
-        &mut prefill_ctx.hidden[last_off..last_off + n],
-        &weights.final_norm,
-        config.rms_norm_eps,
-    );
-
-    // 4. LM head (logits from last position hidden state) — write into the
-    // caller-supplied buffer (zero-alloc).
-    let last_hidden = &prefill_ctx.hidden[last_off..last_off + n];
+/// Range-limited prefill over an ALREADY-LOADED `prefill_ctx.hidden` — runs
+/// only the layers in `layer_range` and applies NO final norm and NO head
+/// (those belong to the caller after its last layer range). The i1221 T3(d)
+/// loopability predictor's seam: the input half embeds, the loop passes
+/// re-inject the anchor, the output half follows, then the caller reads the
+/// head. The full range `0..layers.len()` on embedded rows is bit-identical
+/// to [`prefill_qwen_deltanet_into`] minus its embed/norm/head steps (pinned
+/// by the loopability composition test).
+#[allow(clippy::too_many_arguments)]
+pub fn prefill_qwen_deltanet_range_into(
+    weights: &QwenDeltaNetWeights,
+    config: &Config,
+    cache: &mut HybridCache,
+    scratch: &mut HybridForwardScratch,
+    rope_freq: &crate::rope::RopeFreqTable,
+    prefill_ctx: &mut PrefillContext,
+    seq_len: usize,
+    layer_range: std::ops::Range<usize>,
+) {
+    assert!(seq_len > 0, "prefill requires at least one token");
     assert!(
-        logits_out.len() >= v,
-        "logits_out too short: {} < {v}",
-        logits_out.len()
+        seq_len <= prefill_ctx.max_prompt_len(),
+        "prompt length {seq_len} exceeds prefill capacity {}",
+        prefill_ctx.max_prompt_len()
     );
-    weights.lm_head.matvec(last_hidden, &mut logits_out[..v]);
+    prefill_layer_range(
+        weights,
+        config,
+        cache,
+        scratch,
+        rope_freq,
+        prefill_ctx,
+        seq_len,
+        layer_range,
+        None,
+    );
 }
 
 /// RoPE position source for the whole-prompt prefill branch helpers.
@@ -3536,6 +3633,7 @@ pub fn generate_greedy_qwen_deltanet(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rope::RopeFreqTable;
 
     /// The pre-split single-threaded generic loop, verbatim — the oracle for
     /// the parallel + kernel-4-specialized `causal_conv1d_update`.
@@ -4815,5 +4913,142 @@ mod tests {
             input_norm: src.input_norm.clone(),
             post_attn_norm: src.post_attn_norm.clone(),
         }
+    }
+
+    /// A hybrid 6-layer model with random weights — zero weights would pass
+    /// any composition pin vacuously (all-zero logits through the zero
+    /// norm gammas).
+    fn hybrid_random_model() -> (Config, QwenDeltaNetWeights) {
+        use crate::types::DeltaNetLayerType::*;
+        let layer_types = vec![DeltaNet, DeltaNet, DeltaNet, Attention, DeltaNet, Attention];
+        let config = crate::deltanet::unit_test_config(6, layer_types);
+        let mut weights = QwenDeltaNetWeights::zeros(&config);
+        crate::deltanet::fill_random_weights(&mut weights, 7);
+        (config, weights)
+    }
+
+    /// The i1221 T3(d) seam's identity pin: the incumbent entry (embed →
+    /// full-range loop → final norm → head) and the manual composition over
+    /// [`prefill_qwen_deltanet_range_into`] (embed → range `0..n` → final
+    /// norm → head) produce BIT-IDENTICAL logits. Nonzero weights are
+    /// load-bearing: a range helper that silently skipped layers would read
+    /// as zero logits either way.
+    #[test]
+    fn range_full_stack_composition_matches_incumbent_bit_identical() {
+        let (config, weights) = hybrid_random_model();
+        let n = config.n_embd;
+        let rope_freq = RopeFreqTable::new(config.rope_theta, effective_rotary_dim(&config));
+        let mut scratch = HybridForwardScratch::new(&config);
+        let prompt = [config.bos_token, 100, 200, 300, 42];
+        let seq = prompt.len();
+
+        let mut cache_a = HybridCache::with_layer_types_bounded(&config, &weights.layer_types, seq);
+        let mut ctx_a = PrefillContext::new(&config, seq);
+        let mut logits_a = vec![0.0f32; config.vocab_size];
+        prefill_qwen_deltanet_into(
+            &weights,
+            &config,
+            &mut cache_a,
+            &prompt,
+            &mut scratch,
+            &rope_freq,
+            &mut ctx_a,
+            &mut logits_a,
+            None,
+        );
+
+        let mut cache_b = HybridCache::with_layer_types_bounded(&config, &weights.layer_types, seq);
+        let mut ctx_b = PrefillContext::new(&config, seq);
+        {
+            let hidden = ctx_b.hidden_rows_mut();
+            for (p, &tok) in prompt.iter().enumerate() {
+                let off = tok * n;
+                hidden[p * n..(p + 1) * n].copy_from_slice(&weights.wte[off..off + n]);
+            }
+        }
+        prefill_qwen_deltanet_range_into(
+            &weights,
+            &config,
+            &mut cache_b,
+            &mut scratch,
+            &rope_freq,
+            &mut ctx_b,
+            seq,
+            0..weights.layers.len(),
+        );
+        let last_off = (seq - 1) * n;
+        rmsnorm_with_gamma_eps(
+            &mut ctx_b.hidden_rows_mut()[last_off..last_off + n],
+            &weights.final_norm,
+            config.rms_norm_eps,
+        );
+        let mut logits_b = vec![0.0f32; config.vocab_size];
+        weights
+            .lm_head
+            .matvec(&ctx_b.hidden_rows()[last_off..last_off + n], &mut logits_b);
+
+        let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(&logits_a), bits(&logits_b), "range entry ≡ incumbent");
+    }
+
+    /// The chunk passes' core assumption: contiguous layer ranges on the
+    /// same cache compose — splitting the full stack into three passes over
+    /// `prefill_qwen_deltanet_range_into` is bit-identical to one full-range
+    /// pass (each layer depends only on the boundary rows and its own cache
+    /// slots; the loop predictor's chunk iteration rides this).
+    #[test]
+    fn range_split_composition_is_bit_identical_to_single_pass() {
+        let (config, weights) = hybrid_random_model();
+        let n = config.n_embd;
+        let rope_freq = RopeFreqTable::new(config.rope_theta, effective_rotary_dim(&config));
+        let mut scratch = HybridForwardScratch::new(&config);
+        let prompt = [config.bos_token, 5, 41, 251];
+        let seq = prompt.len();
+        let n_layers = weights.layers.len();
+
+        let mut run = |ranges: &[(usize, usize)]| {
+            let mut cache =
+                HybridCache::with_layer_types_bounded(&config, &weights.layer_types, seq);
+            let mut ctx = PrefillContext::new(&config, seq);
+            {
+                let hidden = ctx.hidden_rows_mut();
+                for (p, &tok) in prompt.iter().enumerate() {
+                    let off = tok * n;
+                    hidden[p * n..(p + 1) * n].copy_from_slice(&weights.wte[off..off + n]);
+                }
+            }
+            for &(start, end) in ranges {
+                prefill_qwen_deltanet_range_into(
+                    &weights,
+                    &config,
+                    &mut cache,
+                    &mut scratch,
+                    &rope_freq,
+                    &mut ctx,
+                    seq,
+                    start..end,
+                );
+            }
+            let last_off = (seq - 1) * n;
+            rmsnorm_with_gamma_eps(
+                &mut ctx.hidden_rows_mut()[last_off..last_off + n],
+                &weights.final_norm,
+                config.rms_norm_eps,
+            );
+            let mut logits = vec![0.0f32; config.vocab_size];
+            weights
+                .lm_head
+                .matvec(&ctx.hidden_rows()[last_off..last_off + n], &mut logits);
+            logits
+        };
+
+        let single = run(&[(0, n_layers)]);
+        let split = run(&[(0, 2), (2, 4), (4, n_layers)]);
+        let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
+        assert_eq!(
+            bits(&single),
+            bits(&split),
+            "ranges compose bit-identically"
+        );
     }
 }
