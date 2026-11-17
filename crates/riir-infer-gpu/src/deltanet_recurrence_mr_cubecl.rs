@@ -182,7 +182,12 @@ pub fn rec_mr_launch_count() -> usize {
 
 /// Plan 607 B1 — the rows-per-cube ladder. `1` is the incumbent's shape (the
 /// in-ladder control: must stay bit-identical AND behaviorally equivalent).
-pub const REC_MR_PLANES_LADDER: [usize; 4] = [1, 2, 4, 8];
+/// The i1167 gdn_rec price cell (2026-11-17) extended the probe surface to
+/// 16/32 — never probed on Metal (the E1 ladder scored 1/2/4/8 only), and
+/// 32 is the geometric ceiling (a cube is `planes × PLANE` units; 32 × 32 =
+/// 1024 = the max threadgroup, so 64 would need a multi-cube restructure).
+/// The DEFAULT arm stays LADDER[3] = 8 — index-pinned, unchanged by growth.
+pub const REC_MR_PLANES_LADDER: [usize; 6] = [1, 2, 4, 8, 16, 32];
 
 const NO_REC_MR_OVERRIDE: usize = usize::MAX - 1;
 
@@ -204,7 +209,7 @@ static REC_MR_OVERRIDE: std::sync::atomic::AtomicUsize =
 /// pp2048/16k/32k on the M5 Ultra, kernel-isolated 1.21× @p128 / 1.51× @p2048;
 /// the CUDA lane's `RIIR_PREFILL_REC_MR` has been default-on since Bench 896).
 /// `0|off|false` DEMOTES to the incumbent byte-exactly (the demote-only law);
-/// `1..=4` selects [`REC_MR_PLANES_LADDER`]`[n - 1]`; garbage fails OPEN to
+/// `1..=6` selects [`REC_MR_PLANES_LADDER`]`[n - 1]`; garbage fails OPEN to
 /// the DEFAULT arm with a warning (the Bench-896 protocol — garbage is no
 /// longer a demotion path).
 //
@@ -310,7 +315,7 @@ impl DeltanetRecurrenceMultiTokenMRCubeCL {
     #[inline]
     #[must_use]
     pub const fn valid_planes(planes: usize) -> bool {
-        matches!(planes, 1 | 2 | 4 | 8)
+        matches!(planes, 1 | 2 | 4 | 8 | 16 | 32)
     }
 
     /// Process ALL `p` tokens of a layer in ONE dispatch at `planes` rows per
@@ -507,7 +512,9 @@ mod tests {
         }
         assert!(!DeltanetRecurrenceMultiTokenMRCubeCL::valid_planes(3));
         assert!(!DeltanetRecurrenceMultiTokenMRCubeCL::valid_planes(0));
-        assert!(!DeltanetRecurrenceMultiTokenMRCubeCL::valid_planes(16));
+        // 64 divides 128 but exceeds the threadgroup ceiling (64 × 32 = 2048
+        // units) — off-ladder by construction, the standing negative control.
+        assert!(!DeltanetRecurrenceMultiTokenMRCubeCL::valid_planes(64));
         assert!(DeltanetRecurrenceMultiTokenMRCubeCL::supports(128));
         assert!(!DeltanetRecurrenceMultiTokenMRCubeCL::supports(64));
     }
@@ -557,9 +564,10 @@ mod tests {
     /// kernel vs the MR ladder at the Bonsai GDN layer shape (n_v=48, hd=128),
     /// interleaved median-of-9 — the CUDA twin's probe discipline
     /// (`prefill_cuda_deltanet.rs::test_rec_mr_timing_probe`) ported to the
-    /// CubeCL/Metal lane. p=128 is the PRODUCTION launch shape (the league
-    /// prefill chunk; the A2 census's frame); p=2048 is the long-launch
-    /// reference matching the CUDA twin's table. Inputs upload ONCE per
+    /// CubeCL/Metal lane. p=128 the pre-1146 production chunk; **p=512 the
+    /// CURRENT serving chunk (the 1146 lane posture — the shape the E1
+    /// ladder never probed)**; p=2048 the long-launch reference matching the
+    /// CUDA twin's table. Inputs upload ONCE per
     /// shape; each timed call is launch + in-order-queue drain (a 4-byte
     /// read of a dedicated handle — wgpu queues are in-order, so the read
     /// waits for every prior enqueue; its fixed ~µs cost is arm-neutral).
@@ -576,7 +584,7 @@ mod tests {
         // The drain handle: created once, read (4 bytes) after every launch.
         let sync_handle = client.create_from_slice(f32::as_bytes(&[1.0f32]));
 
-        for p in [128usize, 2048usize] {
+        for p in [128usize, 512usize, 2048usize] {
             const ROUNDS: usize = 9;
             // Same LCG recipe + ranges as the CUDA twin's probe so the two
             // lanes' tables stay comparable.
