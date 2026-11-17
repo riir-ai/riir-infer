@@ -1,8 +1,8 @@
 # Plan 632 — the int_ref self-verification guide + the fusion promotion (i1214 G1 PASS)
 
 **Date:** 2026-11-14
-**Status:** OPEN — this IS the research-note fusion promotion required by [`.issues/1214_integer_exact_reference_lane.md`](../.issues/1214_integer_exact_reference_lane.md) §"Status after G1 pass", filed in the commit that records the bench ([`.benchmarks/1213_i1214_t1c_receipt_g3_ppl_cell.md`](../.benchmarks/1213_i1214_t1c_receipt_g3_ppl_cell.md)).
-**Claimed:** zed-41cd0608@amo, 1794576200, expires 2026-11-15T12:00:00Z
+**Status:** OPEN — this IS the research-note fusion promotion required by [`.issues/1214_integer_exact_reference_lane.md`](../.issues/1214_integer_exact_reference_lane.md) §"Status after G1 pass", filed in the commit that records the bench ([`.benchmarks/1213_i1214_t1c_receipt_g3_ppl_cell.md`](../.benchmarks/1213_i1214_t1c_receipt_g3_ppl_cell.md)). T1–T3 done (T2 RESOLVED via Issue 1215's floors; T3 = the guide below); **only T4 + T5 remain, both EXTERNAL-BLOCKED** — T4 on riir-train minting a small ternary checkpoint, T5 on riir-chain/riir-ai filing their own consumption. The parent issue 1214 is CLOSED (2026-11-17); this plan is the standing pointer for the two blocked tails.
+**Lease closed:** zed-41cd0608@amo, 1794576200, was expires 2026-11-15T12:00:00Z — the claimed scope (the promotion itself, T1) is DONE: landed `2d3bf9b`; T2's floor residue was resolved later by Issue 1215 `42cc99be` as recorded below (folded 2026-11-17, amo-idle-1226-f1-arc).
 **G1 verdict: PASS — all four arms green, zero tolerance:**
 
 | arm | result | where |
