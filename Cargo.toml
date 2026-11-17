@@ -513,6 +513,26 @@ required-features = ["deltanet_ternary_inference"]
 [[test]]
 name = "i1188_family_taxonomy"
 
+# Issue 1221 — the Dory lane's gated targets (the P43 reader-protection
+# rows: a whole-file `#![cfg(feature = "dory")]` target without its row
+# prints `ok. 0 passed` and exits 0 — the green-zero trap; T1a landed
+# the files without these rows, T1b adds them).
+[[test]]
+name = "i1221_dory_header_tripwire"
+required-features = ["dory"]
+
+[[test]]
+name = "i1221_dory_loader_crosswalk"
+required-features = ["dory"]
+
+[[test]]
+name = "i1221_dory_loader_synth"
+required-features = ["dory"]
+
+[[test]]
+name = "i1221_dory_forward_smoke"
+required-features = ["dory"]
+
 # Issue 1188 T1 — the Q8_0 candidate-posture gates (the ProjWeights/
 # GateProjWeights arms live behind deltanet_ternary_inference).
 [[test]]

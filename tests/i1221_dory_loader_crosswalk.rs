@@ -69,6 +69,7 @@ fn loader_reads_the_pinned_census() {
                 assert_eq!(b.attn_q.len(), d.n_head * d.head_dim * d.n_embd);
                 assert_eq!(b.attn_k.len(), d.n_kv_head * d.head_dim * d.n_embd);
                 assert_eq!(b.attn_output.len(), d.n_embd * d.n_head * d.head_dim);
+                assert_eq!(b.attn_gate.len(), d.n_head * d.head_dim * d.n_embd);
                 assert_eq!(b.attn_gate_scale.len(), d.n_head * d.head_dim);
                 assert!(b.ffn_gate.is_empty(), "attn block carries no ffn weights");
             }
@@ -80,10 +81,26 @@ fn loader_reads_the_pinned_census() {
         }
     }
 
-    // Vocab tensors transposed to [vocab][n_embd] row-major.
+    // Vocab tensors stored verbatim in file order ([vocab][n_embd] —
+    // the layout law; the synthetic-GGUF gate pins the indexing).
     assert_eq!(w.wte.len(), d.vocab * d.n_embd, "wte rows");
     assert_eq!(w.lm_head.len(), d.vocab * d.n_embd, "lm_head rows");
     assert_eq!(w.output_scale.len(), d.vocab, "output_scale (vocab-wide)");
+
+    // The header-derived dims the forward reads (the drift tripwire's
+    // join: loader output == census).
+    let c = DoryDims::census();
+    assert_eq!(w.dims.vocab, c.vocab, "dims.vocab");
+    assert_eq!(w.dims.n_embd, c.n_embd, "dims.n_embd");
+    assert_eq!(w.dims.n_head, c.n_head, "dims.n_head");
+    assert_eq!(w.dims.n_kv_head, c.n_kv_head, "dims.n_kv_head");
+    assert_eq!(w.dims.head_dim, c.head_dim, "dims.head_dim");
+    assert_eq!(w.dims.mlp_hidden, c.mlp_hidden, "dims.mlp_hidden");
+    assert_eq!(w.dims.n_blocks, c.n_blocks, "dims.n_blocks");
+    assert_eq!(
+        w.dims.sliding_window, c.sliding_window,
+        "dims.sliding_window"
+    );
 
     // The dual rope bases (T0: 1e7 / 1e4).
     assert!((w.rope_freq_base - 1e7).abs() < 1.0, "freq_base");

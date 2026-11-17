@@ -7,26 +7,37 @@
 //! with unique weights (T0 census: weight ties NONE) — the loader maps
 //! block indices to the execution graph, never dedups.
 //!
-//! nGPT laws the forward must carry (the deltas vs the llama family):
-//! - **Unit-norm latent**: the residual stream is L2-normalized (FP32,
-//!   eps 1e-6) at BOTH boundaries (before input, after the recurrent
-//!   block's output). No norm GAMMA tensors exist in the file (T0
-//!   asserted zero) — the L2 norm is the normalization.
-//! - **Learned residual-rate scales** (`residual_alpha`, one per block):
-//!   the block update is `s_t = N(s_{t-1} + α_t · F_t(u_t))` where
-//!   `α_t = |α̂_t|` (`residual_alpha` is stored BF16, applied signed-abs).
-//! - **Per-channel gate scales**: `attn_gate_scale` gates the attention
-//!   branch, `ffn_gate_scale`/`ffn_up_scale` gate the FFN branches,
-//!   `output_scale` scales the output block's exit — each applied
-//!   per-channel (`|scale|` sign convention like alpha).
-//! - **QK scales**: `attn_qk_scale` (per attn block, per-channel over
-//!   head_dim) rides the logits scale.
-//! - **Dual RoPE**: `freq_base = 1e7` + `freq_base_2 = 1e4` — Dory pairs
-//!   them per rope profile (`dory.rope.profile` per block, 2/1
-//!   alternating runs in the census). T1 carries BOTH tables and selects
-//!   per block by the profile bit.
-//! - **Separate Q/K/V/O** projections (NOT fused), GQA 16Q/4KV,
-//!   `head_dim = 256` (q 2560→4096, kv 2560→1024), FFN 7168.
+//! nGPT laws the forward carries (paper §2 + fig 2; arXiv:2611.03998v1):
+//! - **Normalized latent**: the residual stream is re-normalized at every
+//!   boundary (FP32, eps 1e-6) — per sublayer input, per sublayer output,
+//!   and after every blend (fig 2e's three norm boxes). No norm GAMMA
+//!   tensors exist in the file (T0 asserted zero). "L2 norm" is read
+//!   through nGPT's own normalize (arXiv:2410.01131 Eq. 5):
+//!   `N(v) = v / √(mean(v²) + ε)` — the RMS-form hypersphere of radius
+//!   √d, not a literal unit vector.
+//! - **Residual BLEND rule** (fig 2e — the paper's "blending its
+//!   normalized output with the normalized residual", NOT an additive
+//!   residual): `s' = N((1−a)⊙u + a⊙N(f(u)))` where `u = N(s)` is the
+//!   block's normalized input and `a = |α̂|` per-channel
+//!   (`residual_alpha`, applied signed-abs).
+//! - **Attention** (fig 2c): separate Q/K/V/GATE projections from the
+//!   same normalized input; RoPE over ALL head dims; per-head norm;
+//!   `ŝ_qk²` square-scale on Q (the artifact's qk vector is q-width —
+//!   Q-only is the faithful reading); causal GQA scored with
+//!   `d_h^{-1/2}`; attention output gated by `σ(g ⊙ ŝ_g²)`; the
+//!   concatenated gated output normed over all heads BEFORE the output
+//!   projection.
+//! - **SwiGLU mixer** (fig 2d): `silu((u·W_gate)⊙ŝ_uv,g²) ⊙
+//!   ((u·W_up)⊙ŝ_uv,u²)`, normed over MLP channels BEFORE the down
+//!   projection.
+//! - **Logits** (fig 2a): `logit_v = (z·W_out[v])·output_scale[v]/σ₀`
+//!   with the fixed `σ₀ = 0.0177` (an architecture constant —
+//!   `dory.init_std` is the same NUMBER, a different constant: the
+//!   raw-parameter init scale; σ₀ is never read from metadata).
+//! - **Dual RoPE**: `freq_base = 1e7` (full attention) + `freq_base_2 =
+//!   1e4` (SWA) — paired per block by `dory.rope.profile` (2/1
+//!   alternating runs in the census); SWA window from
+//!   `dory.attention.sliding_window`.
 //! - **3:1 SWA/full** (`sliding_window = 1024`): 36 attention blocks in
 //!   the pattern `S-S-S-F` × 9 (attn on EVEN physical block indices,
 //!   ffn on ODD).
@@ -34,6 +45,11 @@
 //!   the training semantics — loop t attends loop-t states. T1 proves
 //!   the k=1 identity against that reference; T2's last-loop posture is
 //!   a reported delta, never assumed zero.
+//!
+//! Weight-layout law (the GGUF reader's: ne[0] = innermost = in_features
+//! for 2-D weights, so the dequant flat is `[out][in]` row-major, and
+//! `[vocab][n_embd]` for the vocab tensors — the loader stores both
+//! verbatim, no transpose).
 //!
 //! Proof posture (T1): same weights + same k + same cache policy ⇒
 //! bit-identical logits across runs (determinism fixture), plus the
@@ -43,6 +59,23 @@
 //!
 //! Feature `dory` (opt-in): unarmed builds compile the module to nothing
 //! and the loader refuses the arch loud by name.
+
+pub mod forward;
+
+pub use forward::{DoryForward, DoryForwardError, DoryKvCache};
+
+/// The nGPT boundary-norm epsilon (paper fig-2 legend: FP32, ε = 1e-6).
+/// No GGUF key carries it — an architecture constant of the lane, like
+/// SiLU. The forward's normalize guards inside the sqrt with this.
+pub const NORM_EPSILON: f32 = 1e-6;
+
+/// The paper's fixed logit temperature σ₀ (fig-2 legend: "logit scales
+/// z/σ₀"; §2 pins σ₀ = 0.0177). Deliberately NOT read from
+/// `dory.init_std`: that key is the raw-parameter INIT scale which this
+/// checkpoint family happens to set to the same number — conflating the
+/// two would silently change semantics on a checkpoint that retunes
+/// init_std.
+pub const LOGIT_SIGMA_ZERO: f32 = 0.0177;
 
 use crate::gguf_loader::GgufFile;
 
@@ -94,11 +127,14 @@ pub struct DoryBlockWeights {
     /// forward applies `|α|` elementwise — the nGPT sign convention).
     pub residual_alpha: Vec<f32>,
     /// Attention blocks: `attn_q [4096, 2560]`, `attn_k/v [1024, 2560]`,
-    /// `attn_output [2560, 4096]`.
+    /// `attn_output [2560, 4096]`, and the sigmoid gate's own projection
+    /// `attn_gate [4096, 2560]` (fig 2c — the gate reads the normalized
+    /// input through its OWN projection, same shape as Q).
     pub attn_q: Vec<f32>,
     pub attn_k: Vec<f32>,
     pub attn_v: Vec<f32>,
     pub attn_output: Vec<f32>,
+    pub attn_gate: Vec<f32>,
     /// Per-channel gate scales (attn blocks: `attn_gate_scale`,
     /// length q_dim = 4096 — it rides the attention branch output over
     /// the Q width, per the census shapes).
@@ -123,13 +159,17 @@ pub struct DoryBlockWeights {
 }
 
 /// Full model weights: embeddings (untied — T0), 72 physical blocks,
-/// the final `output_scale` vector, and the loop metadata.
+/// the final `output_scale` vector, the loop metadata, and the header-
+/// derived dims the forward reads (never hardcoded — the loader parses
+/// `dory.attention.*` / `dory.embedding_length` / `dory.feed_forward_length`).
 #[derive(Debug, Clone)]
 pub struct DoryWeights {
     pub meta: DoryLoopMeta,
-    /// `token_embd` transposed to the forward's `[vocab][n_embd]`.
+    /// `token_embd` as the file stores it: `[vocab][n_embd]` row-major
+    /// (ne[0] = n_embd is the innermost dim — the file order IS the
+    /// forward's gather order; see the module layout law).
     pub wte: Vec<f32>,
-    /// `output` (UNTIED head, T0) transposed to `[vocab][n_embd]`.
+    /// `output` (UNTIED head, T0), `[vocab][n_embd]` row-major (same law).
     pub lm_head: Vec<f32>,
     /// `output_scale.weight [vocab]` — the output head's per-channel
     /// exit scale (the T0 fixture's 131072 = vocab, NOT n_embd).
@@ -142,6 +182,8 @@ pub struct DoryWeights {
     pub rope_freq_base: f32,
     /// Secondary RoPE base (`dory.rope.freq_base_2`, 1e4).
     pub rope_freq_base_2: f32,
+    /// Header-derived dims (heads, head_dim, mlp width, window, eps).
+    pub dims: DoryDims,
 }
 
 /// Load errors — loud, named (the issue's refusal law).
@@ -188,6 +230,9 @@ mod stems {
     }
     pub fn attn_o(b: usize) -> String {
         format!("blk.{b}.attn_output.weight")
+    }
+    pub fn attn_gate_proj(b: usize) -> String {
+        format!("blk.{b}.attn_gate.weight")
     }
     pub fn attn_gate(b: usize) -> String {
         format!("blk.{b}.attn_gate_scale.weight")
@@ -283,11 +328,14 @@ fn expect_len(
 
 /// Load the Dory weights from an opened GGUF (the arch must be `dory`).
 ///
-/// GGUF stores 2-D tensors inner-dim-first: `token_embd` is
-/// `[n_embd, vocab]` in file order (the census pinned 2560×131072), so
-/// the loader TRANSPOSES both vocab tensors to the forward's
-/// `[vocab][n_embd]` row-major. The transpose is exact f32 gathers —
-/// no numerics move.
+/// Weight layout (the reader's law, `gguf_loader.rs`): a 2-D tensor's
+/// `shape[0]` is ne[0] — the innermost/fastest dim = in_features — so the
+/// dequant flat is `[out_features][in_features]` row-major. The vocab
+/// tensors (`token_embd`/`output`, shape `[n_embd, vocab]`) are therefore
+/// ALREADY `[vocab][n_embd]` row-major in file order: the loader stores
+/// them verbatim (no transpose, no data movement) and pins the law with
+/// the length check. Projections are consumed flat by the forward with
+/// the same `[out][in]` reading.
 pub fn load_dory_weights_gguf(gguf: &GgufFile) -> Result<DoryWeights, DoryLoadError> {
     let meta = read_loop_meta(gguf)?;
     let total_blocks = meta.input_layers + meta.recurrent_layers + meta.output_layers;
@@ -299,6 +347,54 @@ pub fn load_dory_weights_gguf(gguf: &GgufFile) -> Result<DoryWeights, DoryLoadEr
             key: "dory.block_count",
             got: n_layer_u64.to_string(),
             expected: total_blocks.to_string(),
+        });
+    }
+
+    // Attention geometry — the forward reads these, never hardcodes them
+    // (the k-scheduler law applied to the head counts).
+    let n_head = gguf
+        .metadata_u64("dory.attention.head_count")
+        .ok_or(DoryLoadError::MissingMeta("dory.attention.head_count"))? as usize;
+    let n_kv_head =
+        gguf.metadata_u64("dory.attention.head_count_kv")
+            .ok_or(DoryLoadError::MissingMeta("dory.attention.head_count_kv"))? as usize;
+    let head_dim =
+        gguf.metadata_u64("dory.attention.key_length")
+            .ok_or(DoryLoadError::MissingMeta("dory.attention.key_length"))? as usize;
+    let value_length =
+        gguf.metadata_u64("dory.attention.value_length")
+            .ok_or(DoryLoadError::MissingMeta("dory.attention.value_length"))? as usize;
+    if value_length != head_dim {
+        return Err(DoryLoadError::MetaMismatch {
+            key: "dory.attention.value_length",
+            got: value_length.to_string(),
+            expected: head_dim.to_string(),
+        });
+    }
+    // The lane implements FULL rotary only ("RoPE acts on all Q/K
+    // dimensions", paper fig 2); a partial-rotary header is a format
+    // event this lane refuses loud, never serves with a silent half-rope.
+    let rope_dims =
+        gguf.metadata_u64("dory.rope.dimension_count")
+            .ok_or(DoryLoadError::MissingMeta("dory.rope.dimension_count"))? as usize;
+    if rope_dims != head_dim {
+        return Err(DoryLoadError::MetaMismatch {
+            key: "dory.rope.dimension_count",
+            got: rope_dims.to_string(),
+            expected: head_dim.to_string(),
+        });
+    }
+    let mlp_hidden =
+        gguf.metadata_u64("dory.feed_forward_length")
+            .ok_or(DoryLoadError::MissingMeta("dory.feed_forward_length"))? as usize;
+    let sliding_window =
+        gguf.metadata_u64("dory.attention.sliding_window")
+            .ok_or(DoryLoadError::MissingMeta("dory.attention.sliding_window"))? as usize;
+    if sliding_window == 0 {
+        return Err(DoryLoadError::MetaMismatch {
+            key: "dory.attention.sliding_window",
+            got: "0".to_string(),
+            expected: ">= 1".to_string(),
         });
     }
 
@@ -316,21 +412,16 @@ pub fn load_dory_weights_gguf(gguf: &GgufFile) -> Result<DoryWeights, DoryLoadEr
     }
     let n_embd = te.shape[0];
     let vocab = te.shape[1];
-    let te_flat = whole(gguf, "token_embd.weight")?;
-    expect_len(
-        "token_embd.weight",
-        "elements",
-        te_flat.len(),
-        n_embd * vocab,
-    )?;
-    let mut wte = vec![0.0f32; n_embd * vocab];
-    for r in 0..n_embd {
-        for c in 0..vocab {
-            wte[c * n_embd + r] = te_flat[r * vocab + c];
-        }
-    }
+    // NOTE: no n_embd↔head_dim consistency law here — nGPT's Q/K/V are
+    // STANDALONE projections (2560 → 4096/1024: the q/k/v output dims
+    // are independent of n_embd; the tensor shape pins below carry the
+    // real consistency check).
+    // The file order IS `[vocab][n_embd]` row-major (ne[0] = n_embd
+    // innermost) — store verbatim; see the fn-level layout law.
+    let wte = whole(gguf, "token_embd.weight")?;
+    expect_len("token_embd.weight", "elements", wte.len(), n_embd * vocab)?;
 
-    // Untied output head, same shape + transpose.
+    // Untied output head, same shape + same verbatim layout.
     let oh = gguf
         .tensor_info("output.weight")
         .ok_or_else(|| DoryLoadError::MissingTensor("output.weight".into()))?;
@@ -343,13 +434,22 @@ pub fn load_dory_weights_gguf(gguf: &GgufFile) -> Result<DoryWeights, DoryLoadEr
             expected: n_embd * vocab,
         });
     }
-    let oh_flat = whole(gguf, "output.weight")?;
-    let mut lm_head = vec![0.0f32; n_embd * vocab];
-    for r in 0..n_embd {
-        for c in 0..vocab {
-            lm_head[c * n_embd + r] = oh_flat[r * vocab + c];
-        }
-    }
+    let lm_head = whole(gguf, "output.weight")?;
+    expect_len("output.weight", "elements", lm_head.len(), n_embd * vocab)?;
+
+    let dims = DoryDims {
+        vocab,
+        n_embd,
+        n_head,
+        n_kv_head,
+        head_dim,
+        mlp_hidden,
+        n_blocks: total_blocks,
+        sliding_window,
+        norm_eps: NORM_EPSILON,
+    };
+    let q_dim = n_head * head_dim;
+    let kv_dim = n_kv_head * head_dim;
 
     // The output block's exit scale (T0 fixture: `output_scale.weight`,
     // BF16, shape [131072] — per-channel over the VOCAB dim, not n_embd;
@@ -384,7 +484,7 @@ pub fn load_dory_weights_gguf(gguf: &GgufFile) -> Result<DoryWeights, DoryLoadEr
         // magnitude; the forward applies |α| elementwise).
         let alpha_name = stems::residual_alpha(b);
         let residual_alpha_vec = whole(gguf, &alpha_name)?;
-        expect_len(&alpha_name, "elements", residual_alpha_vec.len(), 2560)?;
+        expect_len(&alpha_name, "elements", residual_alpha_vec.len(), n_embd)?;
 
         // The census vocabulary is {1, 2}: 1 = `freq_base_2` (1e4),
         // 2 = `freq_base` (1e7). ZERO is not in the profile alphabet —
@@ -408,21 +508,24 @@ pub fn load_dory_weights_gguf(gguf: &GgufFile) -> Result<DoryWeights, DoryLoadEr
                 stems::attn_k(b),
                 stems::attn_v(b),
                 stems::attn_o(b),
+                stems::attn_gate_proj(b),
                 stems::attn_gate(b),
                 stems::attn_qk(b),
             ];
             let attn_q = whole(gguf, &names[0])?;
-            expect_len(&names[0], "elements", attn_q.len(), 4096 * 2560)?;
+            expect_len(&names[0], "elements", attn_q.len(), q_dim * n_embd)?;
             let attn_k = whole(gguf, &names[1])?;
-            expect_len(&names[1], "elements", attn_k.len(), 1024 * 2560)?;
+            expect_len(&names[1], "elements", attn_k.len(), kv_dim * n_embd)?;
             let attn_v = whole(gguf, &names[2])?;
-            expect_len(&names[2], "elements", attn_v.len(), 1024 * 2560)?;
+            expect_len(&names[2], "elements", attn_v.len(), kv_dim * n_embd)?;
             let attn_output = whole(gguf, &names[3])?;
-            expect_len(&names[3], "elements", attn_output.len(), 2560 * 4096)?;
-            let attn_gate_scale = whole(gguf, &names[4])?;
-            expect_len(&names[4], "elements", attn_gate_scale.len(), 4096)?;
-            let attn_qk_scale = whole(gguf, &names[5])?;
-            expect_len(&names[5], "elements", attn_qk_scale.len(), 4096)?;
+            expect_len(&names[3], "elements", attn_output.len(), n_embd * q_dim)?;
+            let attn_gate = whole(gguf, &names[4])?;
+            expect_len(&names[4], "elements", attn_gate.len(), q_dim * n_embd)?;
+            let attn_gate_scale = whole(gguf, &names[5])?;
+            expect_len(&names[5], "elements", attn_gate_scale.len(), q_dim)?;
+            let attn_qk_scale = whole(gguf, &names[6])?;
+            expect_len(&names[6], "elements", attn_qk_scale.len(), q_dim)?;
             blocks.push(DoryBlockWeights {
                 kind: DoryBlockKind::Attn,
                 residual_alpha: residual_alpha_vec,
@@ -430,6 +533,7 @@ pub fn load_dory_weights_gguf(gguf: &GgufFile) -> Result<DoryWeights, DoryLoadEr
                 attn_k,
                 attn_v,
                 attn_output,
+                attn_gate,
                 attn_gate_scale,
                 attn_qk_scale,
                 ffn_gate: Vec::new(),
@@ -450,15 +554,15 @@ pub fn load_dory_weights_gguf(gguf: &GgufFile) -> Result<DoryWeights, DoryLoadEr
                 stems::ffn_up_scale(b),
             ];
             let ffn_gate = whole(gguf, &names[0])?;
-            expect_len(&names[0], "elements", ffn_gate.len(), 7168 * 2560)?;
+            expect_len(&names[0], "elements", ffn_gate.len(), mlp_hidden * n_embd)?;
             let ffn_up = whole(gguf, &names[1])?;
-            expect_len(&names[1], "elements", ffn_up.len(), 7168 * 2560)?;
+            expect_len(&names[1], "elements", ffn_up.len(), mlp_hidden * n_embd)?;
             let ffn_down = whole(gguf, &names[2])?;
-            expect_len(&names[2], "elements", ffn_down.len(), 2560 * 7168)?;
+            expect_len(&names[2], "elements", ffn_down.len(), n_embd * mlp_hidden)?;
             let ffn_gate_scale = whole(gguf, &names[3])?;
-            expect_len(&names[3], "elements", ffn_gate_scale.len(), 7168)?;
+            expect_len(&names[3], "elements", ffn_gate_scale.len(), mlp_hidden)?;
             let ffn_up_scale = whole(gguf, &names[4])?;
-            expect_len(&names[4], "elements", ffn_up_scale.len(), 7168)?;
+            expect_len(&names[4], "elements", ffn_up_scale.len(), mlp_hidden)?;
             blocks.push(DoryBlockWeights {
                 kind: DoryBlockKind::Ffn,
                 residual_alpha: residual_alpha_vec,
@@ -466,6 +570,7 @@ pub fn load_dory_weights_gguf(gguf: &GgufFile) -> Result<DoryWeights, DoryLoadEr
                 attn_k: Vec::new(),
                 attn_v: Vec::new(),
                 attn_output: Vec::new(),
+                attn_gate: Vec::new(),
                 attn_gate_scale: Vec::new(),
                 attn_qk_scale: Vec::new(),
                 ffn_gate,
@@ -488,6 +593,7 @@ pub fn load_dory_weights_gguf(gguf: &GgufFile) -> Result<DoryWeights, DoryLoadEr
         sliding_window,
         rope_freq_base,
         rope_freq_base_2,
+        dims,
     })
 }
 
@@ -526,7 +632,7 @@ impl DoryDims {
             mlp_hidden: 7168,
             n_blocks: 72,
             sliding_window: 1024,
-            norm_eps: 1e-6,
+            norm_eps: NORM_EPSILON,
         }
     }
 }
@@ -543,6 +649,7 @@ mod tests {
         assert_eq!(stems::attn_k(0), "blk.0.attn_k.weight");
         assert_eq!(stems::attn_v(0), "blk.0.attn_v.weight");
         assert_eq!(stems::attn_o(0), "blk.0.attn_output.weight");
+        assert_eq!(stems::attn_gate_proj(0), "blk.0.attn_gate.weight");
         assert_eq!(stems::attn_gate(0), "blk.0.attn_gate_scale.weight");
         assert_eq!(stems::attn_qk(0), "blk.0.attn_qk_scale.weight");
         assert_eq!(stems::ffn_gate(1), "blk.1.ffn_gate.weight");
