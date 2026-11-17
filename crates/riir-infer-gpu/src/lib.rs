@@ -756,6 +756,12 @@ pub use ternary_deltanet_gpu_forward::{DequantWteRowCubeCL, TernaryDeltanetGpuFo
 // one definition, one env name).
 #[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
 pub use ternary_deltanet_gpu_forward::resident_harvest_cadence;
+// Issue 1231 T1 — the pipelined harvest surface: the snapshot-future method
+// lives on `TernaryDeltanetGpuForward` (same impl as the resident lane); the
+// blocking half rides the alias below (the multi_host `block_on` re-export
+// above must not shadow it — distinct names, both cfgs may coexist).
+#[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
+pub use ternary_deltanet_gpu_forward::resident_block_on;
 // T3.4's async readback pair only EXISTS under multi_host (the module's own
 // pub use is gated identically); the wider ternary_gemv cfg alone would
 // green-zero the names and break every non-multi_host posture at link time.

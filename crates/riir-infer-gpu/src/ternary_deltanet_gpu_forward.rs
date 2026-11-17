@@ -38,6 +38,14 @@ use cubecl::server::Handle;
 // cubecl-environment — the umbrella shadows its `environment` module).
 #[cfg(all(feature = "cubecl_runtime", feature = "multi_host"))]
 pub use cubecl_environment::future::{DynFut, block_on};
+// Issue 1231 T1 — the pipelined harvest's blocking half, under its OWN name
+// (the multi_host arm above re-exports the same fn as `block_on`; both
+// bindings coexist — an alias is not a duplicate import). Gated cubecl_runtime
+// ONLY: the snapshot future is core `ComputeClient::read_async`, not a
+// multi-host surface, and the league cell posture (cubecl_runtime +
+// ternary_gemv + ...) must reach it.
+#[cfg(feature = "cubecl_runtime")]
+pub use cubecl_environment::future::block_on as resident_block_on;
 
 #[cfg(feature = "cubecl_runtime")]
 use crate::cubecl_runtime::{ActiveRuntime, CubeCLContext};
@@ -5637,10 +5645,100 @@ impl TernaryDeltanetGpuForward {
             self.resident_t
         );
         let bytes = self.client.read_one(ring).expect("read resident id ring");
-        let slots = u32::from_bytes(&bytes);
-        let t = self.resident_t;
-        ((t - k)..t)
-            .map(|j| slots[j % self.resident_k * Self::RING_SLOT_WORDS])
+        let start = self.resident_t - k;
+        let depth = self.resident_k;
+        Self::extract_window(u32::from_bytes(&bytes), depth, start, k)
+    }
+
+    /// Issue 1231 T1 — the PIPELINED harvest: a snapshot future of the LAST
+    /// `count` enqueued tokens whose staging copy is enqueued FIFO **at call
+    /// time** (right after this burst's argmax), while the host blocks on it
+    /// only later — after the NEXT burst's dispatches are in the queue. The
+    /// fence still waits for its burst's GPU work (an in-order queue makes
+    /// any read at the same position fence-equivalent — the completion-counter
+    /// idea of Issue 1230 is refuted by exactly this), but the wait now
+    /// overlaps the next burst's ENQUEUE phase instead of serializing after
+    /// it: the GPU drains the backlog under the host's wake + detokenize +
+    /// re-enqueue work instead of idling at the burst boundary. That boundary
+    /// idle is the measured residual between the burst-fenced wall (16.0
+    /// ms/tok, Bench 1218) and the never-fenced deep-queue floor (15.32,
+    /// Issue 1168 P2) — this lane's 0.68 ms/tok pool.
+    ///
+    /// Contract (the pipelined loop, Issue 1231 T2's cell):
+    ///
+    /// ```ignore
+    /// let mut fut = None;
+    /// for each burst {
+    ///     enqueue the burst (no host sync);
+    ///     if let Some(f) = fut.take() { ids = block_on(f); }   // the OLDER burst
+    ///     fut = Some(resident_harvest_fut(burst));             // snapshot NOW
+    /// }
+    /// ids = block_on(fut.expect("unharvested tail"));          // the tail
+    /// ```
+    ///
+    /// Snapshot legality: the copy is FIFO-after this burst's argmax, so it
+    /// captures exactly this burst's window before any later enqueue's
+    /// argmax overwrites the slots — the ring snapshot cannot be torn by the
+    /// enqueues that happen while the future is outstanding. The wrap law
+    /// still binds the HOST: the window must be extracted (the future
+    /// blocked) before `resident_k` further enqueues, or the slot the NEXT
+    /// snapshot reads is fine but the assert below has already refused the
+    /// over-deep lead.
+    ///
+    /// `count` bounds are the synchronous arm's (ring depth + enqueue
+    /// count), asserted loud at call time — the snapshot is created before
+    /// the ids exist, so a bad count must refuse here, never at await.
+    /// Panics (readback failure) on the same posture `resident_harvest`
+    /// would. The future owns clones of the client and the ring (the
+    /// `read_hidden_state_fut` custody pattern) — `&self` by design, the
+    /// forwarder stays usable while the future is outstanding.
+    pub fn resident_harvest_fut(
+        &self,
+        count: usize,
+    ) -> impl core::future::Future<Output = Vec<u32>> + Send + 'static {
+        Self::refuse_if_pool_poisoned("at resident_harvest_fut");
+        let ring = self
+            .resident_ids
+            .clone()
+            .expect("resident_harvest_fut: the id ring is not armed — call resident_begin first");
+        assert!(
+            count >= 1,
+            "resident_harvest_fut: count = 0 — snapshot nothing is a call-shape bug"
+        );
+        assert!(
+            count <= self.resident_k,
+            "resident_harvest_fut: asked for {count} ids but the ring depth is {} — older slots are overwritten",
+            self.resident_k
+        );
+        assert!(
+            count <= self.resident_t,
+            "resident_harvest_fut: asked for {count} ids but only {} enqueued",
+            self.resident_t
+        );
+        let start = self.resident_t - count;
+        let depth = self.resident_k;
+        let fut = self.client.read_async(vec![ring]);
+        async move {
+            let bytes = fut
+                .await
+                .expect("read resident id ring (snapshot)")
+                .remove(0);
+            Self::extract_window(u32::from_bytes(&bytes), depth, start, count)
+        }
+    }
+
+    /// The one ring-window extractor (production order, 32-byte slot stride)
+    /// — the synchronous and snapshot arms share it so the slot arithmetic
+    /// has exactly one definition site.
+    fn extract_window(slots: &[u32], depth: usize, start: usize, count: usize) -> Vec<u32> {
+        assert_eq!(
+            slots.len(),
+            depth * Self::RING_SLOT_WORDS,
+            "extract_window: ring bytes {} do not match depth {depth} — the snapshot is not the id ring",
+            slots.len()
+        );
+        (start..start + count)
+            .map(|j| slots[j % depth * Self::RING_SLOT_WORDS])
             .collect()
     }
 

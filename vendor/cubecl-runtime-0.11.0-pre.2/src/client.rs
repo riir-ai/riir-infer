@@ -216,10 +216,18 @@ impl<R: Runtime> ComputeClient<R> {
     }
 
     /// Given bindings, returns owned resources as bytes.
+    ///
+    /// riir-infer Issue 1231 vendor patch: the RPIT is pinned `+ 'static` —
+    /// the body returns `DynFut` (`Pin<Box<dyn Future + Send>>`, 'static by
+    /// the dyn default), so the pre-2024 signature captured nothing real, and
+    /// the 2024-edition capture of `&self` made every snapshot future
+    /// lifetime-tied to the client borrow for no soundness reason. The
+    /// create-now-block-later pipelined read (the resident lane's burst
+    /// boundary) needs the future to own its lifetime.
     pub fn read_async(
         &self,
         handles: Vec<Handle>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send {
+    ) -> impl Future<Output = Result<Vec<Bytes>, ServerError>> + Send + 'static {
         let shapes = handles
             .iter()
             .map(|it| [it.size_in_used() as usize].into())
