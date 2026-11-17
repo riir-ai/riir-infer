@@ -2,6 +2,9 @@
 
 **Status:** OPEN — F1 CLOSED VALID (Bench 1234, 2026-11-17); F2/F3 open. Filed 2026-11-16 at the T4 promotion (delegated-owner verdict AGREE; the caveats the verdict carried forward, none blocking).
 
+**Claimed:** zed-ee646c82@amo, 1794889752, expires 2026-11-19T05:00:00+00:00
+(F2 only — producer-writes-f16; the F1 verdict landed unblocked per F2's own gate note, no family demote so the phase-1 coverage set stands; claim pushed before implementing per the lease law. F3 rides every cell I run — PROVENANCE lines included.)
+
 **Lease closed:** amo-idle-i1225f16b@amo, 1794848737, was expires 2026-11-17T16:00:00+00:00 — the F1 walk's ADJUDICATION half folds at this line's commit (the walk instrument ran under it; the lane continuation carries the F1 verdict work); the F1 checkbox itself stays open until the verdict rows land (2026-11-17, this line).
 
 **Lease closed:** zed-b2e60a87@amo, 1795764300, was expires 2026-11-18T00:30:00+00:00 (claim record: zed-b2e60a87@amo, epoch 1795764300) — F1 CLOSED at the fallback adjudication (Bench 1234: all 8 placebo EXACT, armed rows at the honest twin drift, no breach ⇒ no family demotion; the checkbox [x]; adjudication per the 03:17Z demarcation's fallback clause — the owner chain zed-fb7e7538 did not write by 04:20Z). F2/F3 stay open (2026-11-17, this line).
