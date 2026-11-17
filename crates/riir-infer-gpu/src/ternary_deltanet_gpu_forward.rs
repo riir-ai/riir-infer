@@ -8318,17 +8318,36 @@ impl TernaryDeltanetGpuForward {
         }
         // Issue 032 — folded site 5 (batched path): wq/wkv are folded and an
         // attention layer has no primal consumer of the norm — rotate in place.
+        // i1226 F2 — the shadow form is f16b+macos-gated (the 1234 narrow-posture
+        // gating re-application); unarmed postures bind None and the rotate stays
+        // a plain `prefill_rotate` (byte-identical to the pre-F2 shape).
         let attn_in_shadow = if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
-            self.prefill_rotate_with_shadow(
-                RotDir::Forward,
-                normx_b,
-                None,
-                tables,
-                cfg.block_size,
-                p * n,
-                n,
-                PrefillSite::AttnQ,
-            )
+            #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+            {
+                self.prefill_rotate_with_shadow(
+                    RotDir::Forward,
+                    normx_b,
+                    None,
+                    tables,
+                    cfg.block_size,
+                    p * n,
+                    n,
+                    PrefillSite::AttnQ,
+                )
+            }
+            #[cfg(not(all(feature = "prefill_f16b", target_os = "macos")))]
+            {
+                self.prefill_rotate(
+                    RotDir::Forward,
+                    normx_b,
+                    None,
+                    tables,
+                    cfg.block_size,
+                    p * n,
+                    n,
+                );
+                None
+            }
         } else {
             None
         };
@@ -8833,19 +8852,36 @@ impl TernaryDeltanetGpuForward {
                 .as_ref()
                 .expect("attn_wo for Attention layer");
             // Issue 032 — folded site 5b (attn_out): gate already applied.
+            // i1226 F2 — the shadow form is f16b+macos-gated (1234 re-application).
             let attn_out_shadow =
                 if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
                     let q_dim = n_head * hd;
-                    self.prefill_rotate_with_shadow(
-                        RotDir::Forward,
-                        &scratch.attn_out_b,
-                        None,
-                        tables,
-                        cfg.block_size,
-                        p * q_dim,
-                        q_dim,
-                        PrefillSite::AttnOutProj,
-                    )
+                    #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+                    {
+                        self.prefill_rotate_with_shadow(
+                            RotDir::Forward,
+                            &scratch.attn_out_b,
+                            None,
+                            tables,
+                            cfg.block_size,
+                            p * q_dim,
+                            q_dim,
+                            PrefillSite::AttnOutProj,
+                        )
+                    }
+                    #[cfg(not(all(feature = "prefill_f16b", target_os = "macos")))]
+                    {
+                        self.prefill_rotate(
+                            RotDir::Forward,
+                            &scratch.attn_out_b,
+                            None,
+                            tables,
+                            cfg.block_size,
+                            p * q_dim,
+                            q_dim,
+                        );
+                        None
+                    }
                 } else {
                     None
                 };
@@ -9169,7 +9205,10 @@ impl TernaryDeltanetGpuForward {
         output: &Handle,
         p: usize,
         site: PrefillSite,
-        shadow: Option<&Handle>,
+        // i1226 F2 — consumed only by the f16b+macos-gated producer route
+        // below; narrow postures never read it (the 1234 re-application).
+        #[cfg(all(feature = "prefill_f16b", target_os = "macos"))] shadow: Option<&Handle>,
+        #[cfg(not(all(feature = "prefill_f16b", target_os = "macos")))] _shadow: Option<&Handle>,
     ) {
         let client = &self.client;
 
@@ -11441,18 +11480,36 @@ impl TernaryDeltanetGpuForward {
                     let (cfg, tables) = self.rotation_pair();
                     // i1226 F2 — the rotated copy's f16 shadow (GdnQkv/GdnZ
                     // are twin-routed on the serving posture; the site tag
-                    // admits per-family like the twin's own chain).
+                    // admits per-family like the twin's own chain). Shadow form
+                    // f16b+macos-gated (1234 re-application); narrow postures
+                    // run the plain rotate and bind None.
                     let gdn_in_shadow = if gdn_site_on(PREFILL_STAGE_GDN_ROTIN) {
-                        self.prefill_rotate_with_shadow(
-                            RotDir::Forward,
-                            &normx_b,
-                            Some(&rotx_b),
-                            tables,
-                            cfg.block_size,
-                            p * n,
-                            n,
-                            PrefillSite::GdnQkv,
-                        )
+                        #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+                        {
+                            self.prefill_rotate_with_shadow(
+                                RotDir::Forward,
+                                &normx_b,
+                                Some(&rotx_b),
+                                tables,
+                                cfg.block_size,
+                                p * n,
+                                n,
+                                PrefillSite::GdnQkv,
+                            )
+                        }
+                        #[cfg(not(all(feature = "prefill_f16b", target_os = "macos")))]
+                        {
+                            self.prefill_rotate(
+                                RotDir::Forward,
+                                &normx_b,
+                                Some(&rotx_b),
+                                tables,
+                                cfg.block_size,
+                                p * n,
+                                n,
+                            );
+                            None
+                        }
                     } else {
                         None
                     };
@@ -11923,16 +11980,34 @@ impl TernaryDeltanetGpuForward {
                             );
                         }
                     }
-                    gdn_out_shadow = self.prefill_rotate_with_shadow(
-                        RotDir::Forward,
-                        &rec_b,
-                        None,
-                        tables,
-                        cfg.block_size,
-                        p * v_dim,
-                        v_dim,
-                        PrefillSite::GdnOutProj,
-                    );
+                    gdn_out_shadow = {
+                        #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+                        {
+                            self.prefill_rotate_with_shadow(
+                                RotDir::Forward,
+                                &rec_b,
+                                None,
+                                tables,
+                                cfg.block_size,
+                                p * v_dim,
+                                v_dim,
+                                PrefillSite::GdnOutProj,
+                            )
+                        }
+                        #[cfg(not(all(feature = "prefill_f16b", target_os = "macos")))]
+                        {
+                            self.prefill_rotate(
+                                RotDir::Forward,
+                                &rec_b,
+                                None,
+                                tables,
+                                cfg.block_size,
+                                p * v_dim,
+                                v_dim,
+                            );
+                            None
+                        }
+                    };
                 }
                 // 11. Out projection.
                 self.prefill_project(
@@ -12185,18 +12260,35 @@ impl TernaryDeltanetGpuForward {
                     // i1226 F2 — the rotate carries FfnGate's f16 shadow (the
                     // per-family admission covers both pair halves — the site
                     // mask demotes them together on the serving posture).
+                    // Shadow form f16b+macos-gated (1234 re-application).
                     let ffn_in_shadow =
                         if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
-                            self.prefill_rotate_with_shadow(
-                                RotDir::Forward,
-                                &normx_b,
-                                None,
-                                tables,
-                                cfg.block_size,
-                                p * n,
-                                n,
-                                PrefillSite::FfnGate,
-                            )
+                            #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+                            {
+                                self.prefill_rotate_with_shadow(
+                                    RotDir::Forward,
+                                    &normx_b,
+                                    None,
+                                    tables,
+                                    cfg.block_size,
+                                    p * n,
+                                    n,
+                                    PrefillSite::FfnGate,
+                                )
+                            }
+                            #[cfg(not(all(feature = "prefill_f16b", target_os = "macos")))]
+                            {
+                                self.prefill_rotate(
+                                    RotDir::Forward,
+                                    &normx_b,
+                                    None,
+                                    tables,
+                                    cfg.block_size,
+                                    p * n,
+                                    n,
+                                );
+                                None
+                            }
                         } else {
                             None
                         };
@@ -12231,19 +12323,36 @@ impl TernaryDeltanetGpuForward {
                     // Plan 549: the down_proj ANE seam (runtime-gated, per-op
                     // fail-open — skipped entirely when the toggle/bank is off).
                     // Issue 032 — folded site 7 (ffn_hidden): rotate before down.
-                    // i1226 F2 — the rotate carries FfnDown's f16 shadow.
+                    // i1226 F2 — the rotate carries FfnDown's f16 shadow; the
+                    // shadow form is f16b+macos-gated (1234 re-application).
                     let ffn_down_shadow =
                         if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
-                            self.prefill_rotate_with_shadow(
-                                RotDir::Forward,
-                                &hid_b,
-                                None,
-                                tables,
-                                cfg.block_size,
-                                p * mlp,
-                                mlp,
-                                PrefillSite::FfnDown,
-                            )
+                            #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+                            {
+                                self.prefill_rotate_with_shadow(
+                                    RotDir::Forward,
+                                    &hid_b,
+                                    None,
+                                    tables,
+                                    cfg.block_size,
+                                    p * mlp,
+                                    mlp,
+                                    PrefillSite::FfnDown,
+                                )
+                            }
+                            #[cfg(not(all(feature = "prefill_f16b", target_os = "macos")))]
+                            {
+                                self.prefill_rotate(
+                                    RotDir::Forward,
+                                    &hid_b,
+                                    None,
+                                    tables,
+                                    cfg.block_size,
+                                    p * mlp,
+                                    mlp,
+                                );
+                                None
+                            }
                         } else {
                             None
                         };
