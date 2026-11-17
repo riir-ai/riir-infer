@@ -1055,6 +1055,14 @@ name = "issue1225_f16b_retention_walk"
 path = "tests/issue1225_f16b_retention_walk.rs"
 required-features = ["prefill_f16b", "metal_tensor_gemm", "cubecl_runtime", "ternary_gemv", "multi_host", "ternary_gemm_batched", "ternary_gemm_simdgroup", "ternary_deltanet_chunked_prefill", "ternary_attention_batched_prefill", "riir-infer-core/bonsai2_hadamard"]
 
+# i1226 F2 — the producer-writes-f16 shadow's G1 bit-identity cell (shadow
+# vs THE cast pipeline, all four rotate call shapes, both schedules + the
+# tie classes). Run explicitly (--ignored, --release): see the file header.
+[[test]]
+name = "i1226_f2_shadow_g1"
+path = "tests/i1226_f2_shadow_g1.rs"
+required-features = ["prefill_f16b", "cubecl_runtime", "ternary_gemv"]
+
 [[test]]
 name = "issue1160_g0_collapse_probe"
 path = "tests/issue1160_g0_collapse_probe.rs"

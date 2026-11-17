@@ -740,6 +740,29 @@ impl MetalTensorZeroCopyGemm {
         output: &Handle,
         p: usize,
     ) -> Result<(), String> {
+        self.dispatch_f16b_producer(client, weights, w, input, None, output, p)
+    }
+
+    /// i1226 F2 — the producer-writes-f16 form: `input_f16` is `Some(shadow)`
+    /// when the rotate that last wrote `input` also emitted the packed-u32
+    /// f16 pairs (same RNE rounding as the cast encoder — the G1 shadow cell
+    /// pins it), and the cast encoder is SKIPPED — the gemm binds the shadow
+    /// at its extracted offset directly. Misaligned shadow offsets (a pool
+    /// slice under the vector loads' 16-byte assumption) fall back to the
+    /// cast path LOUD and counted — never a silent wrong bind. `input` stays
+    /// the f32 handle and `input_cache` stays for the fallback — never freed.
+    #[cfg(feature = "prefill_f16b")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch_f16b_producer(
+        &self,
+        client: &ComputeClient<ActiveRuntime>,
+        weights: &ZeroCopyWeightCache,
+        w: &TernaryHandle,
+        input: &Handle,
+        input_f16: Option<&Handle>,
+        output: &Handle,
+        p: usize,
+    ) -> Result<(), String> {
         let Some(f16b) = self.f16b.as_ref() else {
             return Err(
                 "f16b twin has no f16 state (built in the placebo posture) — pin the \
@@ -764,18 +787,40 @@ impl MetalTensorZeroCopyGemm {
         let scale_ref: &BufferRef = unsafe { BufferRef::from_ptr(scale_ptr) };
         let cubecl_output_ref: &BufferRef = unsafe { BufferRef::from_ptr(output_ptr) };
 
+        // The producer shadow, extracted for the gemm's bind. A pool slice
+        // arrives with a nonzero offset — the patched GEMM's vector/simdgroup
+        // loads assume 16-byte+ alignment, so a misaligned shadow declines to
+        // the cast path (counted, loud once) instead of binding wrong.
+        let mut shadow: Option<(&BufferRef, u64)> = None;
+        if let Some(h) = input_f16 {
+            let (ptr, off) = Self::extract_raw_buffer(client, h)?;
+            if off % 16 == 0 {
+                // Safety: same shape as the extracted input/output refs above
+                // — the raw pointer is the CubeCL pool allocation, kept alive
+                // by the caller's shadow handle for the dispatch's lifetime.
+                shadow = Some((unsafe { BufferRef::from_ptr(ptr) }, off));
+            } else {
+                crate::prefill_f16b::count_shadow_misaligned();
+            }
+        }
         // Dedicated f16 input copy + dedicated output (the same
-        // pool-aliasing law as `dispatch`'s output buffer).
-        let f16_bytes = (p * w.n * std::mem::size_of::<u16>()) as u64;
-        let f16_input = {
-            let mut cache = f16b.input_cache.lock().unwrap();
-            cache
-                .entry(f16_bytes)
-                .or_insert_with(|| {
-                    let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
-                    device_ref.new_buffer(f16_bytes, MTLResourceOptions::StorageModeShared)
-                })
-                .clone()
+        // pool-aliasing law as `dispatch`'s output buffer) — the copy is
+        // only allocated when the CAST path is actually taken.
+        let cast_input: Option<Buffer> = if shadow.is_none() {
+            let f16_bytes = (p * w.n * std::mem::size_of::<u16>()) as u64;
+            let f16_input = {
+                let mut cache = f16b.input_cache.lock().unwrap();
+                cache
+                    .entry(f16_bytes)
+                    .or_insert_with(|| {
+                        let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
+                        device_ref.new_buffer(f16_bytes, MTLResourceOptions::StorageModeShared)
+                    })
+                    .clone()
+            };
+            Some(f16_input)
+        } else {
+            None
         };
         let output_bytes = (p * w.m * std::mem::size_of::<f32>()) as u64;
         let dedicated_output = self.dedicated_output(output_bytes);
@@ -808,16 +853,18 @@ impl MetalTensorZeroCopyGemm {
         let queue_ref: &CommandQueueRef = unsafe { CommandQueueRef::from_ptr(self.queue) };
         let cmd_buffer = queue_ref.new_command_buffer();
 
-        // Encoder 1: the cast (f32 → f16 dedicated copy).
-        {
+        // Encoder 1: the cast (f32 → f16 dedicated copy) — SKIPPED when the
+        // producer shadow is bound (its per-launch cost is the tax F2
+        // removes from the frame).
+        if let Some(f16_input) = cast_input.as_ref() {
             let cast_n: u32 = p_tokens * n;
             let enc = cmd_buffer.new_compute_command_encoder();
             enc.set_compute_pipeline_state(&f16b.cast_pipeline);
             enc.set_buffer(0, Some(input_ref), input_off);
-            enc.set_buffer(1, Some(&f16_input), 0);
+            enc.set_buffer(1, Some(f16_input), 0);
             enc.set_bytes(2, 4, &cast_n as *const u32 as *const _);
             enc.use_resource(input_ref, MTLResourceUsage::Read);
-            enc.use_resource(&f16_input, MTLResourceUsage::Write);
+            enc.use_resource(f16_input, MTLResourceUsage::Write);
             let cast_grid = MTLSize {
                 width: (u64::from(p_tokens) * u64::from(n)).div_ceil(256),
                 height: 1,
@@ -832,14 +879,22 @@ impl MetalTensorZeroCopyGemm {
             enc.end_encoding();
         }
 
-        // Encoder 2: the patched gemm — input binding is the f16 copy.
+        // Encoder 2: the patched gemm — input binding is the f16 copy (cast
+        // path, offset 0) or the producer shadow (its extracted offset).
         {
             let encoder = cmd_buffer.new_compute_command_encoder();
             encoder.set_compute_pipeline_state(&self.pipeline);
             encoder.set_buffer(0, Some(pos_ref), pos_off);
             encoder.set_buffer(1, Some(neg_ref), neg_off);
             encoder.set_buffer(2, Some(scale_ref), scale_off);
-            encoder.set_buffer(3, Some(&f16_input), 0);
+            if let Some(f16_input) = cast_input.as_ref() {
+                encoder.set_buffer(3, Some(f16_input), 0);
+                encoder.use_resource(f16_input, MTLResourceUsage::Read);
+            } else {
+                let (shadow_ref, shadow_off) = shadow.expect("cast path provides the f16 input");
+                encoder.set_buffer(3, Some(shadow_ref), shadow_off);
+                encoder.use_resource(shadow_ref, MTLResourceUsage::Read);
+            }
             encoder.set_buffer(4, Some(&dedicated_output), 0);
             encoder.set_bytes(5, 4, &blocks64 as *const u32 as *const _);
             encoder.set_bytes(6, 4, &groups_per_row as *const u32 as *const _);
@@ -850,7 +905,6 @@ impl MetalTensorZeroCopyGemm {
             encoder.use_resource(pos_ref, MTLResourceUsage::Read);
             encoder.use_resource(neg_ref, MTLResourceUsage::Read);
             encoder.use_resource(scale_ref, MTLResourceUsage::Read);
-            encoder.use_resource(&f16_input, MTLResourceUsage::Read);
             encoder.use_resource(&dedicated_output, MTLResourceUsage::Write);
             encoder.dispatch_thread_groups(grid, threadgroup);
             encoder.end_encoding();
@@ -874,6 +928,59 @@ impl MetalTensorZeroCopyGemm {
         self.dispatch_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
+    }
+
+    /// i1226 F2 — run THE cast pipeline (`f16b.cast_pipeline`, the encoder
+    /// the producer shadow replaces) over `input` and read the rounded f16
+    /// bytes back. INSTRUMENT-ONLY (the G1 shadow cell's authority — the
+    /// comparison the armed posture is gated on; the integration test is the
+    /// only caller) — never a serving path. `input`: `n` f32 elements;
+    /// returns `n` u16s.
+    #[cfg(feature = "prefill_f16b")]
+    pub fn cast_f16_reference(
+        &self,
+        client: &ComputeClient<ActiveRuntime>,
+        input: &Handle,
+        n: usize,
+    ) -> Result<Vec<u16>, String> {
+        let f16b = self
+            .f16b
+            .as_ref()
+            .ok_or_else(|| "f16b twin built in the placebo posture".to_string())?;
+        let _ = client.flush();
+        let (input_ptr, input_off) = Self::extract_raw_buffer(client, input)?;
+        let input_ref: &BufferRef = unsafe { BufferRef::from_ptr(input_ptr) };
+        let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
+        let dst = device_ref.new_buffer(
+            (n * std::mem::size_of::<u16>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        let queue_ref: &CommandQueueRef = unsafe { CommandQueueRef::from_ptr(self.queue) };
+        let cmd_buffer = queue_ref.new_command_buffer();
+        let enc = cmd_buffer.new_compute_command_encoder();
+        enc.set_compute_pipeline_state(&f16b.cast_pipeline);
+        enc.set_buffer(0, Some(input_ref), input_off);
+        enc.set_buffer(1, Some(&dst), 0);
+        let cast_n: u32 = n as u32;
+        enc.set_bytes(2, 4, &cast_n as *const u32 as *const _);
+        enc.use_resource(input_ref, MTLResourceUsage::Read);
+        enc.use_resource(&dst, MTLResourceUsage::Write);
+        let grid = MTLSize {
+            width: (n as u64).div_ceil(256),
+            height: 1,
+            depth: 1,
+        };
+        let tg = MTLSize {
+            width: 256,
+            height: 1,
+            depth: 1,
+        };
+        enc.dispatch_thread_groups(grid, tg);
+        enc.end_encoding();
+        cmd_buffer.commit();
+        cmd_buffer.wait_until_completed();
+        let ptr = dst.contents() as *const u16;
+        Ok(unsafe { std::slice::from_raw_parts(ptr, n) }.to_vec())
     }
 
     /// Tap-only dispatch (the Issue-1225 retention walk): the incumbent body

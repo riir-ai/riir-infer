@@ -49,6 +49,7 @@ use crate::ternary_deltanet_gpu_forward::PrefillSite;
 static ROUTE_ARMED: AtomicBool = AtomicBool::new(false);
 static TAP_ARMED: AtomicBool = AtomicBool::new(false);
 static PLACEBO_PINNED: AtomicBool = AtomicBool::new(false);
+static PRODUCER_ARMED: AtomicBool = AtomicBool::new(false);
 
 /// Per-family admission (bit `i` = [`PrefillSite`] slot `i`); default ALL —
 /// a family is demoted individually by the T1 decider's verdict.
@@ -91,6 +92,50 @@ pub fn set_f16b_placebo(on: bool) {
 /// Whether the twin should compile the unpatched (control) body.
 pub fn placebo_pinned() -> bool {
     PLACEBO_PINNED.load(Ordering::Relaxed)
+}
+
+/// i1226 F2 — arm the producer-writes-f16 shadow: the rotate launches that
+/// are the LAST WRITER of a twin-routed site's input additionally emit the
+/// rotated output as packed-u32 f16 pairs (same RNE rounding as the twin's
+/// cast kernel, `f16_bits`), and the twin dispatch's shadow form binds the
+/// shadow directly — the per-launch cast encoder (Bench 1223: 0.15–0.19 ms)
+/// leaves the frame. The shadow travels as EXPLICIT DATAFLOW (the producer
+/// wrapper returns `Option<Handle>`; the caller hands it to the projection
+/// beside the f32 handle) — no handle-identity registry, so a
+/// skipped/overwritten producer degrades to `None` and the cast serves.
+///
+/// SUBSTRATE posture: PROMOTE-ONLY opt-in (`=1` arms), riding
+/// `set_f16b_route` — the shadow only exists where the twin route is armed.
+/// G1 (the i1226 shadow cell) pins shadow-vs-cast bit-identity on all four
+/// rotate call shapes before any serving posture arms it.
+pub fn set_f16b_producer(on: bool) {
+    PRODUCER_ARMED.store(on, Ordering::Relaxed);
+}
+
+/// Whether the producer-writes-f16 shadow is armed.
+pub fn f16b_producer_armed() -> bool {
+    PRODUCER_ARMED.load(Ordering::Relaxed)
+}
+
+static SHADOW_MISALIGNED: AtomicU64 = AtomicU64::new(0);
+static SHADOW_MISALIGNED_WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// Count a producer shadow whose extracted pool offset breaks the patched
+/// GEMM's 16-byte bind assumption — the dispatch fell back to the cast path
+/// for that site (loud once, tallied for the census).
+pub fn count_shadow_misaligned() {
+    SHADOW_MISALIGNED.fetch_add(1, Ordering::Relaxed);
+    SHADOW_MISALIGNED_WARNED.get_or_init(|| {
+        eprintln!(
+            "[i1226] f16b producer shadow at a misaligned pool offset — cast \
+             fallback serves, counted"
+        );
+    });
+}
+
+/// Producer shadows that fell back to the cast path (pool-offset class).
+pub fn shadow_misaligned_count() -> u64 {
+    SHADOW_MISALIGNED.load(Ordering::Relaxed)
 }
 
 static TWIN_MISSING_WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();

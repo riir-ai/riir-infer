@@ -777,7 +777,7 @@ pub fn take_attn_tap() -> Option<AttnScratch> {
 /// riir-infer Issue 032: which folded-basis rotation a batched prefill site
 /// applies (see `prefill_rotate`).
 #[cfg(feature = "ternary_gemm_batched")]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum RotDir {
     /// sign then Hadamard — every folded projection's input.
     Forward,
@@ -3543,6 +3543,16 @@ pub struct TernaryDeltanetGpuForward {
     // counted compile failure) leaves every site on the incumbent route.
     #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
     metal_zerocopy_f16b: Option<crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm>,
+    // i1226 F2 — the producer-writes-f16 shadow pool: one packed-u32 f16
+    // handle per byte length, written by the shadow rotate kernels and handed
+    // to the twin dispatch as EXPLICIT DATAFLOW (never a handle-identity
+    // registry — validity is lexical at the call site, and a stale shadow is
+    // structurally unreachable because the producer and the consumer are the
+    // same statement pair). Same queue-ordering + reuse law as the twin's
+    // `input_cache` (the next rotate to the same length is a later command
+    // on the shared queue).
+    #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+    f16b_shadow_pool: std::sync::Mutex<std::collections::HashMap<usize, Handle>>,
     // riir-ai Plan 644 G4: ONE `[block × max(n−k)]` f32 scratch for every
     // channel-split seam's GPU suffix (seams are queue-serial, so one buffer
     // is reused in queue order) — sized at registration, never per seam.
@@ -4982,6 +4992,8 @@ impl TernaryDeltanetGpuForward {
             metal_zerocopy_gemm,
             #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
             metal_zerocopy_f16b,
+            #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+            f16b_shadow_pool: std::sync::Mutex::new(std::collections::HashMap::new()),
             #[cfg(all(
                 feature = "ane_zc_channel_split",
                 target_os = "macos",
@@ -6338,6 +6350,71 @@ impl TernaryDeltanetGpuForward {
                 }
             }
         }
+    }
+
+    /// i1226 F2 — the producer-writes-f16 rotate: the SAME rotation as
+    /// [`Self::prefill_rotate`], plus — when the f16b producer lane is armed
+    /// AND `site` is twin-admitted (the exact admission chain the twin
+    /// dispatch applies, so shadows exist only where they are consumed) — the
+    /// rotated output ALSO emitted as packed-u32 f16 pairs into a pooled
+    /// shadow handle. Returns `Some(shadow)` for the caller to hand to the
+    /// projection beside the f32 handle (explicit dataflow — lexical
+    /// validity, no registry); any unarmed/missed condition returns `None`
+    /// and the twin's cast encoder serves instead. Forward rotations only:
+    /// the inverse rotate feeds no twin-routed site.
+    #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
+    #[allow(clippy::too_many_arguments)]
+    fn prefill_rotate_with_shadow(
+        &self,
+        dir: RotDir,
+        src: &Handle,
+        dst: Option<&Handle>,
+        tables: &RotationTablesCubeCL,
+        hblock: usize,
+        total: usize,
+        width: usize,
+        site: PrefillSite,
+    ) -> Option<Handle> {
+        let armed = crate::prefill_f16b::f16b_route_armed()
+            && crate::prefill_f16b::f16b_producer_armed()
+            && crate::prefill_f16b::f16b_site_admits(site)
+            && !crate::prefill_f16b::placebo_pinned()
+            && self.metal_zerocopy_f16b.is_some();
+        if !armed || dir != RotDir::Forward {
+            self.prefill_rotate(dir, src, dst, tables, hblock, total, width);
+            return None;
+        }
+        let signs = tables.signs_for_width(width).clone();
+        let shadow = {
+            let mut pool = self.f16b_shadow_pool.lock().expect("f16b shadow pool");
+            pool.entry(total * 2)
+                .or_insert_with(|| self.client.empty(total * 2))
+                .clone()
+        };
+        unsafe {
+            match dst {
+                None => RotationCubeCL::launch_forward_shadow::<ActiveRuntime>(
+                    &self.client,
+                    src.clone(),
+                    shadow.clone(),
+                    signs,
+                    total,
+                    width,
+                    hblock,
+                ),
+                Some(d) => RotationCubeCL::launch_forward_copy_shadow::<ActiveRuntime>(
+                    &self.client,
+                    src.clone(),
+                    d.clone(),
+                    shadow.clone(),
+                    signs,
+                    total,
+                    width,
+                    hblock,
+                ),
+            }
+        }
+        Some(shadow)
     }
 
     /// Both halves of the folded marker — callers have already branched on
@@ -8241,8 +8318,8 @@ impl TernaryDeltanetGpuForward {
         }
         // Issue 032 — folded site 5 (batched path): wq/wkv are folded and an
         // attention layer has no primal consumer of the norm — rotate in place.
-        if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
-            self.prefill_rotate(
+        let attn_in_shadow = if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
+            self.prefill_rotate_with_shadow(
                 RotDir::Forward,
                 normx_b,
                 None,
@@ -8250,8 +8327,11 @@ impl TernaryDeltanetGpuForward {
                 cfg.block_size,
                 p * n,
                 n,
-            );
-        }
+                PrefillSite::AttnQ,
+            )
+        } else {
+            None
+        };
 
         // 2. Q projection (batched GEMM) — attn_wq writes [2*q_dim] per token.
         // 3. KV projection (batched GEMM) — attn_wkv writes [2*kvd] per token.
@@ -8261,12 +8341,26 @@ impl TernaryDeltanetGpuForward {
                 .attn_wq
                 .as_ref()
                 .expect("attn_wq for Attention layer");
-            self.prefill_project(wq, normx_b, &scratch.qg_b, p, PrefillSite::AttnQ);
+            self.prefill_project(
+                wq,
+                normx_b,
+                &scratch.qg_b,
+                p,
+                PrefillSite::AttnQ,
+                attn_in_shadow.as_ref(),
+            );
             let wkv = layer_w
                 .attn_wkv
                 .as_ref()
                 .expect("attn_wkv for Attention layer");
-            self.prefill_project(wkv, normx_b, &scratch.kv_b, p, PrefillSite::AttnKv);
+            self.prefill_project(
+                wkv,
+                normx_b,
+                &scratch.kv_b,
+                p,
+                PrefillSite::AttnKv,
+                attn_in_shadow.as_ref(),
+            );
         }
 
         // 4. Split QG → Q + gate (batched).
@@ -8739,24 +8833,29 @@ impl TernaryDeltanetGpuForward {
                 .as_ref()
                 .expect("attn_wo for Attention layer");
             // Issue 032 — folded site 5b (attn_out): gate already applied.
-            if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
-                let q_dim = n_head * hd;
-                self.prefill_rotate(
-                    RotDir::Forward,
-                    &scratch.attn_out_b,
-                    None,
-                    tables,
-                    cfg.block_size,
-                    p * q_dim,
-                    q_dim,
-                );
-            }
+            let attn_out_shadow =
+                if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
+                    let q_dim = n_head * hd;
+                    self.prefill_rotate_with_shadow(
+                        RotDir::Forward,
+                        &scratch.attn_out_b,
+                        None,
+                        tables,
+                        cfg.block_size,
+                        p * q_dim,
+                        q_dim,
+                        PrefillSite::AttnOutProj,
+                    )
+                } else {
+                    None
+                };
             self.prefill_project(
                 wo,
                 &scratch.attn_out_b,
                 &scratch.out_proj_b,
                 p,
                 PrefillSite::AttnOutProj,
+                attn_out_shadow.as_ref(),
             );
         }
 
@@ -8849,13 +8948,14 @@ impl TernaryDeltanetGpuForward {
         output: &Handle,
         p: usize,
         site: PrefillSite,
+        shadow: Option<&Handle>,
     ) {
         match PREFILL_SITE_EXEC_TIMING_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
-            false => self.prefill_project_dispatch(w, input, output, p, site),
+            false => self.prefill_project_dispatch(w, input, output, p, site, shadow),
             true => {
                 self.exec_timing_fence();
                 let t0 = std::time::Instant::now();
-                self.prefill_project_dispatch(w, input, output, p, site);
+                self.prefill_project_dispatch(w, input, output, p, site, shadow);
                 self.exec_timing_fence();
                 PREFILL_SITE_TIMING[site.slot()].record(t0.elapsed());
             }
@@ -8967,7 +9067,7 @@ impl TernaryDeltanetGpuForward {
             for (out, part) in outputs.iter().zip(&split.parts) {
                 let out_b = (*out).clone().offset_start((b * w * part.n * f32s) as u64);
                 let m_gpu = part.n - part.k;
-                self.prefill_project_dispatch(&part.suffix, &in_b, scratch, w, site);
+                self.prefill_project_dispatch(&part.suffix, &in_b, scratch, w, site, None);
                 unsafe {
                     crate::elementwise_cubecl::CopyColsCubeCL::launch::<ActiveRuntime>(
                         &self.client,
@@ -9005,6 +9105,7 @@ impl TernaryDeltanetGpuForward {
         p: usize,
         site_a: PrefillSite,
         site_b: PrefillSite,
+        shadow: Option<&Handle>,
     ) {
         #[cfg(all(
             feature = "ane_zc_channel_split",
@@ -9020,7 +9121,9 @@ impl TernaryDeltanetGpuForward {
             && self.prefill_project_channel_split(split, input, &[out_a, out_b], head, site_a)
         {
             // riir-ai Issue 1147 B4: the `p % block` tail runs full-width
-            // on the GPU (it recurses with head == 0 — no split).
+            // on the GPU (it recurses with head == 0 — no split). The shadow
+            // does NOT follow the split lane (an ANE-gated posture, never the
+            // F2 target) — the tail's twin dispatch takes the cast encoder.
             if head < p {
                 let f32s = std::mem::size_of::<f32>();
                 let tail =
@@ -9034,12 +9137,13 @@ impl TernaryDeltanetGpuForward {
                     p - head,
                     site_a,
                     site_b,
+                    None,
                 );
             }
             return;
         }
-        self.prefill_project(wa, input, out_a, p, site_a);
-        self.prefill_project(wb, input, out_b, p, site_b);
+        self.prefill_project(wa, input, out_a, p, site_a, shadow);
+        self.prefill_project(wb, input, out_b, p, site_b, shadow);
     }
 
     /// Full-queue fence for the exec timer: CubeCL's `sync()` waits only on
@@ -9065,6 +9169,7 @@ impl TernaryDeltanetGpuForward {
         output: &Handle,
         p: usize,
         site: PrefillSite,
+        shadow: Option<&Handle>,
     ) {
         let client = &self.client;
 
@@ -9085,7 +9190,8 @@ impl TernaryDeltanetGpuForward {
             && self.prefill_project_channel_split(split, input, &[output], head, site)
         {
             // riir-ai Issue 1147 B4: the `p % block` tail runs full-width
-            // on the GPU (it recurses with head == 0 — no split).
+            // on the GPU (it recurses with head == 0 — no split). The shadow
+            // does NOT follow the split lane — the tail takes the cast path.
             if head < p {
                 let f32s = std::mem::size_of::<f32>();
                 self.prefill_project_dispatch(
@@ -9096,6 +9202,7 @@ impl TernaryDeltanetGpuForward {
                         .offset_start((head * split.parts[0].n * f32s) as u64),
                     p - head,
                     site,
+                    None,
                 );
             }
             return;
@@ -9135,10 +9242,16 @@ impl TernaryDeltanetGpuForward {
                     {
                         match (&self.metal_zerocopy_f16b, &w.zerocopy_cache) {
                             (Some(twin), Some(_)) => {
+                                // i1226 F2: the producer shadow (when the
+                                // site's rotate emitted one) replaces the
+                                // per-launch cast encoder; None keeps the
+                                // incumbent cast byte-identically.
                                 let dispatched = if crate::prefill_f16b::placebo_pinned() {
                                     twin.dispatch(client, cache, w, input, output, p)
                                 } else {
-                                    twin.dispatch_f16b(client, cache, w, input, output, p)
+                                    twin.dispatch_f16b_producer(
+                                        client, cache, w, input, shadow, output, p,
+                                    )
                                 };
                                 match dispatched {
                                     Ok(()) => {
@@ -9871,9 +9984,9 @@ impl TernaryDeltanetGpuForward {
                 &segments,
             )
         {
-            self.prefill_project(&layer_w.in_proj_z, normx_b, z_b, p, PrefillSite::GdnZ);
-            self.prefill_project(&layer_w.in_proj_a, normx_b, a_b, p, PrefillSite::GdnA);
-            self.prefill_project(&layer_w.in_proj_b, normx_b, b_b, p, PrefillSite::GdnB);
+            self.prefill_project(&layer_w.in_proj_z, normx_b, z_b, p, PrefillSite::GdnZ, None);
+            self.prefill_project(&layer_w.in_proj_a, normx_b, a_b, p, PrefillSite::GdnA, None);
+            self.prefill_project(&layer_w.in_proj_b, normx_b, b_b, p, PrefillSite::GdnB, None);
             return match job.finish() {
                 Ok(()) => true,
                 Err(e) => {
@@ -9895,9 +10008,9 @@ impl TernaryDeltanetGpuForward {
             return false;
         };
         // GPU complement — concurrent with the ANE worker.
-        self.prefill_project(&layer_w.in_proj_z, normx_b, z_b, p, PrefillSite::GdnZ);
-        self.prefill_project(&layer_w.in_proj_a, normx_b, a_b, p, PrefillSite::GdnA);
-        self.prefill_project(&layer_w.in_proj_b, normx_b, b_b, p, PrefillSite::GdnB);
+        self.prefill_project(&layer_w.in_proj_z, normx_b, z_b, p, PrefillSite::GdnZ, None);
+        self.prefill_project(&layer_w.in_proj_a, normx_b, a_b, p, PrefillSite::GdnA, None);
+        self.prefill_project(&layer_w.in_proj_b, normx_b, b_b, p, PrefillSite::GdnB, None);
         match job.finish(&self.client) {
             Ok(()) => true,
             Err(e) => {
@@ -10041,7 +10154,7 @@ impl TernaryDeltanetGpuForward {
                 &segments,
             )
         {
-            self.prefill_project(&layer_w.up_proj, normx_b, up_b, p, PrefillSite::FfnUp);
+            self.prefill_project(&layer_w.up_proj, normx_b, up_b, p, PrefillSite::FfnUp, None);
             return match job.finish() {
                 Ok(()) => true,
                 Err(e) => {
@@ -10062,7 +10175,7 @@ impl TernaryDeltanetGpuForward {
         ) else {
             return false;
         };
-        self.prefill_project(&layer_w.up_proj, normx_b, up_b, p, PrefillSite::FfnUp);
+        self.prefill_project(&layer_w.up_proj, normx_b, up_b, p, PrefillSite::FfnUp, None);
         match job.finish(&self.client) {
             Ok(()) => true,
             Err(e) => {
@@ -11326,8 +11439,11 @@ impl TernaryDeltanetGpuForward {
                     // the PRIMAL norm as one token-grid f32 GEMV each — row t
                     // bit-identical to decode's `GemvCubeCL` on token t.
                     let (cfg, tables) = self.rotation_pair();
-                    if gdn_site_on(PREFILL_STAGE_GDN_ROTIN) {
-                        self.prefill_rotate(
+                    // i1226 F2 — the rotated copy's f16 shadow (GdnQkv/GdnZ
+                    // are twin-routed on the serving posture; the site tag
+                    // admits per-family like the twin's own chain).
+                    let gdn_in_shadow = if gdn_site_on(PREFILL_STAGE_GDN_ROTIN) {
+                        self.prefill_rotate_with_shadow(
                             RotDir::Forward,
                             &normx_b,
                             Some(&rotx_b),
@@ -11335,8 +11451,11 @@ impl TernaryDeltanetGpuForward {
                             cfg.block_size,
                             p * n,
                             n,
-                        );
-                    }
+                            PrefillSite::GdnQkv,
+                        )
+                    } else {
+                        None
+                    };
                     self.prefill_project_pair(
                         &layer_w.in_proj_qkv,
                         &layer_w.in_proj_z,
@@ -11346,6 +11465,7 @@ impl TernaryDeltanetGpuForward {
                         p,
                         PrefillSite::GdnQkv,
                         PrefillSite::GdnZ,
+                        gdn_in_shadow.as_ref(),
                     );
                     for (w, out, name) in [
                         (&layer_w.in_proj_a_f32, &a_b, "ssm_alpha"),
@@ -11373,7 +11493,7 @@ impl TernaryDeltanetGpuForward {
                         (&layer_w.in_proj_a, &a_b, PrefillSite::GdnA),
                         (&layer_w.in_proj_b, &b_b, PrefillSite::GdnB),
                     ] {
-                        self.prefill_project(w, &normx_b, out, p, site);
+                        self.prefill_project(w, &normx_b, out, p, site, None);
                     }
                 }
 
@@ -11769,6 +11889,10 @@ impl TernaryDeltanetGpuForward {
                 // permute, then the forward rotation, in place on `rec_b` (its
                 // only consumer is the folded out_proj). After norm + z-gate —
                 // both commute with the permute — the decode order.
+                // i1226 F2 — the rotate is the folded out_proj input's last
+                // writer, so it carries the site's f16 shadow; a model without
+                // rotation leaves `None` (the cast encoder serves).
+                let mut gdn_out_shadow = None;
                 if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables)
                     && gdn_site_on(PREFILL_STAGE_GDN_POST)
                 {
@@ -11792,7 +11916,7 @@ impl TernaryDeltanetGpuForward {
                             );
                         }
                     }
-                    self.prefill_rotate(
+                    gdn_out_shadow = self.prefill_rotate_with_shadow(
                         RotDir::Forward,
                         &rec_b,
                         None,
@@ -11800,6 +11924,7 @@ impl TernaryDeltanetGpuForward {
                         cfg.block_size,
                         p * v_dim,
                         v_dim,
+                        PrefillSite::GdnOutProj,
                     );
                 }
                 // 11. Out projection.
@@ -11809,6 +11934,7 @@ impl TernaryDeltanetGpuForward {
                     &tmp_b,
                     p,
                     PrefillSite::GdnOutProj,
+                    gdn_out_shadow.as_ref(),
                 );
 
                 if gdn_site_on(PREFILL_STAGE_GDN_RESIDUAL) {
@@ -12049,17 +12175,24 @@ impl TernaryDeltanetGpuForward {
                     // acceleration to the GDN family).
                     // Issue 032 — folded site 6 (FFN input): gate/up are folded
                     // and the norm has no primal consumer, so rotate in place.
-                    if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
-                        self.prefill_rotate(
-                            RotDir::Forward,
-                            &normx_b,
-                            None,
-                            tables,
-                            cfg.block_size,
-                            p * n,
-                            n,
-                        );
-                    }
+                    // i1226 F2 — the rotate carries FfnGate's f16 shadow (the
+                    // per-family admission covers both pair halves — the site
+                    // mask demotes them together on the serving posture).
+                    let ffn_in_shadow =
+                        if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
+                            self.prefill_rotate_with_shadow(
+                                RotDir::Forward,
+                                &normx_b,
+                                None,
+                                tables,
+                                cfg.block_size,
+                                p * n,
+                                n,
+                                PrefillSite::FfnGate,
+                            )
+                        } else {
+                            None
+                        };
                     #[cfg(feature = "ane_prefill")]
                     let ane_gate_up_done = !folded
                         && self.ane_prefill_try_gate_up(layer_idx, &normx_b, &gate_b, &up_b, p);
@@ -12075,6 +12208,7 @@ impl TernaryDeltanetGpuForward {
                             p,
                             PrefillSite::FfnGate,
                             PrefillSite::FfnUp,
+                            ffn_in_shadow.as_ref(),
                         );
                     }
                     // SwiGLU is elementwise — widening batches it.
@@ -12090,17 +12224,22 @@ impl TernaryDeltanetGpuForward {
                     // Plan 549: the down_proj ANE seam (runtime-gated, per-op
                     // fail-open — skipped entirely when the toggle/bank is off).
                     // Issue 032 — folded site 7 (ffn_hidden): rotate before down.
-                    if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
-                        self.prefill_rotate(
-                            RotDir::Forward,
-                            &hid_b,
-                            None,
-                            tables,
-                            cfg.block_size,
-                            p * mlp,
-                            mlp,
-                        );
-                    }
+                    // i1226 F2 — the rotate carries FfnDown's f16 shadow.
+                    let ffn_down_shadow =
+                        if let (Some(cfg), Some(tables)) = (&self.rotation, &self.rot_tables) {
+                            self.prefill_rotate_with_shadow(
+                                RotDir::Forward,
+                                &hid_b,
+                                None,
+                                tables,
+                                cfg.block_size,
+                                p * mlp,
+                                mlp,
+                                PrefillSite::FfnDown,
+                            )
+                        } else {
+                            None
+                        };
                     #[cfg(feature = "ane_prefill")]
                     let ane_down_done =
                         !folded && self.ane_prefill_try_down(layer_idx, &hid_b, &ffnout_b, p);
@@ -12113,6 +12252,7 @@ impl TernaryDeltanetGpuForward {
                             &ffnout_b,
                             p,
                             PrefillSite::FfnDown,
+                            ffn_down_shadow.as_ref(),
                         );
                     }
                     unsafe {

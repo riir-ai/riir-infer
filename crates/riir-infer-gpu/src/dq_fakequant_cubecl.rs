@@ -141,6 +141,113 @@ pub(crate) fn f16_round_bits(bits: u32) -> f32 {
     r
 }
 
+/// IEEE-754 binary16 RNE rounding emitting the f16 BIT PATTERN (zero-extended
+/// into a u32) — the producer-side twin of the serving cast kernel
+/// `cast_f32_f16_zc` (`dst[i] = half(src[i])`, i1226 F2). Branch structure is
+/// [`f16_round_bits`] verbatim (that fn is pinned bit-exact vs `half` on every
+/// input class by the G-i3 unit test); only the emission differs — the value
+/// each branch computes here is the same one `f16_round_bits` widens back.
+/// G1 (the i1226 shadow cell) pins this fn against the actual MSL cast kernel
+/// bit-for-bit on the armed postures.
+///
+/// ⚠ NaN payload: `half()` preserves NaN-ness but not payloads; this fn emits
+/// the canonical quiet NaN (`0x7E00 | sign`) — the rotate outputs are finite
+/// by construction (sign ⊙ FWHT of finite activations), so the class is
+/// unreachable on the armed path; the G1 cell pins finite inputs only.
+#[cfg(feature = "cubecl_runtime")]
+#[allow(
+    clippy::collapsible_if,
+    reason = "CubeCL v0.10: nested-if statement form is required — no conditional expressions as values"
+)]
+#[cube]
+pub(crate) fn f16_bits(bits: u32) -> u32 {
+    let sign = bits & 0x8000_0000u32;
+    let exp_f = ((bits >> 23) & 0xFFu32) as i32;
+    let mant = bits & 0x007F_FFFFu32;
+    let mut r = sign | 0x7C00u32;
+    if exp_f == 0xFF {
+        // Inf keeps its sign as Inf; NaN keeps NaN-ness (canonical quiet).
+        if mant != 0u32 {
+            r = sign | 0x7E00u32;
+        }
+    }
+    if exp_f == 0 {
+        // Subnormal f32 input: |x| < 2^-126 — below half the f16 subnormal
+        // step — RNE gives ±0.
+        r = sign;
+    }
+    if exp_f > 0 {
+        if exp_f < 0xFF {
+            let e = exp_f - 127 + 15;
+            if e >= 0x1F {
+                // Overflow: f16 rounds large normals up to ±Inf.
+                r = sign | 0x7C00u32;
+            }
+            if e < 0x1F {
+                if e > 0 {
+                    // Normal: round the 23-bit mantissa to 10 bits (RNE).
+                    let mut h10 = mant >> 13;
+                    let rem = mant & 0x1FFFu32;
+                    let half = 0x1000u32;
+                    let mut e2 = e;
+                    if rem > half {
+                        h10 = h10 + 1u32;
+                    }
+                    if rem == half {
+                        if (h10 & 1u32) == 1u32 {
+                            h10 = h10 + 1u32;
+                        }
+                    }
+                    if h10 == 0x400u32 {
+                        h10 = 0;
+                        e2 = e + 1;
+                    }
+                    if e2 >= 0x1F {
+                        r = sign | 0x7C00u32;
+                    }
+                    if e2 < 0x1F {
+                        r = sign | ((e2 as u32) << 10) | h10;
+                    }
+                }
+                if e <= 0 {
+                    // f16-subnormal range: round to the nearest multiple of
+                    // 2^-24 (x = m24 × 2^(exp_f-150), m24 = mant|0x800000, so
+                    // x/2^-24 = m24 >> (126-exp_f)). The f16 pattern is the
+                    // raw k (subnormal = no exponent field).
+                    let m24 = mant | 0x0080_0000u32;
+                    let sh = (126 - exp_f) as u32;
+                    if sh > 24 {
+                        // x/2^-24 < 0.5 for every m24 < 2^24 once sh > 24.
+                        r = sign;
+                    }
+                    if sh <= 24 {
+                        let kept = m24 >> sh;
+                        let rem = m24 & ((1u32 << sh) - 1u32);
+                        let half = 1u32 << (sh - 1);
+                        let mut k = kept;
+                        if rem > half {
+                            k = kept + 1u32;
+                        }
+                        if rem == half {
+                            if (kept & 1u32) == 1u32 {
+                                k = kept + 1u32;
+                            }
+                        }
+                        if k >= 1024u32 {
+                            // Rounded up into the smallest f16 NORMAL: 2^-14.
+                            r = sign | 0x0400u32;
+                        }
+                        if k < 1024u32 {
+                            r = sign | k;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    r
+}
+
 /// Round half AWAY FROM ZERO (the D1 frozen spec — Rust `f32::round`, the RTN
 /// encoder convention). The GPU's native `round` is half-to-EVEN, which
 /// diverges on every exact .5 ratio; this explicit form matches the host

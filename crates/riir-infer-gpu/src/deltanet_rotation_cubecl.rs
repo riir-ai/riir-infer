@@ -65,6 +65,9 @@ use cubecl::prelude::*;
 use cubecl::server::Handle;
 
 #[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
+use crate::dq_fakequant_cubecl::f16_bits;
+
+#[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
 use riir_infer_core::deltanet::rotation::TernaryRotationConfig;
 
 /// The FWHT kernels' shared-memory bound (one Hadamard block per cube,
@@ -241,6 +244,139 @@ fn fwht_forward_copy_f32(src: &[f32], dst: &mut [f32], signs: &[f32], params: &[
     while j < hblock {
         dst[(base + j) as usize] = smem[j as usize];
         j += threads;
+    }
+}
+
+/// i1226 F2 — the producer-writes-f16 twin of [`fwht_rotate_forward_f32`]:
+/// the SAME rotation (sign → FWHT in place, bit-identical body) plus a
+/// shadow epilogue that writes the rotated f32 output as packed-u32 f16
+/// pairs (`shadow[base/2 + k] = f16(lo) | f16(hi) << 16`, RNE via
+/// [`crate::dq_fakequant_cubecl::f16_bits`]). The pairs come straight from
+/// `smem` — the butterfly's final `sync_cube()` already made every block
+/// element visible, so no extra barrier and no extra global read.
+///
+/// The shadow removes the twin GEMM's per-launch cast encoder (Bench 1223:
+/// 0.15–0.19 ms/launch) from the frame: `dispatch_f16b_producer` binds the
+/// shadow directly and skips the cast encoder. Dispatched only when the f16b
+/// producer latch is armed — the incumbent rotate is never edited under the
+/// opt-in lane, and this kernel is byte-absent from the unarmed path.
+#[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
+#[allow(clippy::approx_constant)] // FRAC_1_SQRT_2 at f32 precision, literal for the cube macro
+#[cube(launch_unchecked)]
+fn fwht_rotate_forward_f32_sh(x: &mut [f32], shadow: &mut [u32], signs: &[f32], params: &[f32]) {
+    let total = x.len() as u32;
+    let width = params[0usize] as u32;
+    let hblock = params[1usize] as u32;
+    let threads = 256u32;
+    // 2-D grid (see `split_grid`): rebuild the linear cube index.
+    let base = (CUBE_POS_Y * CUBE_COUNT_X + CUBE_POS_X) * hblock;
+    if base >= total {
+        terminate!();
+    }
+    let row_off = base % width;
+    let tid = UNIT_POS;
+    let mut smem = Shared::<[f32]>::new_slice(MAX_FWHT_BLOCK);
+    let mut i = tid;
+    while i < hblock {
+        smem[i as usize] = x[(base + i) as usize] * signs[(row_off + i) as usize];
+        i += threads;
+    }
+    sync_cube();
+    // INLINE butterfly (dedup marker: fwht_butterfly_copy)
+    let inv_sqrt2 = f32::new(0.70710678f32);
+    let mut step = 2u32;
+    while step <= hblock {
+        let half = step / 2u32;
+        let mut bi = tid;
+        while bi < hblock / 2u32 {
+            let blk = (bi / half) * step;
+            let off = bi % half;
+            let a = smem[(blk + off) as usize];
+            let b = smem[(blk + off + half) as usize];
+            smem[(blk + off) as usize] = (a + b) * inv_sqrt2;
+            smem[(blk + off + half) as usize] = (a - b) * inv_sqrt2;
+            bi += threads;
+        }
+        sync_cube();
+        step = step * 2u32;
+    }
+    let mut j = tid;
+    while j < hblock {
+        x[(base + j) as usize] = smem[j as usize];
+        j += threads;
+    }
+    // Shadow epilogue: pairs from smem (post-butterfly, already synced).
+    let mut k = tid;
+    while k < hblock / 2u32 {
+        let lo = f16_bits(smem[(2u32 * k) as usize].to_bits());
+        let hi = f16_bits(smem[((2u32 * k) + 1u32) as usize].to_bits());
+        shadow[((base / 2u32) + k) as usize] = lo | (hi << 16u32);
+        k += threads;
+    }
+}
+
+/// i1226 F2 — the producer-writes-f16 twin of [`fwht_forward_copy_f32`]:
+/// copy-rotate staging (sign → FWHT into `dst`) plus the same packed-f16
+/// shadow epilogue from `smem` (no extra barrier; the shadow is the LAST
+/// writer's rounded copy, taken before any consumer can run).
+#[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
+#[allow(clippy::approx_constant)] // FRAC_1_SQRT_2 at f32 precision, literal for the cube macro
+#[cube(launch_unchecked)]
+fn fwht_forward_copy_f32_sh(
+    src: &[f32],
+    dst: &mut [f32],
+    shadow: &mut [u32],
+    signs: &[f32],
+    params: &[f32],
+) {
+    let total = dst.len() as u32;
+    let width = params[0usize] as u32;
+    let hblock = params[1usize] as u32;
+    let threads = 256u32;
+    // 2-D grid (see `split_grid`): rebuild the linear cube index.
+    let base = (CUBE_POS_Y * CUBE_COUNT_X + CUBE_POS_X) * hblock;
+    if base >= total {
+        terminate!();
+    }
+    let row_off = base % width;
+    let tid = UNIT_POS;
+    let mut smem = Shared::<[f32]>::new_slice(MAX_FWHT_BLOCK);
+    let mut i = tid;
+    while i < hblock {
+        smem[i as usize] = src[(base + i) as usize] * signs[(row_off + i) as usize];
+        i += threads;
+    }
+    sync_cube();
+    // INLINE butterfly (dedup marker: fwht_butterfly_copy)
+    let inv_sqrt2 = f32::new(0.70710678f32);
+    let mut step = 2u32;
+    while step <= hblock {
+        let half = step / 2u32;
+        let mut bi = tid;
+        while bi < hblock / 2u32 {
+            let blk = (bi / half) * step;
+            let off = bi % half;
+            let a = smem[(blk + off) as usize];
+            let b = smem[(blk + off + half) as usize];
+            smem[(blk + off) as usize] = (a + b) * inv_sqrt2;
+            smem[(blk + off + half) as usize] = (a - b) * inv_sqrt2;
+            bi += threads;
+        }
+        sync_cube();
+        step = step * 2u32;
+    }
+    let mut j = tid;
+    while j < hblock {
+        dst[(base + j) as usize] = smem[j as usize];
+        j += threads;
+    }
+    // Shadow epilogue: pairs from smem (post-butterfly, already synced).
+    let mut k = tid;
+    while k < hblock / 2u32 {
+        let lo = f16_bits(smem[(2u32 * k) as usize].to_bits());
+        let hi = f16_bits(smem[((2u32 * k) + 1u32) as usize].to_bits());
+        shadow[((base / 2u32) + k) as usize] = lo | (hi << 16u32);
+        k += threads;
     }
 }
 
@@ -460,6 +596,250 @@ fn fwht_forward_copy_f32_r4(src: &[f32], dst: &mut [f32], signs: &[f32], params:
     dst[(base + tid + 512u32) as usize] = (t0 - t2) * inv_sqrt2;
     dst[(base + tid + 256u32) as usize] = (t1 + t3) * inv_sqrt2;
     dst[(base + tid + 768u32) as usize] = (t1 - t3) * inv_sqrt2;
+}
+
+/// i1226 F2 — the producer-writes-f16 twin of [`fwht_rotate_forward_f32_r4`]
+/// (the SERVING rotate: Bonsai-2's hblock is 1024, so the radix-4 schedule is
+/// the armed posture's last writer). Same radix-4 body bit-identically; the
+/// pass-5 register finals ALSO stash into the free `wr` smem half (pass 5
+/// only reads `rd`, so `wr` is untouched — no capacity change), one
+/// `sync_cube()` makes them workgroup-visible, and the shadow pairs are then
+/// written from smem — no device-memory readback race and no extra global
+/// read. RNE via [`crate::dq_fakequant_cubecl::f16_bits`].
+#[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
+#[allow(clippy::approx_constant)] // FRAC_1_SQRT_2 at f32 precision, literal for the cube macro
+#[cube(launch_unchecked)]
+fn fwht_rotate_forward_f32_r4_sh(x: &mut [f32], shadow: &mut [u32], signs: &[f32], params: &[f32]) {
+    let total = x.len() as u32;
+    let width = params[0usize] as u32;
+    // 2-D grid (see `split_grid`): rebuild the linear cube index. The
+    // launcher only selects this kernel at hblock == 1024 == 4·threads.
+    let base = (CUBE_POS_Y * CUBE_COUNT_X + CUBE_POS_X) * 1024u32;
+    if base >= total {
+        terminate!();
+    }
+    let row_off = base % width;
+    let tid = UNIT_POS;
+    let inv_sqrt2 = f32::new(0.70710678f32);
+    let mut smem = Shared::<[f32]>::new_slice(2 * MAX_FWHT_BLOCK);
+    // Contraction fence: Metal compiles with fast math, so a product that
+    // feeds the next stage's add IN A REGISTER may fuse into an fma (the
+    // incumbent never sees that — every stage round-trips smem). `select`
+    // on a runtime-true predicate (width > 0) the compiler cannot fold
+    // keeps each product a rounded f32 value.
+    let live = width > 0u32;
+    let zero = f32::new(0.0f32);
+
+    // Pass 1 (halves 1, 2): the thread's contiguous quad, straight from
+    // global — sign first, then the two lowest butterfly stages in registers.
+    let q = tid * 4u32;
+    let mut v0 = select(
+        live,
+        x[(base + q) as usize] * signs[(row_off + q) as usize],
+        zero,
+    );
+    let mut v1 = select(
+        live,
+        x[(base + q + 1u32) as usize] * signs[(row_off + q + 1u32) as usize],
+        zero,
+    );
+    let mut v2 = select(
+        live,
+        x[(base + q + 2u32) as usize] * signs[(row_off + q + 2u32) as usize],
+        zero,
+    );
+    let mut v3 = select(
+        live,
+        x[(base + q + 3u32) as usize] * signs[(row_off + q + 3u32) as usize],
+        zero,
+    );
+    let mut t0 = select(live, (v0 + v1) * inv_sqrt2, zero);
+    let mut t1 = select(live, (v0 - v1) * inv_sqrt2, zero);
+    let mut t2 = select(live, (v2 + v3) * inv_sqrt2, zero);
+    let mut t3 = select(live, (v2 - v3) * inv_sqrt2, zero);
+    smem[q as usize] = (t0 + t2) * inv_sqrt2;
+    smem[(q + 2u32) as usize] = (t0 - t2) * inv_sqrt2;
+    smem[(q + 1u32) as usize] = (t1 + t3) * inv_sqrt2;
+    smem[(q + 3u32) as usize] = (t1 - t3) * inv_sqrt2;
+    sync_cube();
+
+    // Passes 2-4 (halves 4·8, 16·32, 64·128): quad {e, e+h, e+2h, e+3h}.
+    // Ping-pong halves of `smem` (read `rd`, write `wr`), so each pass needs
+    // ONE barrier — no thread overwrites a slot another thread still reads.
+    let mut rd = 0u32;
+    let mut h = 4u32;
+    while h < 256u32 {
+        let wr = 1024u32 - rd;
+        let e = (tid / h) * (4u32 * h) + tid % h;
+        v0 = smem[(rd + e) as usize];
+        v1 = smem[(rd + e + h) as usize];
+        v2 = smem[(rd + e + 2u32 * h) as usize];
+        v3 = smem[(rd + e + 3u32 * h) as usize];
+        t0 = select(live, (v0 + v1) * inv_sqrt2, zero);
+        t1 = select(live, (v0 - v1) * inv_sqrt2, zero);
+        t2 = select(live, (v2 + v3) * inv_sqrt2, zero);
+        t3 = select(live, (v2 - v3) * inv_sqrt2, zero);
+        smem[(wr + e) as usize] = (t0 + t2) * inv_sqrt2;
+        smem[(wr + e + 2u32 * h) as usize] = (t0 - t2) * inv_sqrt2;
+        smem[(wr + e + h) as usize] = (t1 + t3) * inv_sqrt2;
+        smem[(wr + e + 3u32 * h) as usize] = (t1 - t3) * inv_sqrt2;
+        sync_cube();
+        rd = wr;
+        h = h * 4u32;
+    }
+
+    // Pass 5 (halves 256, 512): quad {tid + k·256} — straight to global, and
+    // the same four finals stashed into the free `wr` half for the shadow.
+    v0 = smem[(rd + tid) as usize];
+    v1 = smem[(rd + tid + 256u32) as usize];
+    v2 = smem[(rd + tid + 512u32) as usize];
+    v3 = smem[(rd + tid + 768u32) as usize];
+    t0 = select(live, (v0 + v1) * inv_sqrt2, zero);
+    t1 = select(live, (v0 - v1) * inv_sqrt2, zero);
+    t2 = select(live, (v2 + v3) * inv_sqrt2, zero);
+    t3 = select(live, (v2 - v3) * inv_sqrt2, zero);
+    let f0 = (t0 + t2) * inv_sqrt2;
+    let f1 = (t0 - t2) * inv_sqrt2;
+    let f2 = (t1 + t3) * inv_sqrt2;
+    let f3 = (t1 - t3) * inv_sqrt2;
+    x[(base + tid) as usize] = f0;
+    x[(base + tid + 512u32) as usize] = f1;
+    x[(base + tid + 256u32) as usize] = f2;
+    x[(base + tid + 768u32) as usize] = f3;
+    let wr = 1024u32 - rd;
+    smem[(wr + tid) as usize] = f0;
+    smem[(wr + tid + 512u32) as usize] = f1;
+    smem[(wr + tid + 256u32) as usize] = f2;
+    smem[(wr + tid + 768u32) as usize] = f3;
+    sync_cube();
+    let mut k = tid;
+    while k < 512u32 {
+        let lo = f16_bits(smem[(wr + (2u32 * k)) as usize].to_bits());
+        let hi = f16_bits(smem[(wr + ((2u32 * k) + 1u32)) as usize].to_bits());
+        shadow[((base / 2u32) + k) as usize] = lo | (hi << 16u32);
+        k += 256u32;
+    }
+}
+
+/// i1226 F2 — the producer-writes-f16 twin of [`fwht_forward_copy_f32_r4`]
+/// (the serving staging rotate at hblock 1024). Same radix-4 copy body
+/// bit-identically, finals stashed into the free `wr` smem half for the
+/// shadow (one barrier, smem-scope only — no device readback race).
+#[cfg(all(feature = "cubecl_runtime", feature = "ternary_gemv"))]
+#[allow(clippy::approx_constant)] // FRAC_1_SQRT_2 at f32 precision, literal for the cube macro
+#[cube(launch_unchecked)]
+fn fwht_forward_copy_f32_r4_sh(
+    src: &[f32],
+    dst: &mut [f32],
+    shadow: &mut [u32],
+    signs: &[f32],
+    params: &[f32],
+) {
+    let total = dst.len() as u32;
+    let width = params[0usize] as u32;
+    // 2-D grid (see `split_grid`): rebuild the linear cube index. The
+    // launcher only selects this kernel at hblock == 1024 == 4·threads.
+    let base = (CUBE_POS_Y * CUBE_COUNT_X + CUBE_POS_X) * 1024u32;
+    if base >= total {
+        terminate!();
+    }
+    let row_off = base % width;
+    let tid = UNIT_POS;
+    let inv_sqrt2 = f32::new(0.70710678f32);
+    let mut smem = Shared::<[f32]>::new_slice(2 * MAX_FWHT_BLOCK);
+    // Contraction fence: see [`fwht_rotate_forward_f32_r4`].
+    let live = width > 0u32;
+    let zero = f32::new(0.0f32);
+
+    // Pass 1 (halves 1, 2): the thread's contiguous quad, straight from
+    // global — sign first, then the two lowest butterfly stages in registers.
+    let q = tid * 4u32;
+    let mut v0 = select(
+        live,
+        src[(base + q) as usize] * signs[(row_off + q) as usize],
+        zero,
+    );
+    let mut v1 = select(
+        live,
+        src[(base + q + 1u32) as usize] * signs[(row_off + q + 1u32) as usize],
+        zero,
+    );
+    let mut v2 = select(
+        live,
+        src[(base + q + 2u32) as usize] * signs[(row_off + q + 2u32) as usize],
+        zero,
+    );
+    let mut v3 = select(
+        live,
+        src[(base + q + 3u32) as usize] * signs[(row_off + q + 3u32) as usize],
+        zero,
+    );
+    let mut t0 = select(live, (v0 + v1) * inv_sqrt2, zero);
+    let mut t1 = select(live, (v0 - v1) * inv_sqrt2, zero);
+    let mut t2 = select(live, (v2 + v3) * inv_sqrt2, zero);
+    let mut t3 = select(live, (v2 - v3) * inv_sqrt2, zero);
+    smem[q as usize] = (t0 + t2) * inv_sqrt2;
+    smem[(q + 2u32) as usize] = (t0 - t2) * inv_sqrt2;
+    smem[(q + 1u32) as usize] = (t1 + t3) * inv_sqrt2;
+    smem[(q + 3u32) as usize] = (t1 - t3) * inv_sqrt2;
+    sync_cube();
+
+    // Passes 2-4 (halves 4·8, 16·32, 64·128): quad {e, e+h, e+2h, e+3h}.
+    // Ping-pong halves of `smem` (read `rd`, write `wr`), so each pass needs
+    // ONE barrier — no thread overwrites a slot another thread still reads.
+    let mut rd = 0u32;
+    let mut h = 4u32;
+    while h < 256u32 {
+        let wr = 1024u32 - rd;
+        let e = (tid / h) * (4u32 * h) + tid % h;
+        v0 = smem[(rd + e) as usize];
+        v1 = smem[(rd + e + h) as usize];
+        v2 = smem[(rd + e + 2u32 * h) as usize];
+        v3 = smem[(rd + e + 3u32 * h) as usize];
+        t0 = select(live, (v0 + v1) * inv_sqrt2, zero);
+        t1 = select(live, (v0 - v1) * inv_sqrt2, zero);
+        t2 = select(live, (v2 + v3) * inv_sqrt2, zero);
+        t3 = select(live, (v2 - v3) * inv_sqrt2, zero);
+        smem[(wr + e) as usize] = (t0 + t2) * inv_sqrt2;
+        smem[(wr + e + 2u32 * h) as usize] = (t0 - t2) * inv_sqrt2;
+        smem[(wr + e + h) as usize] = (t1 + t3) * inv_sqrt2;
+        smem[(wr + e + 3u32 * h) as usize] = (t1 - t3) * inv_sqrt2;
+        sync_cube();
+        rd = wr;
+        h = h * 4u32;
+    }
+
+    // Pass 5 (halves 256, 512): quad {tid + k·256} — straight to global, and
+    // the same four finals stashed into the free `wr` half for the shadow.
+    v0 = smem[(rd + tid) as usize];
+    v1 = smem[(rd + tid + 256u32) as usize];
+    v2 = smem[(rd + tid + 512u32) as usize];
+    v3 = smem[(rd + tid + 768u32) as usize];
+    t0 = select(live, (v0 + v1) * inv_sqrt2, zero);
+    t1 = select(live, (v0 - v1) * inv_sqrt2, zero);
+    t2 = select(live, (v2 + v3) * inv_sqrt2, zero);
+    t3 = select(live, (v2 - v3) * inv_sqrt2, zero);
+    let f0 = (t0 + t2) * inv_sqrt2;
+    let f1 = (t0 - t2) * inv_sqrt2;
+    let f2 = (t1 + t3) * inv_sqrt2;
+    let f3 = (t1 - t3) * inv_sqrt2;
+    dst[(base + tid) as usize] = f0;
+    dst[(base + tid + 512u32) as usize] = f1;
+    dst[(base + tid + 256u32) as usize] = f2;
+    dst[(base + tid + 768u32) as usize] = f3;
+    let wr = 1024u32 - rd;
+    smem[(wr + tid) as usize] = f0;
+    smem[(wr + tid + 512u32) as usize] = f1;
+    smem[(wr + tid + 256u32) as usize] = f2;
+    smem[(wr + tid + 768u32) as usize] = f3;
+    sync_cube();
+    let mut k = tid;
+    while k < 512u32 {
+        let lo = f16_bits(smem[(wr + (2u32 * k)) as usize].to_bits());
+        let hi = f16_bits(smem[(wr + ((2u32 * k) + 1u32)) as usize].to_bits());
+        shadow[((base / 2u32) + k) as usize] = lo | (hi << 16u32);
+        k += 256u32;
+    }
 }
 
 /// `gdn_v_grouped` head permute, tiled `[hd, nk, rep]` → grouped
@@ -748,6 +1128,83 @@ impl RotationCubeCL {
                 CubeDim::new_1d(FWHT_THREADS),
                 BufferArg::from_raw_parts(src_handle, total),
                 BufferArg::from_raw_parts(dst_handle, total),
+                BufferArg::from_raw_parts(signs_handle, width),
+                BufferArg::from_raw_parts(params_handle, 2),
+            );
+        }
+    }
+
+    /// i1226 F2 — the shadow-writing form of [`Self::launch_forward`] (the
+    /// producer-writes-f16 rotate): same rotation + packed-u32 f16 pairs of
+    /// the rotated output. `shadow_handle` carries `total / 2` u32 elements
+    /// (total is always even — a multiple of `hblock ≥ 2`). Kernel choice
+    /// matches the incumbent's (`fwht_r4_enabled` at hblock 1024), so the
+    /// armed posture never downgrades the rotate schedule.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`Self::launch_forward`]; `shadow_handle`:
+    /// `total / 2` u32 elements.
+    pub unsafe fn launch_forward_shadow<R: Runtime>(
+        client: &ComputeClient<R>,
+        x_handle: Handle,
+        shadow_handle: Handle,
+        signs_handle: Handle,
+        total: usize,
+        width: usize,
+        hblock: usize,
+    ) {
+        let params: &[f32] = &[width as f32, hblock as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+        let n_cubes = (total / hblock.max(1)) as u32;
+        let kernel = match hblock == MAX_FWHT_BLOCK && fwht_r4_enabled() {
+            true => fwht_rotate_forward_f32_r4_sh::launch_unchecked::<R>,
+            false => fwht_rotate_forward_f32_sh::launch_unchecked::<R>,
+        };
+        unsafe {
+            kernel(
+                client,
+                split_grid(n_cubes),
+                CubeDim::new_1d(FWHT_THREADS),
+                BufferArg::from_raw_parts(x_handle, total),
+                BufferArg::from_raw_parts(shadow_handle, total / 2),
+                BufferArg::from_raw_parts(signs_handle, width),
+                BufferArg::from_raw_parts(params_handle, 2),
+            );
+        }
+    }
+
+    /// i1226 F2 — the shadow-writing form of [`Self::launch_forward_copy`].
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`Self::launch_forward_copy`]; `shadow_handle`:
+    /// `total / 2` u32 elements.
+    pub unsafe fn launch_forward_copy_shadow<R: Runtime>(
+        client: &ComputeClient<R>,
+        src_handle: Handle,
+        dst_handle: Handle,
+        shadow_handle: Handle,
+        signs_handle: Handle,
+        total: usize,
+        width: usize,
+        hblock: usize,
+    ) {
+        let params: &[f32] = &[width as f32, hblock as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+        let n_cubes = (total / hblock.max(1)) as u32;
+        let kernel = match hblock == MAX_FWHT_BLOCK && fwht_r4_enabled() {
+            true => fwht_forward_copy_f32_r4_sh::launch_unchecked::<R>,
+            false => fwht_forward_copy_f32_sh::launch_unchecked::<R>,
+        };
+        unsafe {
+            kernel(
+                client,
+                split_grid(n_cubes),
+                CubeDim::new_1d(FWHT_THREADS),
+                BufferArg::from_raw_parts(src_handle, total),
+                BufferArg::from_raw_parts(dst_handle, total),
+                BufferArg::from_raw_parts(shadow_handle, total / 2),
                 BufferArg::from_raw_parts(signs_handle, width),
                 BufferArg::from_raw_parts(params_handle, 2),
             );
