@@ -296,6 +296,23 @@ impl<'w> DoryForward<'w> {
         tokens: &[u32],
         cache: &mut DoryKvCache,
     ) -> Result<Vec<Vec<f32>>, DoryForwardError> {
+        self.prefill_snapshots(tokens, cache, None)
+    }
+
+    /// [`Self::prefill`] with the T3(a) lens armed: `snapshots`, when
+    /// `Some`, receives a clone of the recurrent-exit state after each
+    /// completed loop pass (`snapshots[τ]` = the state a (τ+1)-loop
+    /// prefill would carry into its readout — `t·n_embd` f32 rows per
+    /// entry). Arming never changes the computation: the final logits
+    /// stay bit-identical to the unarmed [`Self::prefill`] (the
+    /// `spectra` fixtures pin both directions).
+    pub fn prefill_snapshots(
+        &self,
+        tokens: &[u32],
+        cache: &mut DoryKvCache,
+        snapshots: Option<&mut Vec<Vec<f32>>>,
+    ) -> Result<Vec<Vec<f32>>, DoryForwardError> {
+        let mut snapshots = snapshots;
         cache.clear();
         let d = &self.w.dims;
         let t = tokens.len();
@@ -312,6 +329,10 @@ impl<'w> DoryForward<'w> {
 
         // Recurrent block: k passes with input re-injection + boundary
         // norms (the paper's loop-boundary transforms, no adapter).
+        // `snapshots`, when armed, receives the state after each
+        // completed pass (`snapshots[τ]` = τ+1 loops done) — the T3(a)
+        // lens; the bit-identity contract: armed ≡ unarmed final logits
+        // (the lens only clones, it never perturbs).
         let r0 = in_end;
         let r1 = r0 + self.w.meta.recurrent_layers;
         let k = cache.k_loops;
@@ -325,9 +346,15 @@ impl<'w> DoryForward<'w> {
             self.run_block_range(r0, r1, &mut s_next, &mut PassCtx::new(t, slot, 0, cache));
             norm_rows(&mut s_next, t, d.n_embd);
             std::mem::swap(&mut s, &mut s_next);
+            if let Some(snaps) = snapshots.as_deref_mut() {
+                snaps.push(s.clone());
+            }
         }
 
-        // Output block: one pass, slot 0.
+        // Output block: one pass, slot 0, then the LM head per position
+        // (`readout_rows` on the final state — the lens exits replay this
+        // verbatim, which is what makes them (d)-loop prefills by
+        // construction).
         self.run_block_range(
             r1,
             self.w.blocks.len(),
@@ -337,6 +364,36 @@ impl<'w> DoryForward<'w> {
         cache.len = t;
 
         // LM head per position.
+        let mut logits = Vec::with_capacity(t);
+        for i in 0..t {
+            logits.push(self.logits_row(&s[i * d.n_embd..(i + 1) * d.n_embd]));
+        }
+        Ok(logits)
+    }
+
+    /// The output block + LM head over an arbitrary recurrent-exit state
+    /// (`t·n_embd` rows) — the T3(a) lens exit: replaying the readout on
+    /// a mid-loop snapshot. `readout_cache` is the output block's own
+    /// slot-0 KV (a fresh cache per call keeps exits independent; the
+    /// block writes its rows before reading them, so re-running is
+    /// idempotent on the same cache too). Bit-identity: the exit on the
+    /// final snapshot ≡ the same prefill's final logits (pinned by the
+    /// `spectra` fixtures).
+    pub fn readout_rows(
+        &self,
+        s: &mut [f32],
+        t: usize,
+        readout_cache: &mut DoryKvCache,
+    ) -> Result<Vec<Vec<f32>>, DoryForwardError> {
+        let out_start = self.w.meta.output_start();
+        self.run_block_range(
+            out_start,
+            self.w.blocks.len(),
+            s,
+            &mut PassCtx::new(t, 0, 0, readout_cache),
+        );
+        readout_cache.len = t;
+        let d = &self.w.dims;
         let mut logits = Vec::with_capacity(t);
         for i in 0..t {
             logits.push(self.logits_row(&s[i * d.n_embd..(i + 1) * d.n_embd]));

@@ -66,6 +66,7 @@
 //! and the loader refuses the arch loud by name.
 
 pub mod forward;
+pub mod spectra;
 
 pub use forward::{DoryCachePolicy, DoryForward, DoryForwardError, DoryKvCache};
 

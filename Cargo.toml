@@ -1206,6 +1206,16 @@ name = "i1221_t3d_loopability"
 path = "examples/i1221_t3d_loopability.rs"
 required-features = ["deltanet_inference"]
 
+[[example]]
+name = "i1221_t3a_kl_spectra"
+path = "examples/i1221_t3a_kl_spectra.rs"
+required-features = ["dory"]
+
+[[test]]
+name = "i1221_t3a_spectra_gates"
+path = "tests/i1221_t3a_spectra_gates.rs"
+required-features = ["dory"]
+
 # katgpt-rs Issue 999 T3 — the real-corpus R/S lens fit (offline, compute-bound;
 # never a serving path). Compiled only at the lens posture.
 [[example]]
