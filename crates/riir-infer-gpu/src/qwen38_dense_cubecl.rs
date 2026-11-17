@@ -297,9 +297,7 @@ pub struct Qwen38WgpuForward {
     /// end, one wait. Diagnostic-only — env-off = byte-identical (no
     /// census built, no samples taken).
     #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
-    /// Issue 1172 census state — `Some` on the instrumented layer only
-    /// (metal_tensor_gemm + macOS posture).
-    census: Option<crate::qwen38_gdn_census::CensusState>,
+    census: Option<crate::qwen38_gdn_census::GdnCensus>,
     /// Issue 1174: the free-running ablation instrument, when
     /// `RIIR_QWEN38_ABLATE` armed it (or the bench bin's `--ablate-matrix`
     /// set it per cell via [`Self::set_ablate`]). Skipped classes launch
