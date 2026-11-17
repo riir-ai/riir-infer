@@ -227,6 +227,34 @@ impl DoryKvCache {
         self.len = 0;
     }
 
+    /// Drops cached positions `to..` from every slot (the T4 self-spec
+    /// draft-repair seam: a rejected draft's phantom suffix is rewound
+    /// before the emitted target is absorbed, keeping the draft cache
+    /// aligned with the emitted prefix). Rows are uniform per slot
+    /// (every attn block writes every position — the no-hole invariant),
+    /// so the row width is derived from the current `len`. Continuity:
+    /// a `truncate(to)` + `decode_step` chain reproduces the same rows
+    /// as an uninterrupted decode over the same prefix (pinned by the
+    /// `i1221_t4_self_spec_gates` battery).
+    pub fn truncate(&mut self, to: usize) {
+        assert!(
+            to <= self.len,
+            "truncate to {to} past cached len {}",
+            self.len
+        );
+        if to == self.len {
+            return;
+        }
+        let cur = self.len;
+        for b in &mut self.blocks {
+            for slot in b.k.iter_mut().chain(b.v.iter_mut()) {
+                let row = slot.len() / cur;
+                slot.truncate(to * row);
+            }
+        }
+        self.len = to;
+    }
+
     fn ordinal(physical: usize) -> usize {
         physical / 2
     }
