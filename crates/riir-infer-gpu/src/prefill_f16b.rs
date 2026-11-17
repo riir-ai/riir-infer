@@ -119,6 +119,8 @@ pub fn f16b_producer_armed() -> bool {
 
 static SHADOW_MISALIGNED: AtomicU64 = AtomicU64::new(0);
 static SHADOW_MISALIGNED_WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+static CAST_ENCODERS: AtomicU64 = AtomicU64::new(0);
+static CAST_SKIPPED: AtomicU64 = AtomicU64::new(0);
 
 /// Count a producer shadow whose extracted pool offset breaks the patched
 /// GEMM's 16-byte bind assumption — the dispatch fell back to the cast path
@@ -136,6 +138,25 @@ pub fn count_shadow_misaligned() {
 /// Producer shadows that fell back to the cast path (pool-offset class).
 pub fn shadow_misaligned_count() -> u64 {
     SHADOW_MISALIGNED.load(Ordering::Relaxed)
+}
+
+/// i1226 F2 price-cell counters: twin dispatches that RAN the cast encoder
+/// vs SKIPPED it (producer shadow bound). The saved-launch count is the
+/// cell's primary axis — the pair sites pay the cast twice per pair today.
+pub fn count_cast_encoder() {
+    CAST_ENCODERS.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn count_cast_skipped() {
+    CAST_SKIPPED.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn cast_encoder_count() -> u64 {
+    CAST_ENCODERS.load(Ordering::Relaxed)
+}
+
+pub fn cast_skipped_count() -> u64 {
+    CAST_SKIPPED.load(Ordering::Relaxed)
 }
 
 static TWIN_MISSING_WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();

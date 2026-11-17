@@ -799,6 +799,7 @@ impl MetalTensorZeroCopyGemm {
                 // — the raw pointer is the CubeCL pool allocation, kept alive
                 // by the caller's shadow handle for the dispatch's lifetime.
                 shadow = Some((unsafe { BufferRef::from_ptr(ptr) }, off));
+                crate::prefill_f16b::count_cast_skipped();
             } else {
                 crate::prefill_f16b::count_shadow_misaligned();
             }
@@ -807,6 +808,7 @@ impl MetalTensorZeroCopyGemm {
         // pool-aliasing law as `dispatch`'s output buffer) — the copy is
         // only allocated when the CAST path is actually taken.
         let cast_input: Option<Buffer> = if shadow.is_none() {
+            crate::prefill_f16b::count_cast_encoder();
             let f16_bytes = (p * w.n * std::mem::size_of::<u16>()) as u64;
             let f16_input = {
                 let mut cache = f16b.input_cache.lock().unwrap();
