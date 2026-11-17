@@ -325,7 +325,9 @@ fn main() {
             });
             if row["record"] == "i1221_t3d_loopability_row" {
                 let p = row["prompt_idx"].as_u64().expect("row prompt_idx") as usize;
-                let k = row["row"]["k"].as_u64().expect("row k") as usize;
+                // LoopKRow is flattened into the row line — k sits at the
+                // top level, never nested.
+                let k = row["k"].as_u64().expect("row k") as usize;
                 completed.insert((p, k));
             }
         }
