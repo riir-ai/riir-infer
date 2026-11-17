@@ -92,6 +92,12 @@ hla = []
 # named, not yet wired. Gates: tests/gdn_delta_roll_gates.rs (G1 drift pin,
 # Bench 885) + tests/gdn_delta_roll_g4_alloc.rs (G4).
 gdn_delta_roll = ["deltanet_inference"]
+# Issue 1221 (2026-11-17) — the Dory looped-nGPT lane: the `dory` arch
+# GGUF loader (header-driven loop metadata, census pins loud) + dims.
+# Pure-local opt-in (same posture as `lens`/`sink_audit`): zero serving-
+# path cost, unarmed builds compile the module to nothing. T1 forward +
+# proofs land behind the same gate.
+dory = []
 # Plan 622 (2026-10-22) — the TokenGate prompt-skimming lane (per-key-bias
 # attention + the exact pruned-prefill quartet + the deterministically-
 # constructed gate overlay). Pure-local opt-in. The kernel CAPABILITY

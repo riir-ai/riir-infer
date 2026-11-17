@@ -156,6 +156,14 @@ pub mod lens;
 /// feature + the `RIIR_TOKENGATE` runtime demote. See the module doc.
 pub mod tokengate;
 
+/// Issue 1221 — the Dory looped-nGPT lane: the GGUF loader for the
+/// `dory` arch (I/R/O partition + loop metadata read from the header,
+/// never hardcoded; the T0 census values are loud pins) + the lane's
+/// dims view. Opt-in `dory` — unarmed builds compile it to nothing and
+/// a dory GGUF handed to a non-dory lane refuses loud by arch name.
+#[cfg(feature = "dory")]
+pub mod dory;
+
 /// Multi-host pipeline substrate (Plan 623 Phase 1): the layer-range
 /// vocabulary, the activation wire frame, the stage handshake, and the
 /// per-range HybridCache state-segment serializer. Opt-in — the lane's
