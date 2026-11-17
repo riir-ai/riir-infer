@@ -800,7 +800,7 @@ mod tests {
             // plain at planes=8, p=512).
             let i_plain = arms.iter().position(|a| *a == (Some(8usize), false));
             let i_defer = arms.iter().position(|a| *a == (Some(8usize), true));
-            if let ((Some(ip), Some(id))) = (i_plain, i_defer) {
+            if let (Some(ip), Some(id)) = (i_plain, i_defer) {
                 println!(
                     "  [bar] planes=8 qdefer vs plain: {:.3}x (>= 1.03 graduates)",
                     med[ip] / med[id]
