@@ -76,12 +76,16 @@ sentencepiece = "0.13"
 [features]
 # Pure-local gates (no dep forwards).
 rotary_value_embedding = []
-# Research 666 (katgpt-rs Issue 999) — the offline R/S Jacobian-lens lane:
-# RelP hand-rule op maps (`lens::ops`) + the layer-stack fit over a headful
-# checkpoint (the laya stability lane's deferred "headful lens variant").
-# Pure-local opt-in, same posture as `sink_audit` — offline once per
-# checkpoint, zero serving-path cost. PoC gates G1–G4 live in
-# katgpt-rs `.issues/999_rs_lens_fit_validate_poc.md`.
+# Research 666 (katgpt-rs Issue 999 — CLOSED DEMOTED 2026-11-17) — the offline
+# R/S Jacobian-lens lane: RelP hand-rule op maps (`lens::ops`) + the layer-stack
+# fit over a headful checkpoint (the laya stability lane's deferred "headful
+# lens variant"). Pure-local opt-in, same posture as `sink_audit` — offline
+# once per checkpoint, zero serving-path cost. VERDICT (the pre-registered
+# gates, T5): G1 hit 0.00088 vs bar 0.25 (masked 0.0646 vs the random-K null
+# 0.309 — worse than random), G2 mid-band 0.400/0.047 vs 0.45/0.04, G3
+# 0.1168/0.4756 vs 0.06 — DEMOTED for our stack; promotion dead; the laya
+# "headful lens variant" is REFUTED-BY-VERDICT, never build it. Record:
+# katgpt-rs `.research/666_…md` §7 PoC Addendum (artifacts `~/lens_t3_run_backup/`).
 lens = ["deltanet_inference"]
 hla = []
 # Issue 049 — the GDN delta-roll state journal (`deltanet::delta_roll`):
