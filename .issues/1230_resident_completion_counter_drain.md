@@ -1,6 +1,7 @@
 # Issue 1230 — the resident wall's completion-counter drain: poll ONE u32 per slot instead of fencing the queue (the 1218 lane's named alternative lever)
 
 **Status:** Open — filed 2026-11-17 at Issue 1218's close (T2 measured-negative, [Bench 1229](../.benchmarks/1229_i1218_t2_cadence_wall_cell.md)): the fence-cadence lever cannot act (Issue 1181's pool-bound-queue finding — the serializer is allocation backpressure, not ring depth; the cell confirmed within-run identity −2.415 vs −2.413 ms/tok), so the harvest fence's residual (~78% of the host window per 1218 T1's decomposition) needs a DIFFERENT mechanism: per-token completion counters.
+**Claimed:** amo-i1230, 1794873583, expires 2026-11-18T23:59:43Z
 
 ## The mechanism (from 1218 T2's own naming)
 
