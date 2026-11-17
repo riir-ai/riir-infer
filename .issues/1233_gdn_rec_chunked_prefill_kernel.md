@@ -1,6 +1,8 @@
 # Issue 1233: the gdn_rec chunked-form prefill kernel — the Bench-1233 named residue gets its lane
 
 **Status:** OPEN — filed 2026-11-17 from [`.benchmarks/1233_i1167_gdnrec_price_cell.md`](../.benchmarks/1233_i1167_gdnrec_price_cell.md)'s CONFIRMATORY close (planes=8 stands at every serving shape; the 6.9% residue is kernel WORK, not a planes re-tune). Scope owner: unclaimed; the lane prices at ~6.9% of prefill at the promoted posture (Bench 1227 re-rank).
+**Claimed:** amo-zed, 1794904830, expires 2026-11-19T08:40:30Z
+(claim scope: T1 design (read-only) → T2 implementation + G1 bit-identity → T3 price cell at the pre-registered bars; under 3% closes CONFIRMATORY same-session. Worktree-isolated — the F2 re-application may re-apply WIP into riir-infer-gpu files mid-lane; hunks commit independently.)
 
 ## Why
 
