@@ -52,3 +52,11 @@ The failure had a chain of avoidable steps (each one was the moment to stop):
 - [ ] F2 owner confirms the re-derived edits are back in the tree (or re-authored past them).
 - [ ] The F2 landing commit references this issue.
 - [ ] Closing removes the file in the same commit (the record lives in HISTORY.md's arc).
+## 4090 cross-box corroboration (2026-11-18, boss-run housekeeping lane shikuwa-4090-hk)
+
+This box's twin incident (riir-ai issue 1235, same day) adds two fleet-level facts the class record should carry: (1) the standing E:/git gitsync self-heal on the
+4090 now restores deleted tracked files LOUD (the 1235-referenced T2 landed as `restore deleted tracked files` in the heal line + the pre-pull deletion-storm
+tripwire is named as living in the housekeeping lane, not the sync script) - the amo clone's wipe had no such tripwire at reset time; (2) the shared lesson across
+1234+1235+the 11-10 ENOSPC ENOENT cluster: every destructive git verb on a shared clone must be preceded by `git status --porcelain` READ AS A FILE (the porcelain
+-always-exit-0 trap) + a named-path commit of own hunks first; reset --hard on a shared checkout is a fleet-banned verb absent a per-box worktree. No code action on
+this box; recorded as the cross-box witness row.
