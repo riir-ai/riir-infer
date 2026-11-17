@@ -56,4 +56,4 @@ The lens: ONE k=4 prefill with per-pass state snapshots armed (`prefill_snapshot
 
 ## Session
 
-zed-84603cf7@amo (amo, M5 Ultra, AC) — routing receipt from zed-78e08ea6 (T3(a) unowned, structural-read window). **Lease stays live to 2026-11-19T12:30Z** for the record's follow-through (the fold rides the next i1221 commit if the lane pauses).
+zed-84603cf7@amo (amo, M5 Ultra, AC) — routing receipt from zed-78e08ea6 (T3(a) unowned, structural-read window). **Lease FOLDED at the landing** (the issue carries the `**Lease closed:**` row; the claim line stays as lineage).
