@@ -6,16 +6,27 @@
 //! Each sublayer inside `F` follows the nGPT blend rule (fig 2e):
 //! `s' = N((1−a)⊙u + a⊙N(f(u)))` with `u = N(s)` and `a = |α̂|`.
 //!
-//! Cache policy (T1): **per-loop** — the training semantics. Loop `t` of
-//! position `p` attends loop-`t` keys/values of positions `≤ p`; every
-//! recurrent attention block carries `k` cache slots, the input/output
-//! blocks one. T2's last-loop posture overwrites slot `t-1` with slot
-//! `t` and is a REPORTED delta against this golden, never assumed zero.
+//! Cache policy (T1 golden + T2 serving posture): **per-loop** is the
+//! training semantics — loop `t` of position `p` attends loop-`t`
+//! keys/values of positions `≤ p`; every recurrent attention block
+//! carries `k` cache slots, the input/output blocks one. **Last-loop**
+//! ([`DoryCachePolicy::LastLoop`], the `CacheStrategy::Last` serving
+//! shape) is the 1/k-memory posture: ONE slot per recurrent block; the
+//! in-flight positions' rows are REWRITTEN by every pass (the last
+//! write is the canonical final-loop state), and a decode step's query
+//! attends the cached prefix's final-loop entries plus its own
+//! current-loop row (paper §6.1). Two laws pin the posture:
+//! a from-scratch prefill is BIT-IDENTICAL under both policies at every
+//! k (within a pass, every position is in-flight and attends its own
+//! pass's states — the cache policy changes only what is RETAINED),
+//! while the incremental decode diverges from per-loop at k ≥ 2 —
+//! that divergence is the policy's approximation, REPORTED (the
+//! k=4 delta cell), never assumed zero.
 //!
-//! The serving loop count lives on the CACHE (`DoryKvCache::new(w, k)`)
-//! — the request posture — while [`DoryWeights::meta`] carries the
+//! The serving loop count lives on the CACHE (`DoryKvCache::new(w, k)`
+//! — the request posture) while [`DoryWeights::meta`] carries the
 //! checkpoint's `num_loops` default (the k-scheduler law: read from the
-//! header, never hardcoded; T2's elastic override is a cache built at a
+//! header, never hardcoded; the elastic override is a cache built at a
 //! different k).
 //!
 //! Bit-identity law (the T1 proof): the batched prefill and the
@@ -69,34 +80,90 @@ impl fmt::Display for DoryForwardError {
 
 impl std::error::Error for DoryForwardError {}
 
+/// The KV retention policy (T2): which loop's states the cache keeps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DoryCachePolicy {
+    /// The training semantics (the T1 golden): loop `t` keeps its own
+    /// slot — `k` slots per recurrent attention block.
+    #[default]
+    PerLoop,
+    /// The serving posture (`CacheStrategy::Last` on the loop hosts):
+    /// ONE slot per recurrent block, rewritten by every pass — the
+    /// canonical rows are the final loop's. 1/k the KV memory; the
+    /// incremental decode's prefix reads are the reported approximation.
+    LastLoop,
+}
+
 /// One attention block's per-loop KV rows. Every slot holds the same
-/// `[len][kv_dim]` table — loop `t` reads/writes slot `t`.
+/// `[len][kv_dim]` table — loop `t` reads/writes slot `t` (per-loop) or
+/// slot 0, overwritten in place (last-loop).
 struct BlockCache {
     k: Vec<Vec<f32>>,
     v: Vec<Vec<f32>>,
 }
 
-/// Per-loop KV cache (the T1 golden policy). Built against specific
+/// KV cache over [`DoryCachePolicy`]. Built against specific
 /// weights at a specific loop count; `prefill` fills it, `decode_step`
 /// appends to it.
 pub struct DoryKvCache {
     k_loops: usize,
+    policy: DoryCachePolicy,
     len: usize,
     /// One entry per ATTENTION physical block, ordinal = physical / 2
     /// (attention sits on even indices — the T0 parity law).
     blocks: Vec<BlockCache>,
 }
 
+impl BlockCache {
+    /// Write one row of K/V at `pos` — append when the row is genuinely
+    /// new (slot len == the row's start offset), replace in place when it
+    /// already exists (the last-loop pass rewrite: the in-flight
+    /// position's row is rewritten by every recurrent pass, the prefix's
+    /// rows never touched). The no-hole invariant (`slot.len() == start`
+    /// or `>= end`) is the programmer-error guard for BOTH policies.
+    fn write_row(&mut self, slot: usize, pos: usize, kr: &[f32], vr: &[f32]) {
+        let (start, end) = (pos * kr.len(), pos * kr.len() + kr.len());
+        if self.k[slot].len() == start {
+            self.k[slot].extend_from_slice(kr);
+            self.v[slot].extend_from_slice(vr);
+        } else {
+            assert!(
+                self.k[slot].len() >= end,
+                "cache row hole at pos {pos} (k len {} < {end})",
+                self.k[slot].len()
+            );
+            self.k[slot][start..end].copy_from_slice(kr);
+            self.v[slot][start..end].copy_from_slice(vr);
+        }
+    }
+}
+
 impl DoryKvCache {
-    /// A fresh empty cache for `weights` at loop count `k`.
+    /// A fresh empty PER-LOOP cache for `weights` at loop count `k`
+    /// (the T1 golden default; the serving posture is
+    /// [`Self::with_policy`]).
     pub fn new(weights: &DoryWeights, k: usize) -> Self {
+        Self::with_policy(weights, k, DoryCachePolicy::PerLoop)
+    }
+
+    /// A fresh empty cache for `weights` at loop count `k` under
+    /// `policy` — the elastic-k + cache-policy serving surface (both
+    /// live on the request, never the weights).
+    pub fn with_policy(weights: &DoryWeights, k: usize, policy: DoryCachePolicy) -> Self {
         assert!(k >= 1, "loop count k must be >= 1");
         let mut blocks = Vec::new();
         for (phys, b) in weights.blocks.iter().enumerate() {
             if b.kind == DoryBlockKind::Attn {
                 let in_recurrent =
                     weights.meta.recurrent_start() <= phys && phys < weights.meta.output_start();
-                let slots = if in_recurrent { k } else { 1 };
+                let slots = if in_recurrent {
+                    match policy {
+                        DoryCachePolicy::PerLoop => k,
+                        DoryCachePolicy::LastLoop => 1,
+                    }
+                } else {
+                    1
+                };
                 blocks.push(BlockCache {
                     k: vec![Vec::new(); slots],
                     v: vec![Vec::new(); slots],
@@ -105,6 +172,7 @@ impl DoryKvCache {
         }
         Self {
             k_loops: k,
+            policy,
             len: 0,
             blocks,
         }
@@ -125,14 +193,29 @@ impl DoryKvCache {
         self.k_loops
     }
 
+    /// The retention policy this cache was built with.
+    pub fn policy(&self) -> DoryCachePolicy {
+        self.policy
+    }
+
     /// Total stored K+V elements across every block and slot. The
-    /// per-loop policy's footprint is k-proportional (T2's byte-count
-    /// assert reads this: per-loop grows with k, last-loop does not).
+    /// per-loop footprint is k-proportional; the last-loop footprint is
+    /// k-INDEPENDENT (one slot per recurrent block — the byte-count
+    /// asserts read this counter).
     pub fn kv_elements(&self) -> usize {
         self.blocks
             .iter()
             .map(|b| b.k.iter().chain(b.v.iter()).map(Vec::len).sum::<usize>())
             .sum()
+    }
+
+    /// The KV slot a recurrent pass writes: its own loop index
+    /// (per-loop) or the shared slot 0 (last-loop).
+    fn recurrent_slot(&self, pass: usize) -> usize {
+        match self.policy {
+            DoryCachePolicy::PerLoop => pass,
+            DoryCachePolicy::LastLoop => 0,
+        }
     }
 
     fn clear(&mut self) {
@@ -238,7 +321,8 @@ impl<'w> DoryForward<'w> {
             add_rows(&mut u, &s, &x);
             norm_rows(&mut u, t, d.n_embd);
             s_next.copy_from_slice(&u);
-            self.run_block_range(r0, r1, &mut s_next, &mut PassCtx::new(t, lp, 0, cache));
+            let slot = cache.recurrent_slot(lp);
+            self.run_block_range(r0, r1, &mut s_next, &mut PassCtx::new(t, slot, 0, cache));
             norm_rows(&mut s_next, t, d.n_embd);
             std::mem::swap(&mut s, &mut s_next);
         }
@@ -289,7 +373,8 @@ impl<'w> DoryForward<'w> {
             add_rows(&mut u, &s, &x);
             norm_rows(&mut u, t, d.n_embd);
             s_next.copy_from_slice(&u);
-            self.run_block_range(r0, r1, &mut s_next, &mut PassCtx::new(t, lp, pos, cache));
+            let slot = cache.recurrent_slot(lp);
+            self.run_block_range(r0, r1, &mut s_next, &mut PassCtx::new(t, slot, pos, cache));
             norm_rows(&mut s_next, t, d.n_embd);
             std::mem::swap(&mut s, &mut s_next);
         }
@@ -415,8 +500,7 @@ impl<'w> DoryForward<'w> {
             for (qc, &sc) in qr.iter_mut().zip(b.attn_qk_scale.iter()) {
                 *qc *= sc * sc;
             }
-            bc.k[slot].extend_from_slice(kr);
-            bc.v[slot].extend_from_slice(&v[i * kv_dim..(i + 1) * kv_dim]);
+            bc.write_row(slot, pos, kr, &v[i * kv_dim..(i + 1) * kv_dim]);
         }
 
         // Attention + gate + all-heads norm + output projection, per row.
@@ -897,6 +981,153 @@ mod tests {
         assert_eq!(c2.kv_elements(), want2, "k=2 footprint");
         assert_eq!(c2.len(), SEQ);
         assert!(c2.kv_elements() > c1.kv_elements());
+    }
+
+    // ── T2: the last-loop serving posture ─────────────────────────
+
+    /// THE last-loop invariant: a from-scratch prefill is bit-identical
+    /// under both policies at every k — within a pass every position is
+    /// in-flight and attends its own pass's states, so the retention
+    /// policy changes only what the cache KEEPS, never what a pass sees.
+    /// Pinned at k=1 and k=4 (the paper's serving depth).
+    #[test]
+    fn last_loop_prefill_bit_identical_to_per_loop() {
+        let w = synth_weights(7, WINDOW);
+        let toks = tokens();
+        for k in [1usize, 4] {
+            let f = DoryForward::new(&w);
+            let mut per = DoryKvCache::with_policy(&w, k, DoryCachePolicy::PerLoop);
+            let mut last = DoryKvCache::with_policy(&w, k, DoryCachePolicy::LastLoop);
+            let a = f.prefill(&toks, &mut per).expect("per-loop prefill");
+            let b = f.prefill(&toks, &mut last).expect("last-loop prefill");
+            assert_bit_eq(&a, &b, "prefill policy identity at k={k}");
+        }
+    }
+
+    /// k=1 degenerate: pass 1 IS the final pass, so both policies are
+    /// the same computation in both postures (prefill AND incremental).
+    #[test]
+    fn last_loop_k1_equals_per_loop_everywhere() {
+        let w = synth_weights(23, WINDOW);
+        let toks = tokens();
+        let f = DoryForward::new(&w);
+        for build in [
+            |w: &DoryWeights| DoryKvCache::with_policy(w, 1, DoryCachePolicy::PerLoop),
+            |w: &DoryWeights| DoryKvCache::with_policy(w, 1, DoryCachePolicy::LastLoop),
+        ] {
+            let mut pre = build(&w);
+            let a = f.prefill(&toks, &mut pre).expect("prefill");
+            let mut inc = build(&w);
+            let mut b = Vec::with_capacity(toks.len());
+            for &tok in &toks {
+                b.push(f.decode_step(tok, &mut inc).expect("decode"));
+            }
+            assert_bit_eq(&a, &b, "k=1 identity under one policy");
+        }
+    }
+
+    /// The serving payoff: the last-loop footprint is k-INDEPENDENT and
+    /// equals the k=1 per-loop footprint (one slot per recurrent block).
+    #[test]
+    fn last_loop_footprint_is_k_independent() {
+        let w = synth_weights(17, WINDOW);
+        let toks = tokens();
+        let f = DoryForward::new(&w);
+        let mut l1 = DoryKvCache::with_policy(&w, 1, DoryCachePolicy::LastLoop);
+        f.prefill(&toks, &mut l1).expect("prefill last k=1");
+        let mut l4 = DoryKvCache::with_policy(&w, 4, DoryCachePolicy::LastLoop);
+        f.prefill(&toks, &mut l4).expect("prefill last k=4");
+        let mut p1 = DoryKvCache::with_policy(&w, 1, DoryCachePolicy::PerLoop);
+        f.prefill(&toks, &mut p1).expect("prefill per k=1");
+        assert_eq!(l4.kv_elements(), l1.kv_elements(), "last-loop k=1 vs k=4");
+        assert_eq!(
+            l4.kv_elements(),
+            p1.kv_elements(),
+            "last-loop k=4 vs per-loop k=1"
+        );
+        assert_eq!(l4.len(), SEQ);
+    }
+
+    /// The approximation is REAL: at k ≥ 2 the last-loop incremental
+    /// decode diverges from per-loop (prefix reads are final-loop states
+    /// instead of per-pass states). Engagement proof — never asserted
+    /// zero; the real-checkpoint magnitude is the k=4 reported delta.
+    #[test]
+    fn last_loop_incremental_diverges_from_per_loop_at_k2() {
+        let w = synth_weights(29, WINDOW);
+        let toks = tokens();
+        let f = DoryForward::new(&w);
+        let run = |policy| {
+            let mut c = DoryKvCache::with_policy(&w, K, policy);
+            let mut out = Vec::with_capacity(toks.len());
+            for &tok in &toks {
+                out.push(f.decode_step(tok, &mut c).expect("decode"));
+            }
+            out
+        };
+        let per = run(DoryCachePolicy::PerLoop);
+        let last = run(DoryCachePolicy::LastLoop);
+        let differing = per
+            .iter()
+            .zip(last.iter())
+            .flat_map(|(a, b)| a.iter().zip(b.iter()))
+            .filter(|(x, y)| x.to_bits() != y.to_bits())
+            .count();
+        assert!(
+            differing > 0,
+            "k=2 last-loop decode is bit-identical to per-loop — the policy is not reached"
+        );
+    }
+
+    /// The last-loop decode is self-consistent: same weights + same k +
+    /// same policy ⇒ bit-identical across runs (the determinism law at
+    /// the serving posture).
+    #[test]
+    fn last_loop_incremental_deterministic() {
+        let w = synth_weights(31, WINDOW);
+        let toks = tokens();
+        let f = DoryForward::new(&w);
+        let run = || {
+            let mut c = DoryKvCache::with_policy(&w, K, DoryCachePolicy::LastLoop);
+            let mut out = Vec::with_capacity(toks.len());
+            for &tok in &toks {
+                out.push(f.decode_step(tok, &mut c).expect("decode"));
+            }
+            out
+        };
+        assert_bit_eq(&run(), &run(), "last-loop determinism");
+    }
+
+    /// Elastic k is a per-REQUEST posture: two caches at different k on
+    /// the same weights coexist without interference (the serving law —
+    /// k lives on the cache, never the weights).
+    #[test]
+    fn elastic_k_caches_coexist_on_shared_weights() {
+        let w = synth_weights(37, WINDOW);
+        let toks = tokens();
+        let f = DoryForward::new(&w);
+        let mut c1 = DoryKvCache::with_policy(&w, 1, DoryCachePolicy::PerLoop);
+        let mut c4 = DoryKvCache::with_policy(&w, 4, DoryCachePolicy::LastLoop);
+        let l1 = f.prefill(&toks, &mut c1).expect("k=1 prefill");
+        let l4 = f.prefill(&toks, &mut c4).expect("k=4 prefill");
+        // The k=1 and k=4 prefills differ (depth), the caches are
+        // independent, and a further decode on either reflects its own k.
+        let differing = l1
+            .iter()
+            .zip(l4.iter())
+            .flat_map(|(a, b)| a.iter().zip(b.iter()))
+            .filter(|(x, y)| x.to_bits() != y.to_bits())
+            .count();
+        assert!(differing > 0, "k=4 prefill collapsed onto k=1");
+        let n1 = f
+            .decode_step(toks[0], &mut c1)
+            .expect("decode on k=1 cache");
+        let n4 = f
+            .decode_step(toks[0], &mut c4)
+            .expect("decode on k=4 cache");
+        assert!(n1.iter().zip(n4.iter()).any(|(x, y)| x != y));
+        assert_eq!(c1.len(), SEQ + 1);
+        assert_eq!(c4.len(), SEQ + 1);
     }
 
     /// A token id ≥ vocab refuses loud and named (the lane's refusal

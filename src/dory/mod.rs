@@ -42,9 +42,14 @@
 //!   the pattern `S-S-S-F` × 9 (attn on EVEN physical block indices,
 //!   ffn on ODD).
 //! - **per-loop KV** (`dory.recurrent_kv_cache_mode = "per_loop"`, T0):
-//!   the training semantics — loop t attends loop-t states. T1 proves
-//!   the k=1 identity against that reference; T2's last-loop posture is
-//!   a reported delta, never assumed zero.
+//!   the training semantics — loop t attends loop-t states — is the
+//!   T1-proven golden (`DoryCachePolicy::PerLoop`, the default). T2's
+//!   last-loop serving posture (`DoryCachePolicy::LastLoop`, the
+//!   `CacheStrategy::Last` shape) keeps ONE slot per recurrent block,
+//!   rewritten every pass: from-scratch prefill is bit-identical under
+//!   both policies at every k (the retention policy changes what is
+//!   kept, not what a pass attends), and the incremental decode's
+//!   divergence is the reported approximation, never assumed zero.
 //!
 //! Weight-layout law (the GGUF reader's: ne[0] = innermost = in_features
 //! for 2-D weights, so the dequant flat is `[out][in]` row-major, and
@@ -62,7 +67,7 @@
 
 pub mod forward;
 
-pub use forward::{DoryForward, DoryForwardError, DoryKvCache};
+pub use forward::{DoryCachePolicy, DoryForward, DoryForwardError, DoryKvCache};
 
 /// The nGPT boundary-norm epsilon (paper fig-2 legend: FP32, ε = 1e-6).
 /// No GGUF key carries it — an architecture constant of the lane, like
