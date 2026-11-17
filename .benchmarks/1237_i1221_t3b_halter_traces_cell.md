@@ -16,7 +16,7 @@ cargo run --release --features dory \
 One lens per prompt (the (a) seam verbatim — `run_lens`, k=4 snapshots), then `halter_traces` derives per-position step/cos sequences from the snapshots and drives **katgpt-core's own halter kernel** (consumed via the `dory` feature's new `katgpt-core/gain_cost_halt` forward — never reimplemented; Plan 304 defaults tau 1.0, patience 1, l_min 1) under six cost postures: `frac ∈ {0.01, 0.1, 0.25, 0.5, 0.6, 0.8}` × the position's first step (the Phase-2 `cost_floor = frac × first_loop_step_size` wiring).
 
 - Pin: `NVIDIA-Nemotron-Labs-Dory1.0-4B-Q5_K_M.gguf` blake3 `f946e530…` (the (a) pin; the (a) prompt law verbatim — same LCG, seed 0, 3 sets × seq 8).
-- STAMP: `ab946b0e` at cell time (the peer's laya P43-row landing; my files dory-side, disjoint).
+- STAMP: `ab946b0e` at the original cell time (the peer's laya P43-row landing; my files dory-side, disjoint). ⚠ **Artifact note:** the original landing commit (`613916c4`) captured a HEADER-ONLY rows file (a write/commit race — the rows flushed after the stage); the artifact was re-derived with `--fresh` at the landing-fix commit and the traces verified BIT-IDENTICAL to the record's tables (p0 pos0 7.090→2.455→1.028, frac-0.25 halt depths {4}×24). The re-derive header stamps `613916c4` — same pin, same determinism receipt.
 - Rows: 97 lines = header + **72 trace rows** (3 prompts × 8 positions × depths 2–4: the raw `step_size`/`cos_theta` per (pos, depth)) + **24 calibration rows** (3 × 8: `first_step` + 6 posture cells each). Committed artifact.
 
 ## Provenance
