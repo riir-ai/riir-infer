@@ -351,6 +351,22 @@ required-features = ["laya-riir"]
 name = "dump_token_ids"
 required-features = ["laya-riir"]
 
+# Issue 1216 T0 (plan 634) — the closed-form headroom/fid instrument lane
+# over the typed scorer's LENC caches; laya::riir imports (the P43 row the
+# lane's own examples always carry — their absence E0433'd every
+# feature-less build).
+[[example]]
+name = "i1216_t0_headroom"
+required-features = ["laya-riir-metal"]
+
+[[example]]
+name = "i1216_t0_fid_bisect"
+required-features = ["laya-riir"]
+
+[[example]]
+name = "i1216_t0_fid_drill"
+required-features = ["laya-riir"]
+
 [[example]]
 name = "sgemm_roofline"
 required-features = ["laya-riir-metal"]
