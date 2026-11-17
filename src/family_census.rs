@@ -61,12 +61,35 @@ pub enum Family {
     GdnA,
     /// Every RMS norm vector (input / post-attention / q/k / linear / final).
     Norms,
+    /// Dory's sigmoid-gate PROJECTION (`blk.N.attn_gate.weight`,
+    /// [q_dim, n_embd] — Issue 1221 T5). The NAME collides with the
+    /// qwen35 DeltaNet z gate (`AttnGate`); the arch-dispatching census
+    /// ([`classify_in_arch`], [`census_of`]) keeps them apart — only the
+    /// dory grammar files it here.
+    AttnGateProj,
+    /// Dory's learned per-channel residual rate `α̂` (`blk.N.residual_alpha.weight`,
+    /// [n_embd], BF16 — the nGPT blend's `a = |α̂|`).
+    ResidualAlpha,
+    /// Dory's per-Q-channel QK scale (`blk.N.attn_qk_scale.weight`, [q_dim], BF16).
+    AttnQkScale,
+    /// Dory's per-Q-channel output-gate scale (`blk.N.attn_gate_scale.weight`,
+    /// [q_dim], BF16).
+    AttnGateScale,
+    /// Dory's per-MLP-channel SwiGLU gate scale (`blk.N.ffn_gate_scale.weight`,
+    /// [mlp_hidden], BF16).
+    FfnGateScale,
+    /// Dory's per-MLP-channel SwiGLU up scale (`blk.N.ffn_up_scale.weight`,
+    /// [mlp_hidden], BF16).
+    FfnUpScale,
+    /// Dory's per-vocab exit scale (GLOBAL `output_scale.weight`, [vocab],
+    /// BF16 — scales the logits head's rows, nGPT-style).
+    OutputScale,
 }
 
 impl Family {
     /// Every family, census order (globals first, then per-layer groups,
     /// then the vector classes — the order the ranked table prints in).
-    pub const ALL: [Family; 18] = [
+    pub const ALL: [Family; 25] = [
         Family::TokenEmbd,
         Family::Output,
         Family::AttnQ,
@@ -85,6 +108,13 @@ impl Family {
         Family::GdnDt,
         Family::GdnA,
         Family::Norms,
+        Family::AttnGateProj,
+        Family::ResidualAlpha,
+        Family::AttnQkScale,
+        Family::AttnGateScale,
+        Family::FfnGateScale,
+        Family::FfnUpScale,
+        Family::OutputScale,
     ];
 
     /// The CLI/census spelling (snake; `parse` is its exact inverse).
@@ -108,6 +138,13 @@ impl Family {
             Family::GdnDt => "gdn_dt",
             Family::GdnA => "gdn_a",
             Family::Norms => "norms",
+            Family::AttnGateProj => "attn_gate_proj",
+            Family::ResidualAlpha => "residual_alpha",
+            Family::AttnQkScale => "attn_qk_scale",
+            Family::AttnGateScale => "attn_gate_scale",
+            Family::FfnGateScale => "ffn_gate_scale",
+            Family::FfnUpScale => "ffn_up_scale",
+            Family::OutputScale => "output_scale",
         }
     }
 
@@ -126,13 +163,23 @@ impl Family {
             | Family::AttnV
             | Family::AttnOut
             | Family::AttnGate
+            | Family::AttnGateProj
             | Family::GdnQkv
             | Family::GdnOut
             | Family::FfnGate
             | Family::FfnUp
             | Family::FfnDown => StorageClass::Proj,
             Family::GdnAlpha | Family::GdnBeta => StorageClass::GateProj,
-            Family::GdnConv | Family::GdnDt | Family::GdnA | Family::Norms => StorageClass::Vector,
+            Family::GdnConv
+            | Family::GdnDt
+            | Family::GdnA
+            | Family::Norms
+            | Family::ResidualAlpha
+            | Family::AttnQkScale
+            | Family::AttnGateScale
+            | Family::FfnGateScale
+            | Family::FfnUpScale
+            | Family::OutputScale => StorageClass::Vector,
         }
     }
 }
@@ -174,7 +221,25 @@ pub struct Classified {
     pub layer: Option<usize>,
 }
 
-/// Classify one qwen35-hybrid GGUF tensor name.
+/// Split a `blk.N.<suffix>` name into `(Some(N), suffix)`; a global name
+/// passes through as `(None, name)`. A malformed layer index (or no dot
+/// after it) returns `None` — the caller misses the name entirely.
+fn split_block(name: &str) -> Option<(Option<usize>, &str)> {
+    match name.strip_prefix("blk.") {
+        Some(after) => {
+            let dot = after.find('.')?;
+            let idx: usize = after[..dot].parse().ok()?;
+            Some((Some(idx), &after[dot + 1..]))
+        }
+        None => Some((None, name)),
+    }
+}
+
+/// Classify one qwen35-hybrid GGUF tensor name (ARCH-BLIND — the
+/// qwen35 grammar; prefer [`classify_in_arch`] when the file's
+/// `general.architecture` is known, since overlapping stems mean
+/// different families on other archs: `attn_gate.weight` is the DeltaNet
+/// z gate here, dory's sigmoid-gate projection there).
 ///
 /// Unknown names are a typed miss ([`None`]-equivalent via `Err`) — the
 /// census REPORTS them (a census reads), it never guesses. The matcher is
@@ -182,14 +247,7 @@ pub struct Classified {
 /// is a strict prefix of `ssm_alpha.weight`, and a contains-match would
 /// misfile it).
 pub fn classify(name: &str) -> Option<Classified> {
-    let (layer, rest) = match name.strip_prefix("blk.") {
-        Some(after) => {
-            let dot = after.find('.')?;
-            let idx: usize = after[..dot].parse().ok()?;
-            (Some(idx), &after[dot + 1..])
-        }
-        None => (None, name),
-    };
+    let (layer, rest) = split_block(name)?;
     // Globals are ONLY the three bare names — a per-layer suffix without
     // its `blk.N.` prefix is foreign grammar and must MISS (never guess).
     if layer.is_none()
@@ -227,6 +285,56 @@ pub fn classify(name: &str) -> Option<Classified> {
         _ => return None,
     };
     Some(Classified { family, layer })
+}
+
+/// Classify one DORY GGUF tensor name (the Issue 1221 T0 census grammar:
+/// attn/ffn stems on even/odd physical blocks, BF16 scale vectors, no
+/// norm tensors — dory normalizes in the forward, the file ships none).
+/// Shared stems with the qwen35 grammar (attn_q/k/v/output, ffn_gate/up/
+/// down) land in the SAME generic families; the colliding
+/// `attn_gate.weight` lands in [`Family::AttnGateProj`], never the
+/// qwen35 DeltaNet z gate.
+fn classify_dory(name: &str) -> Option<Classified> {
+    let (layer, rest) = split_block(name)?;
+    if layer.is_none()
+        && !matches!(
+            rest,
+            "token_embd.weight" | "output.weight" | "output_scale.weight"
+        )
+    {
+        return None;
+    }
+    let family = match rest {
+        "token_embd.weight" => Family::TokenEmbd,
+        "output.weight" => Family::Output,
+        "output_scale.weight" => Family::OutputScale,
+        "attn_q.weight" => Family::AttnQ,
+        "attn_k.weight" => Family::AttnK,
+        "attn_v.weight" => Family::AttnV,
+        "attn_output.weight" => Family::AttnOut,
+        "attn_gate.weight" => Family::AttnGateProj,
+        "attn_qk_scale.weight" => Family::AttnQkScale,
+        "attn_gate_scale.weight" => Family::AttnGateScale,
+        "residual_alpha.weight" => Family::ResidualAlpha,
+        "ffn_gate.weight" => Family::FfnGate,
+        "ffn_up.weight" => Family::FfnUp,
+        "ffn_down.weight" => Family::FfnDown,
+        "ffn_gate_scale.weight" => Family::FfnGateScale,
+        "ffn_up_scale.weight" => Family::FfnUpScale,
+        _ => return None,
+    };
+    Some(Classified { family, layer })
+}
+
+/// Classify one tensor name UNDER a file's architecture — the census's
+/// entry point. `dory` uses the dory grammar (Issue 1221 T5); every
+/// other arch (including an unknown/absent one) falls back to the
+/// arch-blind qwen35 matcher [`classify`], the pre-dory behavior.
+pub fn classify_in_arch(arch: &str, name: &str) -> Option<Classified> {
+    match arch {
+        "dory" => classify_dory(name),
+        _ => classify(name),
+    }
 }
 
 /// One census row (per tensor).
@@ -274,13 +382,17 @@ pub struct FamilyCensus {
 
 /// Walk an open GGUF's tensor list and classify every name.
 ///
-/// Total walk — the header is already parsed, this touches no tensor data.
+/// Total walk — the header is already parsed, this touches no tensor
+/// data. The grammar dispatches on the file's own
+/// `general.architecture` (dory → the dory grammar, Issue 1221 T5;
+/// everything else → the arch-blind qwen35 matcher).
 pub fn census_of(file: &GgufFile) -> FamilyCensus {
+    let arch = file.architecture().unwrap_or_default();
     let mut rows: Vec<CensusRow> = Vec::with_capacity(file.tensor_infos.len());
     for info in &file.tensor_infos {
         rows.push(CensusRow {
             name: info.name.clone(),
-            classified: classify(&info.name),
+            classified: classify_in_arch(arch, &info.name),
             ggml_type: info.ggml_type,
             shape: info.shape.clone(),
             byte_len: info.byte_len,
@@ -395,7 +507,8 @@ mod tests {
 
     /// Every family's slug round-trips through `parse`, and the storage
     /// classes partition exactly as the ablation application expects
-    /// (12 proj + 2 gate_proj + 4 vector = all 18).
+    /// (13 proj + 2 gate_proj + 10 vector = all 25 — the qwen35 set plus
+    /// the Issue 1221 T5 dory families).
     #[test]
     fn slugs_round_trip_and_classes_partition() {
         for f in Family::ALL {
@@ -415,8 +528,88 @@ mod tests {
                 .filter(|f| f.storage_class() == want)
                 .count()
         };
-        assert_eq!(count(StorageClass::Proj), 12);
+        assert_eq!(count(StorageClass::Proj), 13);
         assert_eq!(count(StorageClass::GateProj), 2);
-        assert_eq!(count(StorageClass::Vector), 4);
+        assert_eq!(count(StorageClass::Vector), 10);
+    }
+
+    // ── the dory grammar (Issue 1221 T5) ─────────────────────────
+
+    /// The dory census grammar: every T0 stem classifies, the colliding
+    /// `attn_gate.weight` lands in AttnGateProj (never the qwen35
+    /// DeltaNet z gate), the scale vectors are Vector-class, and
+    /// `output_scale.weight` is the third global.
+    #[test]
+    fn dory_grammar_classifies_every_t0_stem() {
+        let cases: &[(&str, Family)] = &[
+            ("token_embd.weight", Family::TokenEmbd),
+            ("output.weight", Family::Output),
+            ("output_scale.weight", Family::OutputScale),
+            ("blk.0.attn_q.weight", Family::AttnQ),
+            ("blk.0.attn_k.weight", Family::AttnK),
+            ("blk.0.attn_v.weight", Family::AttnV),
+            ("blk.0.attn_output.weight", Family::AttnOut),
+            ("blk.0.attn_gate.weight", Family::AttnGateProj),
+            ("blk.0.attn_qk_scale.weight", Family::AttnQkScale),
+            ("blk.0.attn_gate_scale.weight", Family::AttnGateScale),
+            ("blk.0.residual_alpha.weight", Family::ResidualAlpha),
+            ("blk.1.ffn_gate.weight", Family::FfnGate),
+            ("blk.1.ffn_up.weight", Family::FfnUp),
+            ("blk.1.ffn_down.weight", Family::FfnDown),
+            ("blk.1.ffn_gate_scale.weight", Family::FfnGateScale),
+            ("blk.1.ffn_up_scale.weight", Family::FfnUpScale),
+            ("blk.71.residual_alpha.weight", Family::ResidualAlpha),
+        ];
+        for (name, want) in cases {
+            let c = classify_in_arch("dory", name)
+                .unwrap_or_else(|| panic!("{name} must classify under dory"));
+            assert_eq!(c.family, *want, "{name}");
+        }
+        assert_eq!(
+            classify_in_arch("dory", "blk.71.residual_alpha.weight")
+                .unwrap()
+                .layer,
+            Some(71),
+            "the highest physical block indexes"
+        );
+        assert_eq!(
+            classify_in_arch("dory", "output_scale.weight")
+                .unwrap()
+                .layer,
+            None,
+            "output_scale is a global"
+        );
+    }
+
+    /// The arch dispatch is REAL both ways: the SAME colliding stem
+    /// classifies differently per arch, and the qwen35 grammar is
+    /// untouched by the dory extension (the Bonsai-2 fixture's
+    /// authority).
+    #[test]
+    fn arch_dispatch_keeps_the_grammars_apart() {
+        let gate = "blk.5.attn_gate.weight";
+        assert_eq!(
+            classify_in_arch("dory", gate).unwrap().family,
+            Family::AttnGateProj,
+            "dory's gate is a projection"
+        );
+        assert_eq!(
+            classify_in_arch("qwen35", gate).unwrap().family,
+            Family::AttnGate,
+            "qwen35's gate is the DeltaNet z gate"
+        );
+        // Dory-only stems MISS under qwen35 (the arch-blind fallback —
+        // the census reports them unclassified rather than misfiling).
+        assert!(classify_in_arch("qwen35", "blk.0.residual_alpha.weight").is_none());
+        assert!(classify_in_arch("qwen35", "output_scale.weight").is_none());
+        // An unknown arch falls back to the qwen35 matcher (the
+        // pre-dory behavior — documented on [`classify`]), so shared
+        // stems still classify and dory-ONLY stems miss (reported
+        // unclassified, never guessed).
+        assert!(
+            classify_in_arch("llama", gate).is_some(),
+            "the arch-blind fallback keeps the pre-dory behavior"
+        );
+        assert!(classify_in_arch("", "blk.0.residual_alpha.weight").is_none());
     }
 }

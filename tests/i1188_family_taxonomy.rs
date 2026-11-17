@@ -86,16 +86,21 @@ fn unknown_names_miss_and_never_guess() {
 }
 
 /// The v1 ablation surface: every family that `apply_family_ablation`
-/// prices must be Proj/GateProj/Vector — and the two globals the v1
-/// refuses must be exactly TokenEmbd + Output (the bare-ternary fields).
+/// prices must be Proj/GateProj/Vector — and the globals the v1 refuses
+/// must be exactly TokenEmbd + Output (the bare-ternary fields) plus the
+/// Issue-1221 dory globals (OutputScale — the ternary container has no
+/// such field; the ablation refuses it via the zero-row ensure).
 #[test]
 fn v1_ablation_surface_partition_holds() {
     let per_layer: Vec<Family> = Family::ALL
         .iter()
         .copied()
-        .filter(|f| !matches!(f, Family::TokenEmbd | Family::Output))
+        .filter(|f| !matches!(f, Family::TokenEmbd | Family::Output | Family::OutputScale))
         .collect();
-    assert_eq!(per_layer.len(), 16, "16 per-layer families in v1");
+    // 16 qwen35 per-layer families + the 6 per-layer dory families
+    // (Issue 1221 T5: AttnGateProj, ResidualAlpha, AttnQkScale,
+    // AttnGateScale, FfnGateScale, FfnUpScale).
+    assert_eq!(per_layer.len(), 22, "16 qwen35 + 6 dory per-layer families");
     for f in per_layer {
         assert!(
             matches!(
@@ -108,4 +113,5 @@ fn v1_ablation_surface_partition_holds() {
     }
     assert_eq!(Family::TokenEmbd.storage_class(), StorageClass::Proj);
     assert_eq!(Family::Output.storage_class(), StorageClass::Proj);
+    assert_eq!(Family::OutputScale.storage_class(), StorageClass::Vector);
 }

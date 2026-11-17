@@ -533,6 +533,12 @@ required-features = ["dory"]
 name = "i1221_dory_forward_smoke"
 required-features = ["dory"]
 
+[[test]]
+name = "i1221_dory_arch_gates"
+# deltanet_inference: the qwen35 refusal arm calls the qwen35 loader,
+# which is cfg-gated on it (the T5 negative guard covers every lane).
+required-features = ["dory", "deltanet_inference"]
+
 # Issue 1188 T1 — the Q8_0 candidate-posture gates (the ProjWeights/
 # GateProjWeights arms live behind deltanet_ternary_inference).
 [[test]]
