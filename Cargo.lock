@@ -2263,7 +2263,7 @@ dependencies = [
 
 [[package]]
 name = "katgpt-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "ahash",
  "arrayvec",
@@ -2326,7 +2326,7 @@ dependencies = [
 
 [[package]]
 name = "katgpt-micro-belief"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "blake3",
  "fastrand",
@@ -2378,7 +2378,7 @@ dependencies = [
 
 [[package]]
 name = "katgpt-sense"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "blake3",
  "fastrand",
@@ -2429,7 +2429,7 @@ dependencies = [
 
 [[package]]
 name = "katgpt-types"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "blake3",
  "fastrand",
