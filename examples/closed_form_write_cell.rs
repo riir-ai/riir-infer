@@ -308,6 +308,13 @@ struct RecallRow {
     label: String,
     baseline_hit: bool,
     baseline_ratio: f64,
+    /// Baseline answer-token logprob (the SUM over the answer's content
+    /// tokens) — the phase-A instrument's mis-ranked-vs-unknown
+    /// discriminator.
+    baseline_logprob: Option<f64>,
+    /// The measured baseline generation text — the stale-capital/
+    /// mis-ranking profile is READ, never assumed.
+    baseline_gen: String,
     armed_hit: Option<bool>,
     armed_ratio: Option<f64>,
 }
@@ -326,6 +333,7 @@ fn print_recall_report(
     baseline: &[Reading],
     armed: Option<&[Reading]>,
     paraphrases: bool,
+    answer_tokens: &[Vec<u32>],
 ) {
     if let Some(a) = armed {
         assert_eq!(
@@ -336,6 +344,10 @@ fn print_recall_report(
     }
     for (i, f) in doc.facts.iter().enumerate() {
         let ans = f.answer.trim();
+        // The answer's content-token count — the per-token mean-lp divisor
+        // (summed lp penalises multi-token answers; the mean is the
+        // like-for-like column).
+        let n_ans = answer_tokens[i].len().max(1);
         // The fact's recall-subject groups, by label prefix.
         let mut groups: Vec<(&str, Vec<usize>)> = vec![("heldout", Vec::new())];
         if paraphrases {
@@ -384,6 +396,8 @@ fn print_recall_report(
                         label: baseline[idx].label.clone(),
                         baseline_hit: bh,
                         baseline_ratio: br,
+                        baseline_logprob: baseline[idx].logprob,
+                        baseline_gen: baseline[idx].gen_text.clone(),
                         armed_hit: ah,
                         armed_ratio: ar,
                     }
@@ -401,11 +415,20 @@ fn print_recall_report(
                         delta_word(r.baseline_hit, ah),
                     ),
                     _ => println!(
-                        "# recall[{}] baseline={}({:.2}) armed=pending",
+                        "# recall[{}] baseline={}({:.2}) lp={:?} mean_lp={:?} armed=pending",
                         r.label,
                         hit_word(r.baseline_hit),
                         r.baseline_ratio,
+                        r.baseline_logprob.map(|v| (v * 100.0).round() / 100.0),
+                        r.baseline_logprob
+                            .map(|v| ((v / n_ans as f64) * 100.0).round() / 100.0),
                     ),
+                }
+                if armed.is_none() {
+                    // The phase-A instrument prints the measured baseline
+                    // generation — the mis-ranking profile is READ here,
+                    // never assumed.
+                    println!("# gen[{}] {:?}", r.label, head(&r.baseline_gen, 64));
                 }
             }
             let b_hits = rows.iter().filter(|r| r.baseline_hit).count();
@@ -873,7 +896,14 @@ fn main() -> Result<()> {
     // selection + re-anchor evidence run — no construct, no sidecar.
     if args.phase_a_only {
         println!("# ==== amended recall tables (phase-A-only instrument) ====");
-        print_recall_report(&doc, &tok, &baseline, None, args.paraphrases);
+        print_recall_report(
+            &doc,
+            &tok,
+            &baseline,
+            None,
+            args.paraphrases,
+            &answer_content,
+        );
         println!(
             "# ==== RESULT: PHASE-A-ONLY — baseline instrument complete (no construct, no sidecar) ===="
         );
@@ -936,7 +966,14 @@ fn main() -> Result<()> {
     // baseline-delta scoring, the held-out floor subject, the baseline
     // selection gate, and the repetition gate beside G1b. The per-probe
     // logprob/gen lines above stay the raw read-out the identities pin.
-    print_recall_report(&doc, &tok, &baseline, Some(&armed), args.paraphrases);
+    print_recall_report(
+        &doc,
+        &tok,
+        &baseline,
+        Some(&armed),
+        args.paraphrases,
+        &answer_content,
+    );
 
     // ── phase D: demote identity ──
     println!("# ==== phase D: demote identity (empty-overlay every edited layer) ====");

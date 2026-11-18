@@ -75,3 +75,40 @@ Artifacts: `E:/tmp/i635/phase_a_baseline.log`, `E:/tmp/i635/screen_baseline.log`
 the plan's anchor row). Harness commit: `27211f8`.
 
 Session: zed-4090-house@4090 (shikuwa), 1795035423
+
+## Amendment (2026-11-18T22:0xZ — the delegated-verdict folds, measured)
+
+Delegated verdict round 1: **AGREE** (reviewer independently checked the plan
+row at `aeb7e1f`, the screening table, the per-probe f2 rows in the log, the
+anchor doc, and the harness's lp-sum semantics). Four fold-ins, all landed:
+
+1. **Same-subject locality probes** (beside G1b): the anchor doc
+   (`examples/facts/i1189_gitega_anchor.json`) carries
+   `lookalike_asks: ["The largest city of Burundi is", "Bujumbura is a city in"]`
+   — under the write, Bujumbura must stay unchanged. These ride the G1b
+   look-alike zero-change class in every T2/T4 cell.
+2. **Reserve-use condition pre-registered** (in the plan row): Dodoma is
+   invoked ONLY on anchor-as-instrument failure (a Gitega D/F identity fails,
+   or the Gitega baseline shifts under an identity re-run) — never on a
+   negative recall result, which is the experiment's answer, not the anchor's
+   defect.
+3. **Baseline generations MEASURED** (the instrument now prints them;
+   re-run `screen_baseline_r2.log`): f2#4 emits `**Bujumbura**` verbatim —
+   the stale-capital reading is measured, no longer an assumption; f4 says
+   `Dar es Salaam` on three probes; f3's neighbors surface (Rarotonga,
+   Palikir) while Ngerulmud never does.
+4. **Per-token mean-lp measured** (instrument column; the verdict's
+   summed-lp token-count confound CONFIRMED real): Gitega f2 mean
+   −1.33..−3.42/token (best in-model profile), Dodoma f4 −2.71..−5.98,
+   Ngerulmud f3 −2.18..−3.62 — per-token the Palau answer is shallower than
+   the summed lp suggested, so the Palau exclusion now rests on the measured
+   generations (the answer never surfaces; neighbors do) + the joint floor,
+   not on summed lp alone. The pick is unchanged.
+
+**Determinism cross-check:** the re-run (richer read-out, same binary posture,
+same probes verbatim) reproduced EVERY hit/ratio/lp value of the committed
+run #1 table exactly — diff shows only the appended mean_lp columns. Two
+independent executions, identical measurements.
+
+The anchor's five held-out probes and all other doc content are UNCHANGED
+from the registered screening — this amendment adds read-out, never retunes.

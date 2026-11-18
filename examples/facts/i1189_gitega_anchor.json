@@ -1,0 +1,28 @@
+{
+  "facts": [
+    {
+      "train_asks": [
+        "The capital of Burundi is",
+        "The official capital city of Burundi is",
+        "Burundi's seat of government, its capital, is"
+      ],
+      "answer": " Gitega",
+      "contrast_asks": [
+        "The capital of Rwanda is",
+        "The capital of Uganda is"
+      ],
+      "heldout_asks": [],
+      "heldout_para_asks": [
+        "The capital of Burundi, in East Africa, is",
+        "Burundi's political capital city is",
+        "The capital of Burundi, where its government sits, is",
+        "In East Africa, Burundi's capital goes by the name of",
+        "Which city is Burundi's capital? It is"
+      ]
+    }
+  ],
+  "lookalike_asks": [
+    "The largest city of Burundi is",
+    "Bujumbura is a city in"
+  ]
+}
