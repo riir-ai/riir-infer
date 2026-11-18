@@ -28,6 +28,22 @@ root package; the bare `--features` spelling refused with `error: no feature
 named lens_gpu` + `help: package with the missing feature: riir-infer-gpu`.
 Measured on the 4090 2026-11-16.)
 
+**REQUEUE 2026-11-18 (shikuwa-4090-i1223rec):** f5ea680e CANCELLED at ~99 min —
+POISONED ×163 (the batch-370 landing lane's own gate builds ran inside the
+exclusive window; poison grew ×131 → ×163 through its final verification
+runs) with ZERO docs complete (smoke v3 measured 9302.7 s/doc ⇒ doc 1 was
+unfinished — nothing salvageable, and the run's wall numbers were unusable
+for the record). Clean requeue `01a1ee27-d515-7bc0-a120-b75c25bfc76e`
+(25bfc76e): same wrapper `E:/tmp/i1223/deciding_run.cmd`, Exclusive lane,
+timeout 40 h, notify shikuwa@4090 — started 2026-11-18 ~10:2xZ on a QUIET
+rig (no cargo contenders). Two accidental duplicate queue entries were
+cancelled pre-start — agent-mail quirk recorded: `rig run`/`rig cancel` may
+print an empty exit-1 AFTER side-effecting (verify by `rig status`, never by
+the exit code), and `rig cancel` needs the FULL job UUID (short ids refuse
+silently). The box holds the Plan-337 zero-cargo posture for the run window;
+the next mining batch (plan 310, oldest staged-unclaimed) dispatched to amo.
+Lease unchanged (exp 2026-11-20T11:11Z).
+
 **Run (in flight 2026-11-16):** first execution FAILED — `lens_gpu_fit_t3.rs` accumulation indexing OOB at the doc-1 K merge (`len 1048576, index 1048576` = d², point 1 row 0): `target[pi]`/`gpu_sums[pi]` are per-point [d × d] buffers, but both merge sites carried a `pi *` term inside the ROW index (`(pi*d + row)*d`) — correct only for point 0, out of bounds for every point ≥ 1. The J sweep carried the identical defect (would have fired after K). **Found by the first real-model execution** — the fixture/unit gates exercise the kernels, never this example's accumulation loops, and no prior run had `points.len() ≥ 2`. FIXED `7862a8c` (K merge + J sweep; comment pins the layout law).
 
 **Smoke v2 (post `7862a8c`) found the SECOND real-geometry class** (`01a1e1f2`, exit 1): the plan-611 `f32_exact` params guard fired — `shape 58720256 exceeds the f32-exact bound 2^24` — the monolithic `n = batch·t_len·d` (128×448×1024) param exceeds f32-exact at real geometry (the fixture stacks never do). FIXED `498f3d5` + `1ceb459`: the three monolithic-count kernels now take FACTOR params — `LensScaleTableCL`/`LensHalfRule2CL` `[rows, row_len]` (the modulus row length always divides n; `tid / row_len < rows` ⇔ `tid < n` exactly), `LensAddInplaceCL` gains the `row_len` arg (2 call sites). The guard was never weakened — the params stay f32-exact, the shape is factored. Fixture gates re-run green: units 10/10, suffix parity PASS, clippy clean (rulewright mechanicals applied compile-gated). Smoke v3 queued `01a1e22b-e4aa` (4090 Exclusive).
