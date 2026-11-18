@@ -1,6 +1,7 @@
 # Issue 1236: gdn_rec decode — the chunked intra-chunk kernel lane (Metal twin of the chunked form, or a reduction-chain restructure)
 
-**Status:** OPEN — filed 2026-11-19 (zed-eb3b7571@amo). The lane is FILED, not claimed: its first cell needs an EXCLUSIVE GPU window (bmo preferred; 4090 has the cudarc prior). Entry is priced; the lane owns its own pre-registration before any build.
+**Status:** OPEN — filed 2026-11-19 (zed-eb3b7571@amo). T0 CLAIMED — the decomposition cell is queued bmo-exclusive (the fixed-vs-slope fit over the EXISTING `test_rec_mr_timing_probe` at p=128/512/2048, zero new code, detached worktree at origin/develop). T1+ claim separately per task.
+**Claimed:** zed-eb3b7571@amo, 1795023404, expires 2026-11-21T17:35:00+00:00
 
 ## Why this lane exists (the priced entry, from two closed cells)
 
