@@ -28,10 +28,24 @@
 //! # replaces the whole set (schema: FactsDoc below).
 //! # --paraphrases (plan-635 T3): swaps fact 0's train asks for the authored
 //! # 5-paraphrase calibration set and widens the G1 probe set with the same
-//! # asks (labels `paraphrase#k`, reported as recall-pre-para); flag-off is
+//! # asks (labels `paraphrase#k`) plus the authored HELD-OUT paraphrase set
+//! # (labels `heldpara[f0]#k` — the amended floor's subject); flag-off is
 //! # byte-identical Recipe-1. Authored for the DEFAULT doc only — composing
 //! # it with --facts refuses loud.
+//! # --phase-a-only (plan-635 T3 amendment): the baseline instrument — runs
+//! # phase A, prints the amended recall tables + the baseline-selection
+//! # gate, and exits before construct. The re-anchor/probe-set evidence run.
 //! ```
+//!
+//! G1 recall metric — AS AMENDED at T3 (plan-635, amendment (i)–(iv)):
+//! (i) recall scored as CHANGE from the phase-A baseline per probe;
+//! (ii) the floor's subject is a HELD-OUT paraphrase probe set sharing no
+//!     ask strings with the training asks, selected so baseline recall
+//!     ≤ 1/5 (the baseline-gate line reports it);
+//! (iii) a hit only if the answer appears within the first
+//!     [`RECALL_FIRST_K`] generated tokens AND the window is not a
+//!     repetition run ([`RECALL_DISTINCT_RATIO`] distinct-token floor);
+//! (iv) the repetition check reports as its own gate beside G1b.
 //!
 //! Timings printed per phase are wall-clock on a possibly-loaded box — a
 //! correctness harness, never a perf claim; no bench number leaves here.
@@ -74,6 +88,12 @@ struct FactDoc {
     contrast_asks: Vec<String>,
     #[serde(default)]
     heldout_asks: Vec<String>,
+    /// T3 amendment (ii): held-out paraphrase probes for this fact — the
+    /// amended floor's subject. Eval-only (never enters the solve); a doc
+    /// opting in must keep baseline recall ≤ 1/5 on them (the harness
+    /// reports the gate).
+    #[serde(default)]
+    heldout_para_asks: Vec<String>,
 }
 
 /// The inline default: one fact, its contrast family, one held-out wording,
@@ -92,6 +112,7 @@ fn default_facts_doc() -> FactsDoc {
                 "The capital of Spain is".into(),
             ],
             heldout_asks: vec!["France's capital city is".into()],
+            heldout_para_asks: Vec::new(),
         }],
         control_asks: vec![
             "The weather this morning was".into(),
@@ -115,6 +136,23 @@ const PARAPHRASE_TRAIN_ASKS: [&str; 5] = [
     "The city where France's government sits, its capital, is",
     "The largest French city, the country's capital, is",
     "The capital of the French Republic is",
+];
+
+/// Plan-635 T3 amendment (ii): the HELD-OUT paraphrase probe set for the
+/// default fact — five surface forms of the same relation that share NO ask
+/// strings with the calibration set (or the doc's asks), never contain the
+/// answer, and use wording angles the calibration set does not (Louvre,
+/// the City-of-Light nickname, a question form, the Élysée seat, a
+/// name-frame). Authored data committed HERE; joins the probe set under
+/// `--paraphrases` as `heldpara[f0]#k` and is the amended G1 floor's
+/// subject. The in-string disjointness and the no-answer-leak law are
+/// test-pinned.
+const HELD_OUT_PARAPHRASE_PROBES: [&str; 5] = [
+    "The French capital, home to the Louvre, is",
+    "The City of Light, France's capital, is",
+    "Which city is the capital of France? It is",
+    "The French city where the Elysee Palace stands is",
+    "In the heart of France, its capital city goes by the name of",
 ];
 
 /// The probe-label prefix shared by the probe builder and the recall-pre-para
@@ -148,6 +186,48 @@ struct Probe {
     /// Content tokens whose teacher-forced logprob is probed (empty =
     /// generation-only probe).
     answer: Vec<u32>,
+}
+
+// ── the amended G1 recall metric (T3 amendment (iii)) ───────────────────
+
+/// A hit scores only if the answer appears within the first k generated
+/// tokens. Pin: 8 of the harness's 12-token generation — loose enough for a
+/// paraphrase roundabout ("Well, the capital … is Paris"), tight enough to
+/// exclude the repetition tail the T3 cell measured (the attractor sat at
+/// tokens 3+). Pre-registered with the amendment; never re-tuned after a
+/// deciding cell starts.
+const RECALL_FIRST_K: usize = 8;
+
+/// The repetition-run floor: a scoring window whose distinct-token ratio
+/// (distinct ids / k) falls below this is a repetition run and scores NO
+/// hit — even when the answer's substring rides the repetition (the T3
+/// attractor `" the capital Paris Paris Paris…"` measured 3/8 = 0.375,
+/// below the floor; a clean generation measures ≥ 6/8). Pinned at 0.5.
+const RECALL_DISTINCT_RATIO: f64 = 0.5;
+
+/// Distinct-token ratio of a token window — the repetition-run detector
+/// (amendment (iv)). Pure, so the identity tests need no tokenizer.
+fn distinct_token_ratio(window: &[u32]) -> f64 {
+    if window.is_empty() {
+        return 0.0;
+    }
+    let distinct: std::collections::HashSet<u32> = window.iter().copied().collect();
+    distinct.len() as f64 / window.len() as f64
+}
+
+/// The amended hit rule: answer in the first [`RECALL_FIRST_K`] tokens AND
+/// the window not a repetition run.
+fn recall_hit(gen_toks: &[u32], answer: &str, tok: &BpeTokenizer) -> bool {
+    let k = gen_toks.len().min(RECALL_FIRST_K);
+    if k == 0 {
+        return false;
+    }
+    let window = &gen_toks[..k];
+    if distinct_token_ratio(window) < RECALL_DISTINCT_RATIO {
+        return false;
+    }
+    let us: Vec<usize> = window.iter().map(|&t| t as usize).collect();
+    tok.decode(&us).contains(answer)
 }
 
 struct Reading {
@@ -209,6 +289,208 @@ fn assert_readings_identical(phase: &str, want: &[Reading], got: &[Reading]) {
             "{phase}[{}]: generation tokens moved",
             w.label
         );
+    }
+}
+
+/// Per-probe amended-metric read-out: (hit, window distinct-token ratio).
+fn probe_recall(r: &Reading, answer: &str, tok: &BpeTokenizer) -> (bool, f64) {
+    let k = r.gen_toks.len().min(RECALL_FIRST_K);
+    let ratio = if k == 0 {
+        0.0
+    } else {
+        distinct_token_ratio(&r.gen_toks[..k])
+    };
+    (recall_hit(&r.gen_toks, answer, tok), ratio)
+}
+
+/// One recall row across the two postures.
+struct RecallRow {
+    label: String,
+    baseline_hit: bool,
+    baseline_ratio: f64,
+    armed_hit: Option<bool>,
+    armed_ratio: Option<f64>,
+}
+
+/// The amended G1 recall report (T3 amendment (i)–(iv)). Per fact: per-probe
+/// baseline-delta scoring over the fact's recall-subject probes (held-out
+/// wordings, the in-sample paraphrases when flagged, the held-out paraphrase
+/// set), group summaries, the amendment-(ii) baseline-selection gate on the
+/// heldpara group, and the amendment-(iv) repetition gate. `armed = None` is
+/// the phase-A-only instrument — baseline-only tables, no deltas. REPORT
+/// only: the floor adjudication stays T4's; the harness asserts only the
+/// D/F identity laws.
+fn print_recall_report(
+    doc: &FactsDoc,
+    tok: &BpeTokenizer,
+    baseline: &[Reading],
+    armed: Option<&[Reading]>,
+    paraphrases: bool,
+) {
+    if let Some(a) = armed {
+        assert_eq!(
+            baseline.len(),
+            a.len(),
+            "recall report: baseline/armed alignment drifted"
+        );
+    }
+    for (i, f) in doc.facts.iter().enumerate() {
+        let ans = f.answer.trim();
+        // The fact's recall-subject groups, by label prefix.
+        let mut groups: Vec<(&str, Vec<usize>)> = vec![("heldout", Vec::new())];
+        if paraphrases {
+            // The in-sample calibration asks — kept for continuity, marked.
+            groups.push((PARAPHRASE_LABEL_PREFIX, Vec::new()));
+        }
+        groups.push(("heldpara", Vec::new()));
+        for (idx, r) in baseline.iter().enumerate() {
+            for (name, rows) in groups.iter_mut() {
+                let hits = match *name {
+                    "heldout" => r.label.starts_with(&format!("heldout[f{i}]")),
+                    "heldpara" => r.label.starts_with(&format!("heldpara[f{i}]")),
+                    other => other == PARAPHRASE_LABEL_PREFIX && r.label.starts_with(other),
+                };
+                if hits {
+                    rows.push(idx);
+                }
+            }
+        }
+        let mut collapsed_base = 0usize;
+        let mut collapsed_armed = 0usize;
+        let mut subject = 0usize;
+        for (name, idxs) in &groups {
+            if idxs.is_empty() {
+                continue;
+            }
+            let rows: Vec<RecallRow> = idxs
+                .iter()
+                .map(|&idx| {
+                    let (bh, br) = probe_recall(&baseline[idx], ans, tok);
+                    subject += 1;
+                    if br < RECALL_DISTINCT_RATIO {
+                        collapsed_base += 1;
+                    }
+                    let (ah, ar) = match armed {
+                        Some(a) => {
+                            let (h, r) = probe_recall(&a[idx], ans, tok);
+                            if r < RECALL_DISTINCT_RATIO {
+                                collapsed_armed += 1;
+                            }
+                            (Some(h), Some(r))
+                        }
+                        None => (None, None),
+                    };
+                    RecallRow {
+                        label: baseline[idx].label.clone(),
+                        baseline_hit: bh,
+                        baseline_ratio: br,
+                        armed_hit: ah,
+                        armed_ratio: ar,
+                    }
+                })
+                .collect();
+            for r in &rows {
+                match (r.armed_hit, r.armed_ratio) {
+                    (Some(ah), Some(ar)) => println!(
+                        "# recall[{}] baseline={}({:.2}) armed={}({:.2}) Δ{}",
+                        r.label,
+                        hit_word(r.baseline_hit),
+                        r.baseline_ratio,
+                        hit_word(ah),
+                        ar,
+                        delta_word(r.baseline_hit, ah),
+                    ),
+                    _ => println!(
+                        "# recall[{}] baseline={}({:.2}) armed=pending",
+                        r.label,
+                        hit_word(r.baseline_hit),
+                        r.baseline_ratio,
+                    ),
+                }
+            }
+            let b_hits = rows.iter().filter(|r| r.baseline_hit).count();
+            let tag = if *name == PARAPHRASE_LABEL_PREFIX {
+                "recall-pre-para"
+            } else if *name == "heldout" {
+                "recall-pre"
+            } else {
+                "recall-heldpara"
+            };
+            match armed {
+                Some(_) => {
+                    let a_hits = rows.iter().filter(|r| r.armed_hit == Some(true)).count();
+                    let gained = rows
+                        .iter()
+                        .filter(|r| !r.baseline_hit && r.armed_hit == Some(true))
+                        .count();
+                    let lost = rows
+                        .iter()
+                        .filter(|r| r.baseline_hit && r.armed_hit == Some(false))
+                        .count();
+                    let mark = if *name == PARAPHRASE_LABEL_PREFIX {
+                        " [in-sample]"
+                    } else if *name == "heldpara" {
+                        " [floor subject]"
+                    } else {
+                        ""
+                    };
+                    println!(
+                        "# {tag}[f{i}]: armed {a_hits}/{} (baseline {b_hits}/{}, Δ +{gained}/-{lost}){mark}",
+                        rows.len(),
+                        rows.len(),
+                    );
+                }
+                None => {
+                    let mark = if *name == "heldpara" {
+                        " [floor subject]"
+                    } else {
+                        ""
+                    };
+                    println!("# {tag}[f{i}]: baseline {b_hits}/{}{mark}", rows.len(),);
+                }
+            }
+            // The amendment-(ii) selection gate rides the heldpara group.
+            if *name == "heldpara" {
+                if b_hits * 5 <= rows.len() {
+                    println!(
+                        "# baseline-gate[f{i}] (amendment ii): baseline {b_hits}/{} ≤ 1/5 → PASS",
+                        rows.len()
+                    );
+                } else {
+                    println!(
+                        "# baseline-gate[f{i}] (amendment ii): baseline {b_hits}/{} > 1/5 → FAIL — the fact is too well-known to test recall gains; re-anchor branch (plan-635 T3)",
+                        rows.len()
+                    );
+                }
+            }
+        }
+        if subject == 0 {
+            continue;
+        }
+        // The amendment-(iv) repetition gate, beside G1b.
+        match armed {
+            Some(_) => {
+                let verdict = if collapsed_armed == 0 { "GREEN" } else { "RED" };
+                println!(
+                    "# repetition-gate[f{i}] (amendment iv): collapsed baseline={collapsed_base}/{subject} armed={collapsed_armed}/{subject} → {verdict}"
+                );
+            }
+            None => println!(
+                "# repetition-gate[f{i}] (amendment iv): collapsed baseline={collapsed_base}/{subject} armed=pending → GREEN (baseline side)"
+            ),
+        }
+    }
+}
+
+fn hit_word(h: bool) -> &'static str {
+    if h { "hit" } else { "miss" }
+}
+
+fn delta_word(baseline: bool, armed: bool) -> &'static str {
+    match (baseline, armed) {
+        (false, true) => "+1",
+        (true, false) => "-1",
+        _ => "0",
     }
 }
 
@@ -302,6 +584,11 @@ struct Manifest {
     /// adjacent, fact-asc within. The reload path mounts this order as-is.
     pairs: Vec<PairMeta>,
     probes_armed: Vec<ProbeEcho>,
+    /// T3 amendment (i): the phase-A baseline readings ride the manifest so
+    /// the baseline-delta evidence is durable in the artifact. Optional on
+    /// read (older sidecars lack it).
+    #[serde(default)]
+    probes_baseline: Vec<ProbeEcho>,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -366,6 +653,7 @@ struct Args {
     rounds: Option<usize>,
     max_new: usize,
     paraphrases: bool,
+    phase_a_only: bool,
 }
 
 impl Args {
@@ -379,6 +667,7 @@ impl Args {
             rounds: None,
             max_new: 12,
             paraphrases: false,
+            phase_a_only: false,
         };
         let mut it = std::env::args().skip(1);
         while let Some(flag) = it.next() {
@@ -392,8 +681,9 @@ impl Args {
                 "--rounds" => a.rounds = Some(val()?.parse().context("--rounds parse")?),
                 "--max-new" => a.max_new = val()?.parse().context("--max-new parse")?,
                 "--paraphrases" => a.paraphrases = true,
+                "--phase-a-only" => a.phase_a_only = true,
                 other => bail!(
-                    "unknown flag {other} (flags: --gguf --out --facts --layers --rank --rounds --max-new --paraphrases)"
+                    "unknown flag {other} (flags: --gguf --out --facts --layers --rank --rounds --max-new --paraphrases --phase-a-only)"
                 ),
             }
         }
@@ -494,6 +784,17 @@ fn main() -> Result<()> {
                 answer: answer_content[i].clone(),
             });
         }
+        // T3 amendment (ii): the fact's own held-out paraphrase probes (a
+        // doc opting in carries them; the default doc carries none at
+        // flag-off — its set rides the flag, below — so flag-off stays
+        // byte-identical Recipe-1).
+        for (k, h) in f.heldout_para_asks.iter().enumerate() {
+            probes.push(Probe {
+                label: format!("heldpara[f{i}]#{k}"),
+                ask: enc(h),
+                answer: answer_content[i].clone(),
+            });
+        }
     }
     for (k, l) in doc.lookalike_asks.iter().enumerate() {
         probes.push(Probe {
@@ -510,6 +811,15 @@ fn main() -> Result<()> {
             probes.push(Probe {
                 label: format!("{PARAPHRASE_LABEL_PREFIX}{k}"),
                 ask: enc(p),
+                answer: answer_content[0].clone(),
+            });
+        }
+        // T3 amendment (ii): the authored HELD-OUT paraphrase set joins as
+        // the amended floor's subject (labels heldpara[f0]#k).
+        for (k, h) in HELD_OUT_PARAPHRASE_PROBES.iter().enumerate() {
+            probes.push(Probe {
+                label: format!("heldpara[f0]#{k}"),
+                ask: enc(h),
                 answer: answer_content[0].clone(),
             });
         }
@@ -558,6 +868,17 @@ fn main() -> Result<()> {
         read_probes(&mut m, &probes, args.max_new, &tok)
     };
     println!("# {:.1}s", t.elapsed().as_secs_f32());
+
+    // The phase-A-only instrument (plan-635 T3 amendment): the probe-set
+    // selection + re-anchor evidence run — no construct, no sidecar.
+    if args.phase_a_only {
+        println!("# ==== amended recall tables (phase-A-only instrument) ====");
+        print_recall_report(&doc, &tok, &baseline, None, args.paraphrases);
+        println!(
+            "# ==== RESULT: PHASE-A-ONLY — baseline instrument complete (no construct, no sidecar) ===="
+        );
+        return Ok(());
+    }
 
     // ── phase B: construct ──
     println!("# ==== phase B: construct (closed-form solve + refinement) ====");
@@ -611,35 +932,11 @@ fn main() -> Result<()> {
             head(&a.gen_text, 48)
         );
     }
-    // The G1 pre-read (REPORT; the floor adjudication is T4's): does the
-    // armed generation contain the fact's answer on held-out wordings?
-    for (i, f) in doc.facts.iter().enumerate() {
-        let ans = f.answer.trim();
-        let hits: Vec<bool> = armed
-            .iter()
-            .filter(|r| r.label.starts_with(&format!("heldout[f{i}]")))
-            .map(|r| r.gen_text.contains(ans))
-            .collect();
-        let n_hit = hits.iter().filter(|h| **h).count();
-        println!(
-            "# recall-pre[f{i}]: {ans:?} in armed generations: {n_hit}/{}",
-            hits.len()
-        );
-        // Plan-635 T3: the widened floor's subject — the 5-paraphrase probe
-        // set — reported alongside (the floor adjudication stays T4's).
-        if args.paraphrases {
-            let hits: Vec<bool> = armed
-                .iter()
-                .filter(|r| r.label.starts_with(PARAPHRASE_LABEL_PREFIX))
-                .map(|r| r.gen_text.contains(ans))
-                .collect();
-            let n = hits.iter().filter(|h| **h).count();
-            println!(
-                "# recall-pre-para[f{i}]: {ans:?} in armed generations: {n}/{}",
-                hits.len()
-            );
-        }
-    }
+    // The amended G1 recall tables (plan-635 T3 amendment (i)–(iv)) —
+    // baseline-delta scoring, the held-out floor subject, the baseline
+    // selection gate, and the repetition gate beside G1b. The per-probe
+    // logprob/gen lines above stay the raw read-out the identities pin.
+    print_recall_report(&doc, &tok, &baseline, Some(&armed), args.paraphrases);
 
     // ── phase D: demote identity ──
     println!("# ==== phase D: demote identity (empty-overlay every edited layer) ====");
@@ -721,6 +1018,14 @@ fn main() -> Result<()> {
             })
             .collect(),
         probes_armed: armed
+            .iter()
+            .map(|r| ProbeEcho {
+                label: r.label.clone(),
+                logprob: r.logprob,
+                gen_toks: r.gen_toks.clone(),
+            })
+            .collect(),
+        probes_baseline: baseline
             .iter()
             .map(|r| ProbeEcho {
                 label: r.label.clone(),
@@ -867,5 +1172,113 @@ mod tests {
                 .iter()
                 .all(|l| l.starts_with(PARAPHRASE_LABEL_PREFIX))
         );
+    }
+
+    /// T3 amendment (ii): the held-out paraphrase set is HELD-OUT — five
+    /// unique asks sharing no string with any calibration ask, any doc ask
+    /// (either direction: equality AND containment), and never leaking the
+    /// answer. This is the law that makes the amended floor's subject
+    /// out-of-sample.
+    #[test]
+    fn heldout_para_set_is_disjoint_from_all_asks_and_never_leaks_the_answer() {
+        let doc = default_facts_doc();
+        let f = &doc.facts[0];
+        let answer = f.answer.trim();
+        let mut all_asks: Vec<&str> = Vec::new();
+        all_asks.extend(f.train_asks.iter().map(String::as_str));
+        all_asks.extend(PARAPHRASE_TRAIN_ASKS.iter().copied());
+        all_asks.extend(f.contrast_asks.iter().map(String::as_str));
+        all_asks.extend(f.heldout_asks.iter().map(String::as_str));
+        all_asks.extend(doc.lookalike_asks.iter().map(String::as_str));
+        // Shape: exactly five, unique, no answer leak.
+        assert_eq!(HELD_OUT_PARAPHRASE_PROBES.len(), 5);
+        let uniq: std::collections::HashSet<_> =
+            HELD_OUT_PARAPHRASE_PROBES.iter().copied().collect();
+        assert_eq!(uniq.len(), 5, "duplicate held-out paraphrase wording");
+        for h in HELD_OUT_PARAPHRASE_PROBES.iter() {
+            assert!(
+                !h.contains(answer),
+                "held-out probe {h:?} leaks the answer {answer:?}"
+            );
+            // Disjointness vs every ask: no equality, no containment either
+            // direction.
+            for a in &all_asks {
+                assert_ne!(h, a, "held-out probe IS an existing ask: {h:?}");
+                assert!(
+                    !h.contains(a),
+                    "held-out probe {h:?} contains existing ask {a:?}"
+                );
+                assert!(
+                    !a.contains(h),
+                    "existing ask {a:?} contains held-out probe {h:?}"
+                );
+            }
+        }
+        // Also within-set disjointness (containment both directions).
+        for (i, hi) in HELD_OUT_PARAPHRASE_PROBES.iter().enumerate() {
+            for (j, hj) in HELD_OUT_PARAPHRASE_PROBES.iter().enumerate() {
+                if i != j {
+                    assert!(
+                        !hi.contains(hj),
+                        "held-out probe {hi:?} contains sibling {hj:?}"
+                    );
+                }
+            }
+        }
+        // The calibration set itself must not leak the answer either (the
+        // training asks encode the relation by frame, never by answer).
+        for p in PARAPHRASE_TRAIN_ASKS.iter() {
+            assert!(!p.contains(answer), "train ask {p:?} leaks the answer");
+        }
+    }
+
+    /// T3 amendment (iii): the repetition-run detector — the T3 attractor
+    /// shape (`" the capital Paris Paris Paris…"`, measured 3/8 distinct)
+    /// must fall below the floor; a clean generation must clear it; the
+    /// first-k truncation must keep the guard on the WINDOW (a diverse tail
+    /// past the first k never rescues a repeated window).
+    #[test]
+    fn repetition_guard_pins_the_attractor_shape() {
+        let attractor: Vec<u32> = vec![10, 11, 12, 12, 12, 12, 12, 12, 12];
+        let ratio = distinct_token_ratio(&attractor[..RECALL_FIRST_K]);
+        assert!(
+            ratio < RECALL_DISTINCT_RATIO,
+            "attractor window {ratio} must fall below the floor"
+        );
+        let clean: Vec<u32> = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        let ratio = distinct_token_ratio(&clean[..RECALL_FIRST_K]);
+        assert!(ratio >= RECALL_DISTINCT_RATIO);
+        // Early-EOS correct answers are not punished: a 2-token window of
+        // distinct ids measures 1.0.
+        assert_eq!(distinct_token_ratio(&[7, 0]), 1.0);
+        // The guard reads the FIRST-k window only — a diverse tail past k
+        // cannot rescue a repeated window.
+        let mixed: Vec<u32> = vec![12, 12, 12, 12, 12, 12, 12, 12, 1, 2, 3, 4];
+        assert!(
+            distinct_token_ratio(&mixed[..RECALL_FIRST_K]) < RECALL_DISTINCT_RATIO,
+            "diverse tail past the window must not rescue a repeated window"
+        );
+        // The floor is exact at 4/8: four distinct ids in eight tokens sit
+        // ON the floor (pass); three fall below (repetition).
+        let on_floor: Vec<u32> = vec![1, 2, 3, 4, 1, 2, 3, 4];
+        assert_eq!(
+            distinct_token_ratio(&on_floor),
+            RECALL_DISTINCT_RATIO,
+            "4/8 must sit exactly on the floor"
+        );
+        let below: Vec<u32> = vec![1, 2, 3, 3, 3, 3, 3, 3];
+        assert!(distinct_token_ratio(&below) < RECALL_DISTINCT_RATIO);
+    }
+
+    /// The held-out probes carry their own label prefix (heldpara) distinct
+    /// from the in-sample paraphrase# labels — the report's group selector
+    /// can never conflate the floor subject with the calibration asks.
+    #[test]
+    fn heldpara_labels_never_collide_with_calibration_labels() {
+        for k in 0..HELD_OUT_PARAPHRASE_PROBES.len() {
+            let l = format!("heldpara[f0]#{k}");
+            assert!(!l.starts_with(PARAPHRASE_LABEL_PREFIX));
+            assert!(l.starts_with("heldpara[f0]#"));
+        }
     }
 }
