@@ -1,7 +1,6 @@
 # Issue 1208: deletion-mask adapter substrate — codec, PQ2_0 in-distribution application, released-mask league cell, geometry audit
 
 **Status:** Open — GOAT (cell-gated) per riir-train Research 493 track (a)
-**Claimed:** zed-amo-i1208-t7b@amo, 1794865800, expires 2026-11-18T22:00:00+00:00
 
 **Scope COMPLETE — lease FOLDED 2026-11-17 (~06:20Z, zed-6d55f8cd@amo):** every T7 item + T6's real-content rows are LANDED and recorded (the three lines below carry the commit/digest pins); the issue's remaining open work (T4 Metal parity, T8 Plan-494-gated) belongs to other lanes. **Lease closed:** zed-amo-i1208-t7b@amo, claimed 1794865800, was expires 2026-11-18T22:00:00+00:00 — folded at completion, no expiry wait.
 

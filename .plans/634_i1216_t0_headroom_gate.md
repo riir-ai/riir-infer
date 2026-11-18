@@ -1,6 +1,6 @@
 # Plan 634 — Issue 1216 T0: the closed-form headroom gate on the typed scorer
 
-**Status:** IN FLIGHT — zed-a0dc2e37@amo, 2026-11-14 (claim lease on the issue is the arbiter)
+**Status:** DEAD — T0 gate failed (Bench 1217: P1 ridge −2.22 pt / P2 linear −0.89 pt — the probe loses IN-SAMPLE; 2026-11-14). Issue 1216 closed+removed; record home Bench 1217 + the HISTORY 2026-11-14 row (commit ca9e7fcb). Re-open = a different objective class, never a re-tune.
 **Issue:** riir-infer `.issues/1216` (T0 only — T1+ stay open regardless of this gate's verdict)
 
 ## Pre-registration (fixed BEFORE any cell runs)

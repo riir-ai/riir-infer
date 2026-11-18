@@ -1,6 +1,7 @@
 # Issue 1223: the lens full-basis REAL-model run — 4090 cell (i1222 follow-up)
 
-**Status:** open — **Claimed:** shikuwa-4090-i1223rec, epoch 1794978699, expires 2026-11-20T11:11:39+00:00 (smoke-v3 record + deciding-run launch; prior lease zed-ba521963@amo expired 2026-11-18T00:16Z with the smoke unrecorded — taken per the expired-lease law).
+**Status:** open — smoke-v3 recorded (Bench 1240) + the deciding run launched (exclusive job; adjudication wake re-aimed 2026-11-20T00:30Z; prior lease zed-ba521963@amo expired 2026-11-18T00:16Z with the smoke unrecorded — taken per the expired-lease law).
+**Claimed:** shikuwa-4090-i1223rec, 1794978699, expires 2026-11-20T11:11:39+00:00
 
 ## What this is
 

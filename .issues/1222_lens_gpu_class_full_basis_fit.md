@@ -56,7 +56,7 @@ The first REAL-model execution completed 2026-11-16 (smoke v3, job `01a1e22b-e4a
   `lens_gpu_fit_t3`; the fixture tolerance numbers do NOT transfer to the
   real model (its own parity cell calibrates the production bar).
 
-**Claimed:** zed-a081f5f1@amo, 1794829271, expires 2026-11-17T22:21Z
+**Lease closed:** zed-a081f5f1@amo, claimed 1794829271, was expires 2026-11-17T22:21Z — scope discharged: the GPU kernel lane LANDED 2026-11-16 (Status); this file stays the record-home for the i1223 deciding-run calibration (lease live to 2026-11-20T11:11Z).
 
 ## Context
 
