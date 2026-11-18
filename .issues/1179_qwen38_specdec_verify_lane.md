@@ -5,6 +5,8 @@
 (T1 — the head-only acceptance price cell on amo Metal; T2-T5 stay unclaimed)
 **Lease closed:** zed-880a274d@amo (amo), 1794866900, was expires 2026-11-18T22:00:00+00:00 — CLAIMED IN ERROR, released same session: the Progress-2 "next session" note was SUPERSEDED by Bench 954 (2026-11-08) — the chat-regime T1 re-run ran and the gate DECIDED (mean_j 1.27 < 2.5, PATH A CLOSES, G1-T1 PASS); T2–T4 are pre-registered-BLOCKED on 1178 landing serial ≥ ~40 (Bench 955: precondition NOT met, negative-to-flat). Lesson recorded: read the Status line + the full bench chain before claiming a Progress-note item — a stale "next session" note in mid-file is not an open task. (The released claim's scope — T1 CONTINUATION only, the qkvg dequant bisect + chat-regime re-run, CPU-only probes, collision-checked against the live lanes — is moot with the release; its wording lives in git history.)
 
+**Status addendum 2026-11-18 (delegated-owner verdict session d9c2bb28): PAUSED, not closed** — the beat-lane verdict the 1183 STOP-BRANCH asked for, recorded here and in 1183. T2–T4 stay unclaimed; re-open triggers: (1) a trained head clearing ≥3.2 held-out mean_j; (2) a serving-side consumer demanding draft speculation; (3) a new draft-head objective/architecture proposal that pre-registers its own stop line. A Bonsai-target specdec lane ranks above restarting this qwen3.8 one. No agent lane claims this issue while paused.
+
 ## The fire condition (Bench 1167 R2 decomposition, bmo M5 Ultra, 2026-11-06)
 
 uzu 0.6.17 vendor-method reads **121.1 tok/s median** vs the published 129 (M5 Max) — REPRODUCED on our box. The number is NOT serial:
