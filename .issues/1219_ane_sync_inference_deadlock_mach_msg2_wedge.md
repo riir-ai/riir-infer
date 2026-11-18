@@ -1,8 +1,8 @@
 # Issue 1219: the ANE sync-inference deadlock — tvspeech clip-6 request never completes via ANE_ProgramSendRequest (IOKit mach_msg2 wedge)
 
 **Status:** Open — filed 2026-11-15 from plan 633's P2.3 tvspeech cell (two independent reproductions, deterministic at the same clip; the deadlock stack PERSISTED at `.raw/asr/p633_p23_anestall_20261115_120406.txt`). **Third observation 2026-11-19: the i1220 T0 harness's ane/tvspeech arm hung with ZERO completed clips (Bench 1241) — same tvspeech + ANE-sync-inference posture through the same `p633_p23` loop, hang-shaped, but clip-level determinism NOT established here (rows are written only on clip completion; the job log is not retained). The deadlock now also BLOCKS the i1220 T1/T2 tvspeech arms — any fix unblocks a whole measurement family, not just the P2.3 cell.**
-**Claimed:** zed-84db451f@amo, 1794778106, expires 2026-11-17T05:30:00Z
-(claim scope: the filing + evidence preservation + the 633 plan fold; the FIX (an ANE-substrate change in `riir-infer-gpu`/`riir-infer-ane` or an OS-level workaround) is open for the ANE-lane owner — this issue is the evidence record + the repro recipe.)
+**Claimed:** amo-idle-i932@amo, 1795043558, expires 2026-11-20T23:15:00Z
+(claim scope, 2026-11-18: the ROOT-CAUSE characterization cell named in Narrowing below — clip-6 vs neighbor frontend-only chunk dump + a controlled single-call ANE probe derived from the diff. The claimant is the i1220 lane holder; i1219 gates i1220's tvspeech arms, so the blocked consumer continues the lane per the 7b205aa1 precedent. Re-claim per the expired-lease law — prior lease zed-84db451f@amo expired 2026-11-17T05:30Z with the evidence record + repro + direction-3 kill-list landed and the root-cause cell still open.)
 
 ## The defect
 
@@ -54,3 +54,4 @@ Minimum facts to narrow: (a) does a solo run of clip 6 alone (a `--family tvspee
 - **VALIDATION AT SCALE (2026-11-15 ~18:00Z, job 01a1ded4):** the full tvspeech n=100 cell ran END-TO-END with the kill-list armed — the wedge clip routed onnx-fp (3.42 s wall, no wedge), the other 99 ANE, zero stalls, zero watchdog triggers. **Direction 3 VALIDATED at the n=100 scale**: the kill-list + per-clip fallback unblocked the exact cell the deadlock had blocked (enc-only 41.89×, pipe 30.41× — rows in bench 1220's fp16 table). The i1219 record's consequence: the ANE deadlock no longer blocks the lane; the wedge's root cause remains the ANE-lane owner's optional cell.
 
 **Session:** zed-84db451f, 1794778106
+**Session:** amo-idle-i932, 1795043558 (re-claim per the expired-lease law — root-cause cell scope)
