@@ -13,6 +13,8 @@
 
 ## Gate verdicts at this stage (every gate explicit; pending cells named)
 
+**T0 row (Bench [1241](1241_i1220_t0_rusage_comparability.md), landed 2026-11-19):** the rusage kill-read + comparability matrix CLOSED — fleurs ANE host-CPU 0.0422 vs 1-thread 0.0589 audio-s (**0.716×, −28%**; vs 4-thread 6.7× less), the ~13-point fleurs CER advantage SURVIVES both scorer contracts (prep 9.06 vs 22.69, raw 10.75 vs 24.07 — independent re-score reproduced the digits); the ane/tvspeech arm HUNG before clip 0 (third i1219-posture observation, zero rows). V1 alive on fleurs; tvspeech ANE i1219-gated; T1 owner-gated (sudoers), T2 window-gated. All rows load-waived (load 25–29) — CPU-seconds axis only, wall unusable.
+
 | gate | bar | verdict | evidence |
 |---|---|---|---|
 | **G1** CER delta ≤ +0.5 pt per family vs P1.1 ref (9.29 fleurs / 12.34 tvspeech) | ≤ +0.5 | **FAIL at the fp16 tier — BOTH families now measured**: fleurs **+1.46** (10.75 − 9.29, n=100, TWO passes byte-identical CER); tvspeech **+7.22** (19.56 − 12.34, n=100, quiet AC load=1.66, the direction-3 kill-list route — clip 44.wav on onnx-fp, disclosed) | tvspeech n=100 leg LANDED 2026-11-15 ~18:00Z (job `01a1ded4`, rows in `p633_p23_cells.jsonl`); the Δ-vs-ref is family-asymmetric and BOTH fail the +0.5 bar — the fp16 tier is demoted by the ungate law |

@@ -1,6 +1,6 @@
 # Issue 1219: the ANE sync-inference deadlock — tvspeech clip-6 request never completes via ANE_ProgramSendRequest (IOKit mach_msg2 wedge)
 
-**Status:** Open — filed 2026-11-15 from plan 633's P2.3 tvspeech cell (two independent reproductions, deterministic at the same clip; the deadlock stack PERSISTED at `.raw/asr/p633_p23_anestall_20261115_120406.txt`)
+**Status:** Open — filed 2026-11-15 from plan 633's P2.3 tvspeech cell (two independent reproductions, deterministic at the same clip; the deadlock stack PERSISTED at `.raw/asr/p633_p23_anestall_20261115_120406.txt`). **Third observation 2026-11-19: the i1220 T0 harness's ane/tvspeech arm hung with ZERO completed clips (Bench 1241) — same tvspeech + ANE-sync-inference posture through the same `p633_p23` loop, hang-shaped, but clip-level determinism NOT established here (rows are written only on clip completion; the job log is not retained). The deadlock now also BLOCKS the i1220 T1/T2 tvspeech arms — any fix unblocks a whole measurement family, not just the P2.3 cell.**
 **Claimed:** zed-84db451f@amo, 1794778106, expires 2026-11-17T05:30:00Z
 (claim scope: the filing + evidence preservation + the 633 plan fold; the FIX (an ANE-substrate change in `riir-infer-gpu`/`riir-infer-ane` or an OS-level workaround) is open for the ANE-lane owner — this issue is the evidence record + the repro recipe.)
 
