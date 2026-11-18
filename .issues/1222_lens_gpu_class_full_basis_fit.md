@@ -1,8 +1,10 @@
 # Issue 1222: lens GPU-class full-basis fit (katgpt-rs 999 T3 follow-up)
 
-**Status:** open — claimed (GPU-class full-basis fit lane).
-
 **Status:** LANDED 2026-11-16 (zed-a081f5f1@amo) — the batched GPU lane compiles, unit-gated, parity-gated; the real-model full-basis run is the next cell (4090).
+
+## Real-model smoke record (2026-11-18, Bench 1240)
+
+The first REAL-model execution completed 2026-11-16 (smoke v3, job `01a1e22b-e4aa`, 4090): 9302.7 s/doc at docs=1/t=128/dim_batch=128, G3 pass=true — **structural only** (n_odd=0, the odd half empty at docs=1; parity needs ≥2 docs). Full record: `.benchmarks/1240_i1223_lens_gpu_smoke_v3_record.md`. The production read-level tolerance calibration this lane's acceptance names lands with the DECIDING run (docs=10, ~25.9 h, halves 5/5) — recorded against THIS issue when it completes.
 
 ## Landing record (2026-11-16)
 
