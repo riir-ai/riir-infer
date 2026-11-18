@@ -1,0 +1,35 @@
+# Issue 1236: gdn_rec decode — the chunked intra-chunk kernel lane (Metal twin of the chunked form, or a reduction-chain restructure)
+
+**Status:** OPEN — filed 2026-11-19 (zed-eb3b7571@amo). The lane is FILED, not claimed: its first cell needs an EXCLUSIVE GPU window (bmo preferred; 4090 has the cudarc prior). Entry is priced; the lane owns its own pre-registration before any build.
+
+## Why this lane exists (the priced entry, from two closed cells)
+
+- **Bench 1227** (the post-f16B census re-rank, promoted dist posture): gdn_rec = **32.42 ms/frame = 6.9% of the frame** — the top remaining kernel ground; FFN 54.9% belongs to the 1226 f16-B follow-ups (NOT here), attention 10.7% closed.
+- **Bench 1233** (the MR planes ladder re-scored with 16/32 + the serving chunk p=512, ×2 windows on bmo): **planes=8 stands at every serving shape** (1.448× at p=512, 1.514–1.516× at p=2048; planes=16 −3.6% and planes=32 −1.5% UNDER the 3% graduation bar) — **the rung-lever space above the promoted arm is EMPTY. The residue is kernel WORK**, not a rung flip: the chunked intra-chunk form (O(p²/d) parallel intra-chunk pass + inter-chunk carry) or a layout/fusion restructure of the reduction chain.
+
+## The two lever classes (either may file its own arms; both land here)
+
+1. **The chunked intra-chunk form** — the decode-side twin of the prefill lane's `RIIR_PREFILL_GDN_CHUNKED` class (CUDA, Ada-MMA-specific, promotion REFUSED — the banked defense, riir-ai Issue 971 watch): split the recurrent scan into chunks; a parallel intra-chunk pass (the O(p²/d) form) + a sequential inter-chunk carry. **On Metal this is a NEW kernel family** — the CUDA twin's refusal is the PRIOR TO BEAT, never a template: the banked defense (MMA bank conflicts on Ada) does not transfer to the AGX scheduler; the cell decides. No MMA assumption is imported: the intra-chunk pass may be plain-threadgroup parallel (the win there is the p²/d work split + shared-state reads, not tensor cores).
+2. **The reduction-chain restructure** — layout/fusion work INSIDE the existing MR kernel: state-layout for coalesced reduction reads, fusing the delta/beta computation into the scan pass (the prework-fused prefill precedent, Bench 937), or shrinking the per-launch fixed cost the probe's p=128 row exposed (1.231× at p128 vs 1.448× at p512 — the launch-fixed fraction is real).
+
+## Pre-registered gates (run in order; stop at the first demote)
+
+- [ ] **T0 — engagement + cost census of the CURRENT MR kernel at the serving posture** (bmo exclusive, the promoted dist feature set): per-launch fixed vs per-token slope decomposition of the 32.42 ms/frame at p=512 (the Bench-1218-class decomposition, applied to gdn_rec) — the split decides which lever class has the reachable headroom (a launch-fixed-dominated residue favors restructure/fusion; a per-token-slope-dominated residue favors the chunked form). Demote bar: if the per-token slope share is < 50% of the kernel wall, the chunked form's parallelism has nothing to amortize — record it and route the lane to the restructure class only.
+- [ ] **T1 — G1 harness FIRST (the kernel-recovery law):** extend `mr_is_bit_identical_to_multi_token` (and its G1 case set) to the new kernel family BEFORE any timing — a chunked/carry form is bit-identical to the sequential scan only under a PINNED fold order (Issue-940 law: the inter-chunk carry composes in scan order; the intra-chunk pass's reduction order pinned per arm). A tolerance-based parity is a FAIL by construction (sync-crossing reductions pin order, never bands).
+- [ ] **T2 — the prototype cell (isolated-kernel, the Bench-1233 instrument posture):** interleaved median-of-9 at p ∈ {128, 512, 2048}, vs the incumbent MR planes=8 arm. **Graduation bar (pre-registered): ≥ 3% kernel-isolated at the deciding shape p=512, two-run stable** — the same bar Bench 1233 used, so a pass graduates straight to the serving decider.
+- [ ] **T3 — serving decider (only on a T2 pass):** the paired Bench-937-class frame A/B at the promoted dist posture (the e2e wall, not kernel-isolated), G1 exact at the serving posture, the f16-B interaction check (the twin composes with the f16-B GEMM lane — both touch the frame). ≥ 1.5% e2e + G1 → GOAT lane via the `production` row; under → the lane closes measured-negative and the residue is priced DONE (gdn_rec leaves the census's remaining-ground list).
+- [ ] **T4 — records:** own numbered bench per cell; the 1167 lane row amended on any close (its "priced-CLOSED for rung work" note gains the outcome); promotion through the delegated-verdict flow under the 2026-11-11 gating decree.
+
+## Constraints
+
+- The serving chunk is **p=512 since the 1146 lane** — every bar reads at p=512; p=128/p=2048 rows are context, never a flip argument (Bench 1233's own discipline).
+- Zero serving change until T3 passes: the DEFAULT arm stays the incumbent MR planes=8 (index-pinned); the new form rides its own opt-in feature/env (PROMOTE-ONLY until any GOAT pass).
+- The CUDA prior (Bench 896: r8 lost to r4w4 on sm_89; the chunked prefill promotion REFUSED) is PRIOR, not verdict — Metal's scheduler is the open question this lane answers.
+- Model scope: Bonsai-2-27B PQ2_0 (the league posture the census priced); qwen3.8 rides only if the cell posture transfers for free.
+- Box: bmo exclusive preferred (amo held by the plan-019 T4p window through 2026-11-18/19; the census posture must be quiet — the Bench-1218/1233 exclusivity discipline).
+
+## Cross-references
+
+- [`.issues/1167_metal_prefill_followup_lane_b_c.md`](1167_metal_prefill_followup_lane_b_c.md) — the parent lane; its gdn_rec ground is hereby delegated HERE (this filing is the "files its own issue" act its close note names).
+- `.benchmarks/1233_i1167_gdnrec_price_cell.md` (the confirmatory close + the entry price), `.benchmarks/1227_i1167_postf16b_census_rerank.md` (the 6.9% share), `.benchmarks/937` (the frame A/B decider shape), Bench 995 (the fused-GDN decode rungs, opt-in — the fusion prior inside THIS crate).
+- riir-ai Issue 971 watch (the CUDA chunked promotion REFUSED bank) — the prior to beat.
