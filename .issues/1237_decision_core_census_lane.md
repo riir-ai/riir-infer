@@ -1,6 +1,6 @@
 # Issue 1237: Decision-core census lane over laya encoders (ACE application)
 
-**Status:** OPEN — fusion idea from katgpt-rs Research 683 (arXiv:2602.22600, Algorithmic Core Extraction); novelty TBD; GPU-window-gated at the large-checkpoint arm; claimable. **Producer LANDED 2026-11-19** (katgpt-rs Plan 640 DONE — `relevance_core` feature, `2d50c0f06` + `78f7433dd`; Bench 988 GOAT G0–G6 PASS on a planted nonlinear head) — this lane is UNBLOCKED; consume `katgpt_core::relevance_core::{accumulate_sens, extract_core_from_matrices}` (do not fork). Carry Bench 988's disclosed rule: the Cov sample budget scales with the largest variance ratio (mapped-back leak ∝ amplitude/√N) — use a large Cov sample or shrink the cross-block. Routed by katgpt-rs-57@m3 (unclaimed; heavy/large-checkpoint arm → amo/4090 via `agent-mail rig run`).
+**Status:** MEASURED 2026-11-19 — [Bench 1247](../.benchmarks/1247_i1237_decision_core_census.md): R1 relevance is rank-1 (≥99.3% energy) on all three checkpoints; typed LOW_DIM_CORE CLAIMED at r=1 (keep 0.999 vs PCA 0.197); english NOT CLAIMED (core ties PCA — the decision direction IS the top-variance direction); multilingual UNINFORMATIVE (99.5% one class on this suite); english↔typed AGREEMENT CLAIMED (cos² 0.951 = 974× random at r=1). Code landing GATED on this box's katgpt-rs working tree reaching `relevance_core` (see T-land).
 **Claimed:** katgpt-rs-93@amo, 1795103000, expires 2026-11-21T18:00:00Z
 
 **The idea.** The ACE extraction operator (balanced SVD of activation covariance and per-sample tail-Jacobian outer products — closed-form, label-free, f64) applied OFFLINE to the laya decision lane's encoders: per suite, extract the decision core at the encoder's readout layer, causally validate it through the decision head (keep/remove/flip — the keep/remove protocol already ships as katgpt-rs `subspace_intervention`), and measure cross-checkpoint core agreement (the paper's headline: necessary+sufficient cores recur across independently trained models, and a linear operator transfers across model families).
@@ -27,3 +27,11 @@
   - A low-dim core is claimed ⇔ SUFFICIENT at some r ≤ 32.
 - **(2) english vs typed:** mean cos² of the principal angles between the two cores at the english E0.90 rank (capped at 32), against the random baseline r/d. Agreement is claimed ⇔ ≥ 5× baseline. Caveat disclosed: separately fine-tuned heads share coordinates only through the common ModernBERT-large init.
 - **(3) transport:** deferred (needs a second paired family).
+
+## Tasks
+
+- [x] **T1 — R1 census** (pre-registered above): Bench 1247, job `901d28cb`.
+- [ ] **T-land — commit the census code** (`.benchmarks/1247_i1237_decision_core_census_logs/code_at_measurement.patch`, applies clean at `15954292`'s tree). It needs `katgpt-core` with `relevance_core` at `../katgpt-rs`: cargo validates `katgpt-core/relevance_core` at resolution, so landing early breaks every riir-infer build on a stale katgpt-rs checkout. amo's katgpt-rs is 23 commits behind (blocked by uncommitted `.agents/skills/{boundary-guard,doc-sync}/SKILL.md` WIP that conflicts with upstream). Unblock: that WIP is committed or reconciled, then `git apply` + clippy + commit.
+- [ ] **T-R0 — the encoder-output readout** (through the two head layers, finite differences): the deeper read R1 cannot give.
+- [ ] **T-ml — a balanced multilingual suite** so multilingual sufficiency becomes decidable.
+- [-] **(3) transport** — deferred (needs a second paired family).

@@ -1,0 +1,131 @@
+{
+  "issue": 1237,
+  "readout": "R1 scorer-input marker rows (analytic Jacobian)",
+  "checkpoint": "multilingual",
+  "device": "metal",
+  "d": 768,
+  "suite": "/Users/katopz/git/riir-reflex/tests/fixtures/tetris_oracle_laya_en_v4.jsonl",
+  "suite_blake3": "18e6b2604a2f01433a5f7d860b7c98009fa1f41ad75be5c35ee251717ac52903",
+  "records": 200,
+  "fit_records": 100,
+  "fit_rows": 4604,
+  "eval_forwards": 2302,
+  "cov_rows_over_d": 5.994791666666667,
+  "fidelity_max_abs_logit": 7.188963286886008e-7,
+  "eval_base_true_rate": 0.005212858384013901,
+  "r_energy_090": 1,
+  "r_max": 64,
+  "core_gap_ratio_at_rmax": 1.012159573917395,
+  "core_participation_ratio": 1.0015223026275635,
+  "energy_share_top": [
+    {
+      "r": 1,
+      "share": 0.9992394460866032
+    },
+    {
+      "r": 2,
+      "share": 0.9999999813809005
+    },
+    {
+      "r": 4,
+      "share": 0.9999999998541499
+    },
+    {
+      "r": 8,
+      "share": 0.9999999999997512
+    },
+    {
+      "r": 16,
+      "share": 0.9999999999999931
+    },
+    {
+      "r": 32,
+      "share": 1.0
+    },
+    {
+      "r": 64,
+      "share": 1.0
+    }
+  ],
+  "forward_secs": 29.664822625,
+  "table": [
+    {
+      "r": 1,
+      "core_keep_retention": 0.9969591659426585,
+      "core_remove_flip": 0.8814074717636837,
+      "pca_keep_retention": 0.9969591659426585,
+      "pca_remove_flip": 0.8553431798436143,
+      "random_keep_retention": 0.9947871416159861,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    },
+    {
+      "r": 2,
+      "core_keep_retention": 1.0,
+      "core_remove_flip": 0.4456993918331885,
+      "pca_keep_retention": 1.0,
+      "pca_remove_flip": 0.44439617723718505,
+      "random_keep_retention": 0.9947871416159861,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    },
+    {
+      "r": 4,
+      "core_keep_retention": 1.0,
+      "core_remove_flip": 0.46568201563857514,
+      "pca_keep_retention": 1.0,
+      "pca_remove_flip": 0.4852302345786273,
+      "random_keep_retention": 0.996524761077324,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    },
+    {
+      "r": 8,
+      "core_keep_retention": 1.0,
+      "core_remove_flip": 0.4105125977410947,
+      "pca_keep_retention": 1.0,
+      "pca_remove_flip": 0.46090356211989575,
+      "random_keep_retention": 0.9969591659426585,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    },
+    {
+      "r": 16,
+      "core_keep_retention": 1.0,
+      "core_remove_flip": 0.6294526498696785,
+      "pca_keep_retention": 1.0,
+      "pca_remove_flip": 0.523892267593397,
+      "random_keep_retention": 0.9991311902693311,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    },
+    {
+      "r": 32,
+      "core_keep_retention": 1.0,
+      "core_remove_flip": 0.7966985230234579,
+      "pca_keep_retention": 1.0,
+      "pca_remove_flip": 0.8192875760208514,
+      "random_keep_retention": 0.9969591659426585,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    },
+    {
+      "r": 64,
+      "core_keep_retention": 1.0,
+      "core_remove_flip": 0.6138140747176368,
+      "pca_keep_retention": 1.0,
+      "pca_remove_flip": 0.6264118158123371,
+      "random_keep_retention": 0.9995655951346655,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    }
+  ],
+  "LOW_DIM_CORE": false
+}

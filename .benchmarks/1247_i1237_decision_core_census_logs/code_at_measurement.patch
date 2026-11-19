@@ -1,0 +1,761 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 87767b8f..d4467a8f 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -3703,6 +3703,7 @@ dependencies = [
+  "blake3",
+  "cudarc",
+  "gemm",
++ "katgpt-core",
+  "libm",
+  "metal",
+  "objc2",
+diff --git a/crates/riir-infer-laya/Cargo.toml b/crates/riir-infer-laya/Cargo.toml
+index 49324cc8..00fd9061 100644
+--- a/crates/riir-infer-laya/Cargo.toml
++++ b/crates/riir-infer-laya/Cargo.toml
+@@ -84,6 +84,12 @@ objc2 = { version = "0.6", optional = true }
+ # every non-macOS host (the host compiles to a documented stub there).
+ riir-infer-ane = { path = "../riir-infer-ane", optional = true }
+ 
++# Issue 1237 — the ACE extraction primitive (katgpt-rs Plan 640
++# `relevance_core`) + the subspace-intervention basis helpers, consumed by
++# the decision-core census bin only. Public upstream (BOUNDARY allowlist);
++# default features off so the lane pulls nothing else.
++katgpt-core = { path = "../../../katgpt-rs/crates/katgpt-core", default-features = false, optional = true }
++
+ # ── non-macOS: the CUDA backend (`laya-riir-cuda`, .issues/002) ──────────
+ # cudarc 0.19 with driver + nvrtc ONLY (no cublas, no runtime) — the lane
+ # compiles its own CUDA C source to PTX at backend construction
+@@ -139,6 +145,12 @@ laya-riir-cubecl = ["laya-riir", "dep:riir-infer-gpu"]
+ # core is pure integer std).
+ int_ref = ["laya-riir"]
+ 
++# Issue 1237 — the decision-core census (ACE over the head's scorer-input
++# marker rows): OFFLINE, once-per-checkpoint, never a serving path. The
++# `laya-decision-core-census` bin; `--features laya-riir-metal` beside it
++# runs the forwards on Metal.
++decision_core_census = ["laya-riir", "dep:katgpt-core", "katgpt-core/relevance_core"]
++
+ # Issue 022 (TWT phase collapse) — the residual-state capture hook
+ # (`Encoder::forward_capture`). No deps: pure compile gating of a
+ # debug-only forward variant (one `download_into` per layer — device
+@@ -156,6 +168,11 @@ name = "laya-quant8"
+ path = "src/bin/laya_quant8.rs"
+ required-features = ["laya-riir"]
+ 
++[[bin]]
++name = "laya-decision-core-census"
++path = "src/bin/laya_decision_core_census.rs"
++required-features = ["decision_core_census"]
++
+ [[bin]]
+ name = "laya-quant4"
+ path = "src/bin/laya_quant4.rs"
+diff --git a/crates/riir-infer-laya/src/laya/riir/mod.rs b/crates/riir-infer-laya/src/laya/riir/mod.rs
+index a2f8058e..49746f67 100644
+--- a/crates/riir-infer-laya/src/laya/riir/mod.rs
++++ b/crates/riir-infer-laya/src/laya/riir/mod.rs
+@@ -44,6 +44,9 @@
+ pub mod agent;
+ pub mod backend;
+ pub mod blocked_artifact;
++// Issue 1237 — the decision-core census math (offline, R1 readout).
++#[cfg(feature = "decision_core_census")]
++pub mod decision_core;
+ pub mod encoder;
+ pub mod fake_quant;
+ pub mod head;
+diff --git a/crates/riir-infer-laya/src/laya/riir/decision_core.rs b/crates/riir-infer-laya/src/laya/riir/decision_core.rs
+new file mode 100644
+index 00000000..68947c62
+--- /dev/null
++++ b/crates/riir-infer-laya/src/laya/riir/decision_core.rs
+@@ -0,0 +1,264 @@
++//! Issue 1237 — the decision-core census math (R1 readout: the scorer-input
++//! marker rows).
++//!
++//! The ACE extraction itself is katgpt-core's `relevance_core` (consumed,
++//! never forked). This module owns only what is laya-specific:
++//!
++//! - [`Scorer64`] — the head's scorer (`LN → Linear(d,d) → GELU(erf) →
++//!   Linear(d,1)`) re-expressed in f64 with its ANALYTIC input gradient, so
++//!   the relevance moment `S = Σ ∇logit ∇logitᵀ` needs no finite
++//!   differences;
++//! - [`CoreProjector`] — the mean-ablation keep / remove projections the
++//!   causal reads apply to marker rows.
++//!
++//! Offline census only (`O(d²)` per row) — never a serving path.
++
++use crate::laya::riir::head::ScorerTensors;
++
++/// The scorer in f64 with its input gradient. Weights widened once.
++pub struct Scorer64 {
++    d: usize,
++    eps: f64,
++    s0w: Vec<f64>,
++    s0b: Vec<f64>,
++    /// `[d_out, d_in]` row-major (torch `Linear.weight`; `y = W x`).
++    s1w: Vec<f64>,
++    s1b: Vec<f64>,
++    s3w: Vec<f64>,
++    s3b: f64,
++}
++
++/// Per-call buffers for [`Scorer64`] (allocated once per `d`).
++pub struct ScorerScratch {
++    xhat: Vec<f64>,
++    y: Vec<f64>,
++    z: Vec<f64>,
++    dz: Vec<f64>,
++    u: Vec<f64>,
++}
++
++impl ScorerScratch {
++    pub fn new(d: usize) -> Self {
++        Self {
++            xhat: vec![0.0; d],
++            y: vec![0.0; d],
++            z: vec![0.0; d],
++            dz: vec![0.0; d],
++            u: vec![0.0; d],
++        }
++    }
++}
++
++const INV_SQRT2: f64 = std::f64::consts::FRAC_1_SQRT_2;
++/// `1/√(2π)`.
++const INV_SQRT_2PI: f64 = 0.398_942_280_401_432_7;
++
++fn widen(v: &[f32]) -> Vec<f64> {
++    v.iter().map(|&x| f64::from(x)).collect()
++}
++
++impl Scorer64 {
++    pub fn new(t: &ScorerTensors) -> Self {
++        let d = t.d;
++        assert_eq!(t.s1w.len(), d * d, "scorer.1 is [d, d]");
++        assert_eq!(t.s3w.len(), d, "scorer.3 is [1, d]");
++        Self {
++            d,
++            eps: f64::from(t.eps),
++            s0w: widen(&t.s0w),
++            s0b: widen(&t.s0b),
++            s1w: widen(&t.s1w),
++            s1b: widen(&t.s1b),
++            s3w: widen(&t.s3w),
++            s3b: f64::from(t.s3b[0]),
++        }
++    }
++
++    pub fn dim(&self) -> usize {
++        self.d
++    }
++
++    /// The forward through `z` (shared by [`Self::logit`] and
++    /// [`Self::logit_grad`]); returns `1/σ`.
++    fn forward_z(&self, h: &[f64], sc: &mut ScorerScratch) -> f64 {
++        let d = self.d;
++        let mean = h.iter().sum::<f64>() / d as f64;
++        let var = h.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / d as f64;
++        let inv_sigma = 1.0 / (var + self.eps).sqrt();
++        for (i, &hi) in h.iter().enumerate().take(d) {
++            sc.xhat[i] = (hi - mean) * inv_sigma;
++            sc.y[i] = sc.xhat[i] * self.s0w[i] + self.s0b[i];
++        }
++        for o in 0..d {
++            let row = &self.s1w[o * d..(o + 1) * d];
++            sc.z[o] = self.s1b[o] + row.iter().zip(&sc.y).map(|(w, y)| w * y).sum::<f64>();
++        }
++        inv_sigma
++    }
++
++    fn head_logit(&self, z: &[f64]) -> f64 {
++        let mut acc = self.s3b;
++        for (w, &zi) in self.s3w.iter().zip(z) {
++            acc += w * 0.5 * zi * (1.0 + libm::erf(zi * INV_SQRT2));
++        }
++        acc
++    }
++
++    /// The scorer logit of one marker row.
++    pub fn logit(&self, h: &[f64], sc: &mut ScorerScratch) -> f64 {
++        self.forward_z(h, sc);
++        self.head_logit(&sc.z)
++    }
++
++    /// The logit and `∂logit/∂h` (written into `grad`).
++    pub fn logit_grad(&self, h: &[f64], grad: &mut [f64], sc: &mut ScorerScratch) -> f64 {
++        let d = self.d;
++        let inv_sigma = self.forward_z(h, sc);
++        let logit = self.head_logit(&sc.z);
++        // dz = w3 ⊙ gelu'(z), gelu'(z) = Φ(z) + z φ(z).
++        for o in 0..d {
++            let z = sc.z[o];
++            let cdf = 0.5 * (1.0 + libm::erf(z * INV_SQRT2));
++            let pdf = INV_SQRT_2PI * (-0.5 * z * z).exp();
++            sc.dz[o] = self.s3w[o] * (cdf + z * pdf);
++        }
++        // dy = W1ᵀ dz; u = dy ⊙ w0.
++        sc.u.fill(0.0);
++        for o in 0..d {
++            let g = sc.dz[o];
++            if g == 0.0 {
++                continue;
++            }
++            let row = &self.s1w[o * d..(o + 1) * d];
++            for (u, w) in sc.u.iter_mut().zip(row) {
++                *u += w * g;
++            }
++        }
++        for i in 0..d {
++            sc.u[i] *= self.s0w[i];
++        }
++        // LayerNorm backward: (u − mean(u) − x̂·mean(u⊙x̂)) / σ.
++        let mu = sc.u.iter().sum::<f64>() / d as f64;
++        let mux = sc.u.iter().zip(&sc.xhat).map(|(a, b)| a * b).sum::<f64>() / d as f64;
++        for ((g, u), x) in grad.iter_mut().zip(&sc.u).zip(&sc.xhat) {
++            *g = (u - mu - x * mux) * inv_sigma;
++        }
++        logit
++    }
++}
++
++/// Mean-ablation projections onto / off an orthonormal core `Q` (`r × d`
++/// row-major): keep `μ + QᵀQ(h−μ)`, remove `h − QᵀQ(h−μ)`.
++pub struct CoreProjector<'a> {
++    pub mean: &'a [f64],
++    pub q: &'a [f64],
++    pub r: usize,
++}
++
++impl CoreProjector<'_> {
++    /// Writes the in-core component `QᵀQ(h−μ)` into `out`.
++    fn in_core(&self, h: &[f64], out: &mut [f64]) {
++        let d = self.mean.len();
++        out.fill(0.0);
++        for k in 0..self.r {
++            let qk = &self.q[k * d..(k + 1) * d];
++            let c: f64 = (0..d).map(|i| qk[i] * (h[i] - self.mean[i])).sum();
++            for i in 0..d {
++                out[i] += c * qk[i];
++            }
++        }
++    }
++
++    pub fn keep(&self, h: &[f64], out: &mut [f64]) {
++        self.in_core(h, out);
++        for (o, m) in out.iter_mut().zip(self.mean) {
++            *o += m;
++        }
++    }
++
++    pub fn remove(&self, h: &[f64], out: &mut [f64]) {
++        self.in_core(h, out);
++        for (o, x) in out.iter_mut().zip(h) {
++            *o = x - *o;
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn lcg(seed: &mut u64) -> f32 {
++        *seed = seed
++            .wrapping_mul(6_364_136_223_846_793_005)
++            .wrapping_add(1_442_695_040_888_963_407);
++        ((*seed >> 33) as f32 / (1u64 << 31) as f32) - 0.5
++    }
++
++    fn toy(d: usize) -> Scorer64 {
++        let mut s = 7u64;
++        let mut v = |n: usize| (0..n).map(|_| lcg(&mut s)).collect::<Vec<f32>>();
++        Scorer64::new(&ScorerTensors {
++            s0w: v(d).iter().map(|x| 1.0 + x).collect(),
++            s0b: v(d),
++            s1w: v(d * d),
++            s1b: v(d),
++            s3w: v(d),
++            s3b: vec![0.1],
++            d,
++            eps: 1e-5,
++        })
++    }
++
++    /// The analytic gradient matches central finite differences.
++    #[test]
++    fn grad_matches_finite_difference() {
++        let d = 24;
++        let sc64 = toy(d);
++        let mut sc = ScorerScratch::new(d);
++        let mut seed = 99u64;
++        let h: Vec<f64> = (0..d).map(|_| f64::from(lcg(&mut seed)) * 3.0).collect();
++        let mut g = vec![0.0; d];
++        sc64.logit_grad(&h, &mut g, &mut sc);
++        let eps = 1e-6;
++        for i in 0..d {
++            let (mut hp, mut hm) = (h.clone(), h.clone());
++            hp[i] += eps;
++            hm[i] -= eps;
++            let fd = (sc64.logit(&hp, &mut sc) - sc64.logit(&hm, &mut sc)) / (2.0 * eps);
++            assert!(
++                (fd - g[i]).abs() < 1e-6 * (1.0 + fd.abs()),
++                "i {i}: fd {fd} vs {}",
++                g[i]
++            );
++        }
++    }
++
++    /// keep + remove reconstruct `h + μ`; a full-rank core keeps `h`.
++    #[test]
++    fn projector_identities() {
++        let d = 3;
++        let mean = [1.0, -1.0, 0.5];
++        let q = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
++        let h = [2.0, 3.0, -4.0];
++        let (mut k, mut rm) = ([0.0; 3], [0.0; 3]);
++        let p = CoreProjector {
++            mean: &mean,
++            q: &q,
++            r: 1,
++        };
++        p.keep(&h, &mut k);
++        p.remove(&h, &mut rm);
++        assert_eq!(k, [2.0, -1.0, 0.5]);
++        for i in 0..d {
++            assert!((k[i] + rm[i] - h[i] - mean[i]).abs() < 1e-12);
++        }
++        let full = CoreProjector {
++            mean: &mean,
++            q: &q,
++            r: 3,
++        };
++        full.keep(&h, &mut k);
++        assert_eq!(k, h);
++    }
++}
+diff --git a/crates/riir-infer-laya/src/bin/laya_decision_core_census.rs b/crates/riir-infer-laya/src/bin/laya_decision_core_census.rs
+new file mode 100644
+index 00000000..b4a4ad5f
+--- /dev/null
++++ b/crates/riir-infer-laya/src/bin/laya_decision_core_census.rs
+@@ -0,0 +1,417 @@
++//! Issue 1237 — the decision-core census over a laya checkpoint (ACE at the
++//! R1 readout: the head's scorer-input marker rows).
++//!
++//! ```sh
++//! cargo run --release -p riir-infer-laya --features decision_core_census,laya-riir-metal \
++//!   --bin laya-decision-core-census -- census --suite <tetris_v4.jsonl> \
++//!   --checkpoint english --records 200 --out <dir>
++//! cargo run ... -- compare --a <dir>/english_core.f64 --b <dir>/typed_core.f64 --r 32
++//! ```
++//!
++//! `census` (the pre-registration in `.issues/1237`): every option of the first
++//! `--records` suite records runs the oracle's `noul` forward
++//! (`<state_sentence>\n<option sentence>`); the two marker rows (false, true)
++//! are the samples, the decision is `sign(l_true − l_false)`. Records
++//! `[0, n/2)` FIT (Cov + the analytic relevance moment), `[n/2, n)` EVALUATE
++//! the causal keep/remove reads against the PCA (`S = I`, relevance_core's
++//! documented positive control) and seeded-random controls at every rank.
++//! Writes `<ckpt>_report.json` + `<ckpt>_core.f64` (r_max × d, LE f64).
++//!
++//! `compare`: principal-angle basis similarity of two cores at rank `r`
++//! against the random baseline `r/d`.
++
++use std::path::{Path, PathBuf};
++
++use katgpt_core::relevance_core::{
++    CoreScratch, RankRule, accumulate_sens, core_rank_energy, extract_core_from_matrices,
++};
++use katgpt_core::subspace_intervention::{basis_similarity, random_basis_into};
++use riir_infer_laya::laya::config::Checkpoint;
++use riir_infer_laya::laya::riir::RiirAgent;
++use riir_infer_laya::laya::riir::decision_core::{CoreProjector, Scorer64, ScorerScratch};
++use riir_infer_laya::laya::weights::weights_root;
++use serde_json::{Value, json};
++
++const RANKS: [usize; 7] = [1, 2, 4, 8, 16, 32, 64];
++const ENERGY: f64 = 0.90;
++const RANDOM_SEED: u64 = 0x1237_ACE0;
++/// Fidelity gate: forwards whose raw lane logits are compared to
++/// [`Scorer64`] (f64 re-expression of the same scorer).
++const FIDELITY_FORWARDS: usize = 32;
++const FIDELITY_TOL: f64 = 1e-3;
++
++fn die(msg: &str) -> ! {
++    eprintln!("laya-decision-core-census: {msg}");
++    std::process::exit(2);
++}
++
++fn arg(args: &[String], key: &str) -> Option<String> {
++    args.iter()
++        .position(|a| a == key)
++        .and_then(|i| args.get(i + 1).cloned())
++}
++
++fn checkpoint(name: &str) -> Checkpoint {
++    match name {
++        "english" => Checkpoint::English,
++        "typed" | "typed-decisions" => Checkpoint::TypedDecisions,
++        "multilingual" => Checkpoint::Multilingual,
++        other => die(&format!("unknown checkpoint {other:?}")),
++    }
++}
++
++/// One forward's samples: the two marker rows (false, true), its record.
++struct Sample {
++    record: usize,
++    rows: [Vec<f64>; 2],
++}
++
++fn main() {
++    let args: Vec<String> = std::env::args().skip(1).collect();
++    match args.first().map(String::as_str) {
++        Some("census") => census(&args),
++        Some("compare") => compare(&args),
++        _ => die(
++            "usage: census --suite P --checkpoint C --records N --out DIR | compare --a F --b F --r R",
++        ),
++    }
++}
++
++fn census(args: &[String]) {
++    let suite = arg(args, "--suite").unwrap_or_else(|| die("--suite required"));
++    let ckpt_name = arg(args, "--checkpoint").unwrap_or_else(|| "english".into());
++    let n_records: usize = arg(args, "--records").map_or(200, |v| v.parse().expect("--records"));
++    let out = PathBuf::from(arg(args, "--out").unwrap_or_else(|| die("--out required")));
++    std::fs::create_dir_all(&out).expect("create --out");
++
++    let text = std::fs::read_to_string(&suite).expect("read suite");
++    let suite_blake3 = blake3::hash(text.as_bytes()).to_hex().to_string();
++    let records: Vec<Value> = text
++        .lines()
++        .map(|l| serde_json::from_str(l).expect("suite JSONL"))
++        .filter(|r: &Value| r["state_id"] != "_meta")
++        .take(n_records)
++        .collect();
++    if records.len() < 2 {
++        die("suite has fewer than 2 records");
++    }
++    let fit_end = records.len() / 2;
++
++    let agent = RiirAgent::load(&weights_root(), checkpoint(&ckpt_name))
++        .unwrap_or_else(|e| die(&format!("load {ckpt_name}: {e}")));
++    let scorer = Scorer64::new(&agent.scorer_tensors());
++    let d = scorer.dim();
++    let mut ssc = ScorerScratch::new(d);
++    eprintln!(
++        "loaded {ckpt_name} (d {d}, device {}); {} records, fit [0,{fit_end})",
++        agent.device(),
++        records.len()
++    );
++
++    // ── Forwards ────────────────────────────────────────────────────────
++    let t0 = std::time::Instant::now();
++    let mut samples: Vec<Sample> = Vec::new();
++    let mut fidelity_max = 0.0f64;
++    for (ri, rec) in records.iter().enumerate() {
++        let question = rec["question"].as_str().expect("question");
++        let state_line = rec["state_sentence"].as_str();
++        let qdef = json!({"type": "noul", "instructions": question, "criteria": null});
++        for opt in rec["options"].as_array().expect("options") {
++            let sentence = opt["sentence"].as_str().expect("sentence");
++            let payload = Value::String(match state_line {
++                Some(s) => format!("{s}\n{sentence}"),
++                None => sentence.to_string(),
++            });
++            let enc = agent
++                .encode_question(&payload, &qdef)
++                .unwrap_or_else(|e| die(&format!("encode: {e}")));
++            if enc.markers.len() != 2 {
++                die("noul forward must carry exactly two markers");
++            }
++            let rows = [
++                enc.marker_rows[..d]
++                    .iter()
++                    .map(|&x| f64::from(x))
++                    .collect::<Vec<_>>(),
++                enc.marker_rows[d..2 * d]
++                    .iter()
++                    .map(|&x| f64::from(x))
++                    .collect(),
++            ];
++            if samples.len() < FIDELITY_FORWARDS {
++                let fwd = agent
++                    .forward_question(&payload, &qdef)
++                    .unwrap_or_else(|e| die(&format!("forward: {e}")));
++                for (m, row) in rows.iter().enumerate() {
++                    let l = scorer.logit(row, &mut ssc);
++                    fidelity_max = fidelity_max.max((l - f64::from(fwd.logits[m])).abs());
++                }
++            }
++            samples.push(Sample { record: ri, rows });
++        }
++        if ri % 25 == 0 {
++            eprintln!(
++                "  record {ri}: {} forwards, {:.1}s",
++                samples.len(),
++                t0.elapsed().as_secs_f64()
++            );
++        }
++    }
++    let forward_secs = t0.elapsed().as_secs_f64();
++    if fidelity_max > FIDELITY_TOL {
++        die(&format!(
++            "fidelity gate FAILED: Scorer64 vs lane logits max |Δ| {fidelity_max:.3e} > {FIDELITY_TOL:e}"
++        ));
++    }
++    let (fit, eval): (Vec<&Sample>, Vec<&Sample>) =
++        samples.iter().partition(|s| s.record < fit_end);
++    let n_fit_rows = 2 * fit.len();
++
++    // ── Fit: mean, Cov, relevance moment ───────────────────────────────
++    let mut mean = vec![0.0; d];
++    for s in &fit {
++        for row in &s.rows {
++            for (m, x) in mean.iter_mut().zip(row) {
++                *m += x;
++            }
++        }
++    }
++    mean.iter_mut().for_each(|m| *m /= n_fit_rows as f64);
++    let mut cov = vec![0.0; d * d];
++    let mut sens = vec![0.0; d * d];
++    let mut n_seen = 0u64;
++    let mut centered = vec![0.0; d];
++    let mut grad = vec![0.0; d];
++    for s in &fit {
++        for row in &s.rows {
++            for i in 0..d {
++                centered[i] = row[i] - mean[i];
++            }
++            for i in 0..d {
++                let ci = centered[i];
++                for k in i..d {
++                    cov[i * d + k] += ci * centered[k];
++                }
++            }
++            scorer.logit_grad(row, &mut grad, &mut ssc);
++            accumulate_sens(&mut sens, d, &grad, &mut n_seen).expect("accumulate_sens");
++        }
++    }
++    for i in 0..d {
++        for k in i..d {
++            let v = cov[i * d + k] / n_fit_rows as f64;
++            cov[i * d + k] = v;
++            cov[k * d + i] = v;
++        }
++    }
++
++    // ── Extract: ACE core, PCA control (S = I), random control ─────────
++    let mut scratch = CoreScratch::new(d);
++    let mut energies = vec![0.0; d];
++    let mut q_probe = vec![0.0; d * d];
++    extract_core_from_matrices(
++        &cov,
++        &sens,
++        d,
++        RankRule::Fixed(1),
++        &mut q_probe,
++        &mut energies,
++        &mut scratch,
++    )
++    .unwrap_or_else(|e| die(&format!("extract (spectrum): {e}")));
++    let r_energy = core_rank_energy(&energies, ENERGY);
++    let r_max = r_energy.max(*RANKS.last().unwrap()).min(d);
++    let mut q_core = vec![0.0; r_max * d];
++    let core = extract_core_from_matrices(
++        &cov,
++        &sens,
++        d,
++        RankRule::Fixed(r_max),
++        &mut q_core,
++        &mut energies,
++        &mut scratch,
++    )
++    .unwrap_or_else(|e| die(&format!("extract core: {e}")));
++    let mut ident = vec![0.0; d * d];
++    (0..d).for_each(|i| ident[i * d + i] = 1.0);
++    let mut q_pca = vec![0.0; r_max * d];
++    let mut pca_energies = vec![0.0; d];
++    extract_core_from_matrices(
++        &cov,
++        &ident,
++        d,
++        RankRule::Fixed(r_max),
++        &mut q_pca,
++        &mut pca_energies,
++        &mut scratch,
++    )
++    .unwrap_or_else(|e| die(&format!("extract pca: {e}")));
++    let mut rnd32 = vec![0.0f32; r_max * d];
++    random_basis_into(&mut rnd32, d, RANDOM_SEED);
++    let q_rand: Vec<f64> = rnd32.iter().map(|&x| f64::from(x)).collect();
++
++    // ── Causal reads on the held-out half ──────────────────────────────
++    let decision = |rows: &[&[f64]; 2], sc: &mut ScorerScratch| -> bool {
++        scorer.logit(rows[1], sc) > scorer.logit(rows[0], sc)
++    };
++    let base: Vec<bool> = eval
++        .iter()
++        .map(|s| decision(&[&s.rows[0], &s.rows[1]], &mut ssc))
++        .collect();
++    let base_true_rate = base.iter().filter(|&&b| b).count() as f64 / base.len().max(1) as f64;
++
++    let mut ranks: Vec<usize> = RANKS.iter().copied().filter(|&r| r <= r_max).collect();
++    if !ranks.contains(&r_energy) {
++        ranks.push(r_energy);
++        ranks.sort_unstable();
++    }
++    let arms: [(&str, &[f64]); 3] = [("core", &q_core), ("pca", &q_pca), ("random", &q_rand)];
++    let threads = std::thread::available_parallelism().map_or(8, |n| n.get());
++    let mut table = Vec::new();
++    for &r in &ranks {
++        let mut row = serde_json::Map::new();
++        row.insert("r".into(), json!(r));
++        for (name, q) in arms {
++            let p = CoreProjector { mean: &mean, q, r };
++            let (keep_agree, remove_flip) = eval_arm(&eval, &base, &p, &scorer, d, threads);
++            row.insert(format!("{name}_keep_retention"), json!(keep_agree));
++            row.insert(format!("{name}_remove_flip"), json!(remove_flip));
++        }
++        let get = |k: &str| row[k].as_f64().unwrap();
++        let sufficient = get("core_keep_retention") >= 0.95
++            && get("core_keep_retention") > get("pca_keep_retention")
++            && get("core_keep_retention") > get("random_keep_retention");
++        let necessary = get("core_remove_flip") >= 0.25
++            && get("core_remove_flip") >= 2.0 * get("random_remove_flip");
++        row.insert("SUFFICIENT".into(), json!(sufficient));
++        row.insert("NECESSARY".into(), json!(necessary));
++        eprintln!("  r {r:4}: {}", Value::Object(row.clone()));
++        table.push(Value::Object(row));
++    }
++    let low_dim_core = table
++        .iter()
++        .any(|r| r["SUFFICIENT"] == true && r["r"].as_u64().unwrap() <= 32);
++
++    // ── Persist ─────────────────────────────────────────────────────────
++    let core_path = out.join(format!("{ckpt_name}_core.f64"));
++    let bytes: Vec<u8> = q_core.iter().flat_map(|v| v.to_le_bytes()).collect();
++    std::fs::write(&core_path, &bytes).expect("write core");
++    let total_e: f64 = energies.iter().map(|e: &f64| e.max(0.0)).sum();
++    let report = json!({
++        "issue": 1237,
++        "readout": "R1 scorer-input marker rows (analytic Jacobian)",
++        "checkpoint": ckpt_name,
++        "device": agent.device(),
++        "d": d,
++        "suite": suite,
++        "suite_blake3": suite_blake3,
++        "records": records.len(),
++        "fit_records": fit_end,
++        "fit_rows": n_fit_rows,
++        "eval_forwards": eval.len(),
++        "cov_rows_over_d": n_fit_rows as f64 / d as f64,
++        "fidelity_max_abs_logit": fidelity_max,
++        "eval_base_true_rate": base_true_rate,
++        "r_energy_090": r_energy,
++        "r_max": r_max,
++        "core_gap_ratio_at_rmax": core.gap_ratio,
++        "core_participation_ratio": core.participation_ratio,
++        "energy_share_top": RANKS.iter().map(|&r| {
++            let s: f64 = energies.iter().take(r).map(|e: &f64| e.max(0.0)).sum();
++            json!({"r": r, "share": s / total_e})
++        }).collect::<Vec<_>>(),
++        "forward_secs": forward_secs,
++        "table": table,
++        "LOW_DIM_CORE": low_dim_core,
++    });
++    let report_path = out.join(format!("{ckpt_name}_report.json"));
++    std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap())
++        .expect("write report");
++    println!(
++        "{}",
++        serde_json::to_string(&json!({
++            "checkpoint": ckpt_name, "r_energy_090": r_energy, "LOW_DIM_CORE": low_dim_core,
++            "fidelity_max_abs_logit": fidelity_max, "report": report_path,
++        }))
++        .unwrap()
++    );
++}
++
++/// `(keep-retention, remove-flip)` of one projector over the eval forwards,
++/// threaded by contiguous chunks (per-thread scratch; order-free counts).
++fn eval_arm(
++    eval: &[&Sample],
++    base: &[bool],
++    p: &CoreProjector<'_>,
++    scorer: &Scorer64,
++    d: usize,
++    threads: usize,
++) -> (f64, f64) {
++    let chunk = eval.len().div_ceil(threads).max(1);
++    let (keep, flip) = std::thread::scope(|s| {
++        let handles: Vec<_> = eval
++            .chunks(chunk)
++            .zip(base.chunks(chunk))
++            .map(|(es, bs)| {
++                s.spawn(move || {
++                    let mut sc = ScorerScratch::new(d);
++                    let mut buf = [vec![0.0; d], vec![0.0; d]];
++                    let (mut keep, mut flip) = (0usize, 0usize);
++                    for (smp, &b) in es.iter().zip(bs) {
++                        for (row, out) in smp.rows.iter().zip(buf.iter_mut()) {
++                            p.keep(row, out);
++                        }
++                        let kd = scorer.logit(&buf[1], &mut sc) > scorer.logit(&buf[0], &mut sc);
++                        keep += usize::from(kd == b);
++                        for (row, out) in smp.rows.iter().zip(buf.iter_mut()) {
++                            p.remove(row, out);
++                        }
++                        let rd = scorer.logit(&buf[1], &mut sc) > scorer.logit(&buf[0], &mut sc);
++                        flip += usize::from(rd != b);
++                    }
++                    (keep, flip)
++                })
++            })
++            .collect();
++        handles
++            .into_iter()
++            .map(|h| h.join().expect("eval thread"))
++            .fold((0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
++    });
++    let n = eval.len().max(1) as f64;
++    (keep as f64 / n, flip as f64 / n)
++}
++
++fn read_core(path: &Path, d: usize) -> Vec<f64> {
++    let bytes =
++        std::fs::read(path).unwrap_or_else(|e| die(&format!("read {}: {e}", path.display())));
++    let (words, _) = bytes.as_chunks::<8>();
++    let v: Vec<f64> = words.iter().map(|c| f64::from_le_bytes(*c)).collect();
++    if !v.len().is_multiple_of(d) {
++        die("core file length is not a multiple of d");
++    }
++    v
++}
++
++fn compare(args: &[String]) {
++    let a = PathBuf::from(arg(args, "--a").unwrap_or_else(|| die("--a required")));
++    let b = PathBuf::from(arg(args, "--b").unwrap_or_else(|| die("--b required")));
++    let d: usize = arg(args, "--d").map_or(1024, |v| v.parse().expect("--d"));
++    let r: usize = arg(args, "--r").map_or(32, |v| v.parse().expect("--r"));
++    let (qa, qb) = (read_core(&a, d), read_core(&b, d));
++    if qa.len() < r * d || qb.len() < r * d {
++        die("a core holds fewer than r rows");
++    }
++    let to32 = |q: &[f64]| q[..r * d].iter().map(|&x| x as f32).collect::<Vec<f32>>();
++    let sim = f64::from(basis_similarity(&to32(&qa), &to32(&qb), d));
++    let baseline = r as f64 / d as f64;
++    let ratio = sim / baseline;
++    println!(
++        "{}",
++        serde_json::to_string(&json!({
++            "r": r, "d": d, "basis_similarity": sim, "random_baseline": baseline,
++            "ratio": ratio, "AGREEMENT": ratio >= 5.0,
++        }))
++        .unwrap()
++    );
++}
