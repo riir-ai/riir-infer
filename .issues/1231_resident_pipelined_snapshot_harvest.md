@@ -1,7 +1,8 @@
 # Issue 1231 — the resident wall's pipelined snapshot-future harvest: overlap the fence with the next burst's enqueue phase (the 1230 re-aim)
 
 **Status:** Open — T1 LANDED 2026-11-17 (riir-infer `f881fb87` + riir-ai `387cb84be`; the cell is the remaining work). Filed from Issue 1230's close (the counter-drain mechanism refuted-by-analysis — fence-equivalent in an in-order queue) and 1218 T2's measured-negative ([Bench 1229](../.benchmarks/1229_i1218_t2_cadence_wall_cell.md)).
-**Claimed:** amo-i1231, 1794874761, expires 2026-11-18T23:59:43Z
+**Lease closed:** amo-i1231, epoch 1794874761, expired 2026-11-18T23:59:43Z unworked past T1 — folded per the release law.
+**Claimed:** amo-idle-hk, 1795062768, expires 2026-11-20T10:32:48+00:00 — T2: the wall cell + stop cell at the pre-registered bars (quiet exclusive on amo, rig status QUIET load 1.48 at claim time; the 1226-walk collision window checked empty).
 
 ## The mechanism (verified against the vendored fork's source, not assumed)
 
