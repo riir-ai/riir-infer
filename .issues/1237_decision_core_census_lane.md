@@ -1,0 +1,13 @@
+# Issue 1237: Decision-core census lane over laya encoders (ACE application)
+
+**Status:** OPEN — fusion idea from katgpt-rs Research 683 (arXiv:2602.22600, Algorithmic Core Extraction); novelty TBD; GPU-window-gated at the large-checkpoint arm; claimable.
+
+**The idea.** The ACE extraction operator (balanced SVD of activation covariance and per-sample tail-Jacobian outer products — closed-form, label-free, f64) applied OFFLINE to the laya decision lane's encoders: per suite, extract the decision core at the encoder's readout layer, causally validate it through the decision head (keep/remove/flip — the keep/remove protocol already ships as katgpt-rs `subspace_intervention`), and measure cross-checkpoint core agreement (the paper's headline: necessary+sufficient cores recur across independently trained models, and a linear operator transfers across model families).
+
+**Shape (the `sink_audit` precedent):** opt-in feature + a census bin, OFFLINE once-per-checkpoint, never a serving-path cost. CPU-viable on small checkpoints (finite-difference Jacobians at scalar-head scale; the paper's Jacobian count converges by 64–128 samples); the large-checkpoint arm gates on a GPU window. Producer dependency: the primitive itself is katgpt-rs Plan 640 (`relevance_core`) — this issue is its consumer; do not fork the math here.
+
+**What it would measure first (pre-registered when claimed):** (1) decision-core rank + necessity/sufficiency per suite (do laya decisions ride a low-dim core?); (2) cross-checkpoint basis agreement (`basis_similarity`/procrustes) within one encoder family across sizes; (3) the transport read: fit the cross-core operator on one pair of checkpoints, score on another (the paper's 60%-vs-77%-own transfer shape).
+
+**Downstream (named, not wired):** if a core is sufficient at rank r ≪ D, the lossy-surface law governs any dist-lane activation-projection arm (the f16-B pattern: retention-gated, per-family, demote-only) — an idea-class follow-up that starts only after (1) measures sufficiency. The rethink decision family is the eventual product consumer; nothing here ships a serving posture or a rethink-class surface — this stays public-substrate analysis.
+
+**Provenance:** paper pinned in Research 683 (`joshseth/cores @ 527948bb`, MIT); the ACE math summarized there §2. Box state: quote `bench_preflight.sh` PROVENANCE on any quoted latency; accuracy tables need no box state.
