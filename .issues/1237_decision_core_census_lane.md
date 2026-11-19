@@ -34,4 +34,8 @@
 - [ ] **T-land — commit the census code** (`.benchmarks/1247_i1237_decision_core_census_logs/code_at_measurement.patch`, applies clean at `15954292`'s tree). It needs `katgpt-core` with `relevance_core` at `../katgpt-rs`: cargo validates `katgpt-core/relevance_core` at resolution, so landing early breaks every riir-infer build on a stale katgpt-rs checkout. amo's katgpt-rs is 23 commits behind (blocked by uncommitted `.agents/skills/{boundary-guard,doc-sync}/SKILL.md` WIP that conflicts with upstream). Unblock: that WIP is committed or reconciled, then `git apply` + clippy + commit.
 - [ ] **T-R0 — the encoder-output readout** (through the two head layers, finite differences): the deeper read R1 cannot give.
 - [ ] **T-ml — a balanced multilingual suite** so multilingual sufficiency becomes decidable.
+  **Pre-registration (2026-11-20, before the census number):**
+  - Suite: the tetris v4 fixture rendered into es / th / ja from its closed template vocabulary (`gen_suite.py`, phrase tables, no LLM translation), records interleaved round-robin across the three languages.
+  - Question choice: a pilot on records 200–239 (disjoint from the census's 0–199), candidates in order Q1 = the translated "Does the stack look clean?", Q2 = the translated "Does the piece leave holes under it?", gate true-rate ∈ [0.2, 0.8]. Pilot result: Q1 0.323, Q2 0.671 → **Q1 chosen** (first to pass; the same question as Bench 1247's English suite).
+  - Census: multilingual checkpoint, first 200 records, with Bench 1247's protocol and verdict rules unchanged.
 - [-] **(3) transport** — deferred (needs a second paired family).
