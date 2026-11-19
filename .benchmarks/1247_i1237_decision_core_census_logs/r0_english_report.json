@@ -1,0 +1,107 @@
+{
+  "issue": 1237,
+  "readout": "R0 encoder-output marker rows through head layers + scorer (FD in the top-k activity subspace)",
+  "checkpoint": "english",
+  "device": "metal",
+  "d": 1024,
+  "k": 64,
+  "suite": "/Users/katopz/git/riir-reflex/tests/fixtures/tetris_oracle_laya_en_v4.jsonl",
+  "suite_blake3": "18e6b2604a2f01433a5f7d860b7c98009fa1f41ad75be5c35ee251717ac52903",
+  "records": 200,
+  "fit_records": 100,
+  "fit_rows": 4604,
+  "sens_forwards": 128,
+  "eval_forwards": 256,
+  "eps_rel": 0.01,
+  "pca_captured_trace_share": 0.9997954136755958,
+  "seam_fidelity_max_abs_logit": 7.558097734339242e-7,
+  "encode_question_hidden_vs_encoder_only_max_abs": 1281.62646484375,
+  "eval_base_true_rate": 0.6875,
+  "r_energy_090": 1,
+  "core_participation_ratio": 1.111167311668396,
+  "energy_share_top": [
+    {
+      "r": 1,
+      "share": 0.9471900780140495
+    },
+    {
+      "r": 2,
+      "share": 0.9999677689862463
+    },
+    {
+      "r": 4,
+      "share": 0.9999981552781839
+    },
+    {
+      "r": 8,
+      "share": 0.9999998404855169
+    },
+    {
+      "r": 16,
+      "share": 0.9999999865073561
+    },
+    {
+      "r": 32,
+      "share": 0.9999999987181956
+    }
+  ],
+  "secs": 143.227097083,
+  "table": [
+    {
+      "r": 1,
+      "core_keep_retention": 0.74609375,
+      "core_remove_flip": 0.58984375,
+      "pca_keep_retention": 0.7265625,
+      "pca_remove_flip": 0.54296875,
+      "random_keep_retention": 0.34765625,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    },
+    {
+      "r": 2,
+      "core_keep_retention": 0.96484375,
+      "core_remove_flip": 0.4609375,
+      "pca_keep_retention": 0.97265625,
+      "pca_remove_flip": 0.3984375,
+      "random_keep_retention": 0.83984375,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    },
+    {
+      "r": 4,
+      "core_keep_retention": 0.9921875,
+      "core_remove_flip": 0.26171875,
+      "pca_keep_retention": 0.9921875,
+      "pca_remove_flip": 0.62109375,
+      "random_keep_retention": 0.8515625,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    },
+    {
+      "r": 8,
+      "core_keep_retention": 0.99609375,
+      "core_remove_flip": 0.62890625,
+      "pca_keep_retention": 1.0,
+      "pca_remove_flip": 0.39453125,
+      "random_keep_retention": 0.80859375,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": true
+    },
+    {
+      "r": 16,
+      "core_keep_retention": 1.0,
+      "core_remove_flip": 0.24609375,
+      "pca_keep_retention": 1.0,
+      "pca_remove_flip": 0.359375,
+      "random_keep_retention": 0.85546875,
+      "random_remove_flip": 0.0,
+      "SUFFICIENT": false,
+      "NECESSARY": false
+    }
+  ],
+  "LOW_DIM_CORE": false
+}

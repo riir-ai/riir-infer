@@ -87,3 +87,44 @@ Energy share: r = 1 0.920, r = 2 0.9999996. Participation ratio 1.17.
 **Verdict:** multilingual is now DECIDABLE, and LOW_DIM_CORE is NOT CLAIMED by the rule. Its relevance is rank-2. The rank-1 core already beats both controls by a wide margin (0.795 against 0.374 / 0.652) but is not sufficient. The rank-2 core is sufficient (0.999) but coincides with the top-2 PCA span, the same tie english showed at r = 1. It is necessary at every rank.
 
 Across the three checkpoints the R1 picture is one shape: a 1–2-dim relevance core that is causally necessary. In english and multilingual it lies inside the dominant variance directions, so PCA finds it too. In typed it does not, and only there does ACE beat PCA.
+
+## Addendum — T-R0: the encoder-output readout (2026-11-20)
+
+The pre-registration is in `.issues/1237` (`f998408d`). Shared rig job `687a79c3` on amo, about 2.4 min per checkpoint.
+
+The readout is the encoder-output marker rows, through both head layers and the scorer. New feature-gated seams: `RiirAgent::encoder_hidden` + `head_rows_from_hidden`. Seam fidelity against the lane's logits is ≤ 1.0e-6 on all three checkpoints.
+
+Relevance comes from central finite differences along the top-64 activity directions, which capture 0.9998 (english, typed) and 0.998 (multilingual) of tr(Cov). The step is 1e-2 × √λ, on 128 fit forwards (256 marker rows). ACE runs in that subspace and maps back. The causal reads use 256 held-out eval forwards. english and typed run on the tetris v4 suite, multilingual on the balanced es/th/ja suite.
+
+| ckpt | eval true-rate | energy share r = 1 / 2 | E0.90 rank |
+|---|---:|---|---:|
+| english | 0.688 | 0.947 / 1.000 | 1 |
+| typed | 0.195 | 0.963 / 1.000 | 1 |
+| multilingual | 0.363 | 0.857 / 0.997 | 2 |
+
+Keep and remove-flip, as core / PCA / random:
+
+| ckpt | r | keep | remove-flip | S | N |
+|---|---:|---|---|---|---|
+| english | 1 | 0.746 / 0.727 / 0.348 | 0.590 / 0.543 / 0 | ✗ | ✓ |
+| english | 2 | 0.965 / 0.973 / 0.840 | 0.461 / 0.398 / 0 | ✗ (below PCA) | ✓ |
+| english | 4 / 8 / 16 | 0.992–1.000, PCA 0.992–1.000 | 0.25–0.63 / 0.36–0.62 / 0 | ✗ | ✓ / ✓ / ✗ |
+| typed | 1 | 0.680 / 0.199 / 0.805 | 0.195 / 0.066 / 0 | ✗ (below random = majority) | ✗ |
+| typed | 2–16 | 1.000 / 1.000 / 0.86–0.90 | 0.42–0.79 / 0.42–0.78 / 0 | ✗ (ties PCA) | ✓ |
+| multilingual | 1 | 0.910 / 0.707 / 0.688 | 0.305 / 0.309 / 0 | ✗ (< 0.95) | ✓ |
+| multilingual | 2 | 0.977 / 0.977 / 0.340 | 0.309 / 0.254 / 0 | ✗ (ties PCA) | ✓ |
+| multilingual | 4 | **0.980 / 0.977 / 0.355** | 0.500 / 0.465 / 0 | ✓ | ✓ |
+| multilingual | 8 / 16 | **1.000 / 0.984–0.988 / 0.91–0.97** | 0.59–0.62 / 0.45–0.71 / 0 | ✓ | ✓ |
+
+**Verdicts (by the rule):**
+- english: NOT CLAIMED.
+- typed: NOT CLAIMED. Its R1 advantage over PCA does not survive to R0: at r = 1 the core keeps only 0.680, under the 0.805 majority floor. From r = 2 on, core and PCA are both exact.
+- multilingual: **CLAIMED at r = 4**, but the margin over PCA is **one eval forward** at r = 4 (251 vs 250 of 256), and 3–4 forwards at r = 8 / 16. That is rule-valid and NOT robust; a larger eval set decides it.
+
+**english ↔ typed R0 agreement:** at the pre-registered r = 1, `basis_similarity` = 0.733, which is 750× the random baseline → **AGREEMENT CLAIMED**. It is 0.777 / 0.634 / 0.467 / 0.401 at r = 2 / 4 / 8 / 16. That is weaker than R1's 0.951, as expected through two more layers.
+
+**What R0 adds:** the decision core stays 1–2-dimensional and necessary at the encoder output, and it stays shared across the two fine-tunes. But ACE's advantage over PCA mostly vanishes there: the decision directions sit inside the top-variance span of the encoder rows, so the controls' ties are the honest finding. Only multilingual shows any edge, and that edge is within noise.
+
+**Side finding:** filed as Issue 1239 (`EncodedQuestion.hidden` is the post-head residual: max |Δ| 1281.6 english, 1311.8 typed, 899.3 multilingual against the encoder-only seam).
+
+The code patch now also carries the R0 seams and mode (`code_at_measurement.patch`, 1247 lines, applies clean).

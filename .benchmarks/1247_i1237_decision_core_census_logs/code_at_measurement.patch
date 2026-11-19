@@ -1,7 +1,34 @@
 diff --git a/Cargo.lock b/Cargo.lock
-index 87767b8f..d4467a8f 100644
+index 87767b8f..ec984116 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
+@@ -2263,7 +2263,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "katgpt-core"
+-version = "0.6.0"
++version = "0.6.1"
+ dependencies = [
+  "ahash",
+  "arrayvec",
+@@ -2307,7 +2307,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "katgpt-hla"
+-version = "0.1.4"
++version = "0.1.5"
+ dependencies = [
+  "katgpt-types",
+ ]
+@@ -2378,7 +2378,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "katgpt-sense"
+-version = "0.3.1"
++version = "0.3.2"
+ dependencies = [
+  "blake3",
+  "fastrand",
 @@ -3703,6 +3703,7 @@ dependencies = [
   "blake3",
   "cudarc",
@@ -52,6 +79,77 @@ index 49324cc8..00fd9061 100644
  [[bin]]
  name = "laya-quant4"
  path = "src/bin/laya_quant4.rs"
+diff --git a/crates/riir-infer-laya/src/laya/riir/agent.rs b/crates/riir-infer-laya/src/laya/riir/agent.rs
+index 7d0325af..a8ffa5bf 100644
+--- a/crates/riir-infer-laya/src/laya/riir/agent.rs
++++ b/crates/riir-infer-laya/src/laya/riir/agent.rs
+@@ -732,6 +732,66 @@ impl RiirAgent {
+         })
+     }
+ 
++    /// Issue 1237 R0 seam: the ENCODER-ONLY final hidden states of one
++    /// rendered question, row-major `[seq_len, d]` (pre-type-emb — the
++    /// head never runs), plus its markers and question type. One
++    /// `begin_pass` + one device sync; calibration only.
++    #[cfg(feature = "decision_core_census")]
++    pub fn encoder_hidden(&self, state: &Value, qdef: &Value) -> Result<(Vec<f32>, Vec<usize>, usize)> {
++        let q = to_internal(qdef)?;
++        let (ids, markers) = build_sequence(
++            &self.tok,
++            state,
++            &q,
++            self.cfg.max_len,
++            self.cfg.head_max_len,
++        )?;
++        #[allow(
++            clippy::infallible_destructuring_match,
++            reason = "the ANE arm is cfg-gated; the match is fallible with laya-riir-ane"
++        )]
++        let enc = match &self.enc {
++            EncoderStack::Local(e) => e,
++            #[cfg(all(target_os = "macos", feature = "laya-riir-ane"))]
++            EncoderStack::Ane(_) => {
++                return Err(LayaError::Runtime(
++                    "encoder_hidden: local encoder postures only (no ANE residual seam)".into(),
++                ));
++            }
++        };
++        let hidden = pass_pool(|| {
++            self.backend.begin_pass();
++            let h = enc.forward(self.backend.as_ref(), &ids)?;
++            let mut h_host = vec![0f32; h.len()];
++            self.backend.download_into(&h, &mut h_host);
++            Ok::<_, LayaError>(h_host)
++        })?;
++        Ok((hidden, markers, q.qtype))
++    }
++
++    /// Issue 1237 R0 seam: the head's gathered marker rows `[k, d]` for a
++    /// CALLER-SUPPLIED encoder output (copied — the caller's buffer is
++    /// never written), so a census can perturb encoder rows and re-read
++    /// the scorer input. One `begin_pass` + one device sync per call.
++    #[cfg(feature = "decision_core_census")]
++    pub fn head_rows_from_hidden(
++        &self,
++        hidden: &[f32],
++        qtype: usize,
++        markers: &[usize],
++    ) -> Result<Vec<f32>> {
++        pass_pool(|| {
++            self.backend.begin_pass();
++            let mut h = hidden.to_vec();
++            let mut sc = HeadScratch::new();
++            self.head
++                .layers_forward_rows(self.backend.as_ref(), &mut h, qtype, markers, &mut sc)?;
++            let mut rows = vec![0f32; sc.rows.len()];
++            self.backend.download_into(&sc.rows, &mut rows);
++            Ok(rows)
++        })
++    }
++
+     /// The token twin of [`Self::encode_question`] (riir-train 602: the
+     /// static-vector surrogate's corpus-averaging join). Returns the SAME
+     /// token stream `encode_question` feeds the encoder — the identical
 diff --git a/crates/riir-infer-laya/src/laya/riir/mod.rs b/crates/riir-infer-laya/src/laya/riir/mod.rs
 index a2f8058e..49746f67 100644
 --- a/crates/riir-infer-laya/src/laya/riir/mod.rs
@@ -338,10 +436,10 @@ index 00000000..68947c62
 +}
 diff --git a/crates/riir-infer-laya/src/bin/laya_decision_core_census.rs b/crates/riir-infer-laya/src/bin/laya_decision_core_census.rs
 new file mode 100644
-index 00000000..b4a4ad5f
+index 00000000..3fcd5dab
 --- /dev/null
 +++ b/crates/riir-infer-laya/src/bin/laya_decision_core_census.rs
-@@ -0,0 +1,417 @@
+@@ -0,0 +1,805 @@
 +//! Issue 1237 — the decision-core census over a laya checkpoint (ACE at the
 +//! R1 readout: the head's scorer-input marker rows).
 +//!
@@ -414,11 +512,58 @@ index 00000000..b4a4ad5f
 +    let args: Vec<String> = std::env::args().skip(1).collect();
 +    match args.first().map(String::as_str) {
 +        Some("census") => census(&args),
++        Some("census-r0") => census_r0(&args),
 +        Some("compare") => compare(&args),
 +        _ => die(
 +            "usage: census --suite P --checkpoint C --records N --out DIR | compare --a F --b F --r R",
 +        ),
 +    }
++}
++
++/// The suite file's BLAKE3 + its first `n` non-meta records.
++fn load_suite(path: &str, n: usize) -> (String, Vec<Value>) {
++    let text = std::fs::read_to_string(path).expect("read suite");
++    let digest = blake3::hash(text.as_bytes()).to_hex().to_string();
++    let records: Vec<Value> = text
++        .lines()
++        .map(|l| serde_json::from_str(l).expect("suite JSONL"))
++        .filter(|r: &Value| r["state_id"] != "_meta")
++        .take(n)
++        .collect();
++    if records.len() < 2 {
++        die("suite has fewer than 2 records");
++    }
++    (digest, records)
++}
++
++/// One oracle forward: the `noul` question over `<state>\n<option>`.
++struct SuiteForward {
++    record: usize,
++    payload: Value,
++    qdef: Value,
++}
++
++/// Every option of every record as its oracle forward, in suite order.
++fn suite_forwards(records: &[Value]) -> Vec<SuiteForward> {
++    let mut out = Vec::new();
++    for (record, rec) in records.iter().enumerate() {
++        let question = rec["question"].as_str().expect("question");
++        let state_line = rec["state_sentence"].as_str();
++        let qdef = json!({"type": "noul", "instructions": question, "criteria": null});
++        for opt in rec["options"].as_array().expect("options") {
++            let sentence = opt["sentence"].as_str().expect("sentence");
++            let payload = Value::String(match state_line {
++                Some(s) => format!("{s}\n{sentence}"),
++                None => sentence.to_string(),
++            });
++            out.push(SuiteForward {
++                record,
++                payload,
++                qdef: qdef.clone(),
++            });
++        }
++    }
++    out
 +}
 +
 +fn census(args: &[String]) {
@@ -428,17 +573,7 @@ index 00000000..b4a4ad5f
 +    let out = PathBuf::from(arg(args, "--out").unwrap_or_else(|| die("--out required")));
 +    std::fs::create_dir_all(&out).expect("create --out");
 +
-+    let text = std::fs::read_to_string(&suite).expect("read suite");
-+    let suite_blake3 = blake3::hash(text.as_bytes()).to_hex().to_string();
-+    let records: Vec<Value> = text
-+        .lines()
-+        .map(|l| serde_json::from_str(l).expect("suite JSONL"))
-+        .filter(|r: &Value| r["state_id"] != "_meta")
-+        .take(n_records)
-+        .collect();
-+    if records.len() < 2 {
-+        die("suite has fewer than 2 records");
-+    }
++    let (suite_blake3, records) = load_suite(&suite, n_records);
 +    let fit_end = records.len() / 2;
 +
 +    let agent = RiirAgent::load(&weights_root(), checkpoint(&ckpt_name))
@@ -456,47 +591,49 @@ index 00000000..b4a4ad5f
 +    let t0 = std::time::Instant::now();
 +    let mut samples: Vec<Sample> = Vec::new();
 +    let mut fidelity_max = 0.0f64;
-+    for (ri, rec) in records.iter().enumerate() {
-+        let question = rec["question"].as_str().expect("question");
-+        let state_line = rec["state_sentence"].as_str();
-+        let qdef = json!({"type": "noul", "instructions": question, "criteria": null});
-+        for opt in rec["options"].as_array().expect("options") {
-+            let sentence = opt["sentence"].as_str().expect("sentence");
-+            let payload = Value::String(match state_line {
-+                Some(s) => format!("{s}\n{sentence}"),
-+                None => sentence.to_string(),
-+            });
-+            let enc = agent
-+                .encode_question(&payload, &qdef)
-+                .unwrap_or_else(|e| die(&format!("encode: {e}")));
-+            if enc.markers.len() != 2 {
-+                die("noul forward must carry exactly two markers");
-+            }
-+            let rows = [
-+                enc.marker_rows[..d]
-+                    .iter()
-+                    .map(|&x| f64::from(x))
-+                    .collect::<Vec<_>>(),
-+                enc.marker_rows[d..2 * d]
-+                    .iter()
-+                    .map(|&x| f64::from(x))
-+                    .collect(),
-+            ];
-+            if samples.len() < FIDELITY_FORWARDS {
-+                let fwd = agent
-+                    .forward_question(&payload, &qdef)
-+                    .unwrap_or_else(|e| die(&format!("forward: {e}")));
-+                for (m, row) in rows.iter().enumerate() {
-+                    let l = scorer.logit(row, &mut ssc);
-+                    fidelity_max = fidelity_max.max((l - f64::from(fwd.logits[m])).abs());
-+                }
-+            }
-+            samples.push(Sample { record: ri, rows });
++    let forwards = suite_forwards(&records);
++    for (
++        fi,
++        SuiteForward {
++            record,
++            payload,
++            qdef,
++        },
++    ) in forwards.iter().enumerate()
++    {
++        let enc = agent
++            .encode_question(payload, qdef)
++            .unwrap_or_else(|e| die(&format!("encode: {e}")));
++        if enc.markers.len() != 2 {
++            die("noul forward must carry exactly two markers");
 +        }
-+        if ri % 25 == 0 {
++        let rows = [
++            enc.marker_rows[..d]
++                .iter()
++                .map(|&x| f64::from(x))
++                .collect::<Vec<_>>(),
++            enc.marker_rows[d..2 * d]
++                .iter()
++                .map(|&x| f64::from(x))
++                .collect(),
++        ];
++        if samples.len() < FIDELITY_FORWARDS {
++            let fwd = agent
++                .forward_question(payload, qdef)
++                .unwrap_or_else(|e| die(&format!("forward: {e}")));
++            for (m, row) in rows.iter().enumerate() {
++                let l = scorer.logit(row, &mut ssc);
++                fidelity_max = fidelity_max.max((l - f64::from(fwd.logits[m])).abs());
++            }
++        }
++        samples.push(Sample {
++            record: *record,
++            rows,
++        });
++        if fi % 500 == 0 {
 +            eprintln!(
-+                "  record {ri}: {} forwards, {:.1}s",
-+                samples.len(),
++                "  forward {fi}/{}: {:.1}s",
++                forwards.len(),
 +                t0.elapsed().as_secs_f64()
 +            );
 +        }
@@ -758,4 +895,353 @@ index 00000000..b4a4ad5f
 +        }))
 +        .unwrap()
 +    );
++}
++
++/// One R0 sample: an encoder output + its two marker positions.
++struct R0Forward {
++    hidden: Vec<f32>,
++    markers: Vec<usize>,
++    qtype: usize,
++}
++
++/// The two scorer logits after the head over `hidden` (the decision is
++/// `l[1] > l[0]`).
++fn r0_logits(
++    agent: &RiirAgent,
++    scorer: &Scorer64,
++    f: &R0Forward,
++    hidden: &[f32],
++    sc: &mut ScorerScratch,
++) -> [f64; 2] {
++    let rows = agent
++        .head_rows_from_hidden(hidden, f.qtype, &f.markers)
++        .unwrap_or_else(|e| die(&format!("head: {e}")));
++    let d = scorer.dim();
++    let mut out = [0.0; 2];
++    let mut row = vec![0.0; d];
++    for (m, o) in out.iter_mut().enumerate() {
++        for (r, &x) in row.iter_mut().zip(&rows[m * d..(m + 1) * d]) {
++            *r = f64::from(x);
++        }
++        *o = scorer.logit(&row, sc);
++    }
++    out
++}
++
++/// Every `stride`-th index of `0..n` (at most `cap`), spread over the range.
++fn spread(n: usize, cap: usize) -> Vec<usize> {
++    let stride = n.div_ceil(cap.max(1)).max(1);
++    (0..n).step_by(stride).take(cap).collect()
++}
++
++/// Issue 1237 T-R0: the decision core at the ENCODER OUTPUT (marker
++/// positions), through both head layers + the scorer. The relevance moment
++/// is estimated by central finite differences along the top-`k` activity
++/// (PCA) directions of the fit marker rows — the ACE extract then runs in
++/// that k-dim subspace (Cov there is diag(λ)) and maps back. Disclosed
++/// approximation: directions outside the top-k activity span carry
++/// `1 − captured_trace_share` of the activity and are never probed.
++fn census_r0(args: &[String]) {
++    let suite = arg(args, "--suite").unwrap_or_else(|| die("--suite required"));
++    let ckpt_name = arg(args, "--checkpoint").unwrap_or_else(|| "english".into());
++    let n_records: usize = arg(args, "--records").map_or(200, |v| v.parse().expect("--records"));
++    let k: usize = arg(args, "--k").map_or(64, |v| v.parse().expect("--k"));
++    let n_sens: usize = arg(args, "--sens").map_or(128, |v| v.parse().expect("--sens"));
++    let n_eval: usize = arg(args, "--eval").map_or(256, |v| v.parse().expect("--eval"));
++    let eps_rel: f64 = arg(args, "--eps").map_or(1e-2, |v| v.parse().expect("--eps"));
++    let out = PathBuf::from(arg(args, "--out").unwrap_or_else(|| die("--out required")));
++    std::fs::create_dir_all(&out).expect("create --out");
++    let (suite_blake3, records) = load_suite(&suite, n_records);
++    let fit_end = records.len() / 2;
++    let agent = RiirAgent::load(&weights_root(), checkpoint(&ckpt_name))
++        .unwrap_or_else(|e| die(&format!("load {ckpt_name}: {e}")));
++    let scorer = Scorer64::new(&agent.scorer_tensors());
++    let d = scorer.dim();
++    let mut ssc = ScorerScratch::new(d);
++    let t0 = std::time::Instant::now();
++
++    // ── Encoder pass: every forward's pre-head hidden ──────────────────
++    let forwards = suite_forwards(&records);
++    let mut fit_idx = Vec::new();
++    let mut eval_idx = Vec::new();
++    let mut r0: Vec<R0Forward> = Vec::with_capacity(forwards.len());
++    let mut hidden_vs_encode_max = 0.0f64;
++    let mut seam_fidelity_max = 0.0f64;
++    for (fi, fw) in forwards.iter().enumerate() {
++        let (hidden, markers, qtype) = agent
++            .encoder_hidden(&fw.payload, &fw.qdef)
++            .unwrap_or_else(|e| die(&format!("encoder: {e}")));
++        if markers.len() != 2 {
++            die("noul forward must carry exactly two markers");
++        }
++        let f = R0Forward {
++            hidden,
++            markers,
++            qtype,
++        };
++        if fi < FIDELITY_FORWARDS {
++            // Seam fidelity: head-from-hidden == the lane's own logits; and
++            // the EncodedQuestion.hidden semantics read (pre- vs post-head).
++            let fwd = agent
++                .forward_question(&fw.payload, &fw.qdef)
++                .unwrap_or_else(|e| die(&format!("forward: {e}")));
++            let l = r0_logits(&agent, &scorer, &f, &f.hidden, &mut ssc);
++            for (lm, &fm) in l.iter().zip(&fwd.logits) {
++                seam_fidelity_max = seam_fidelity_max.max((lm - f64::from(fm)).abs());
++            }
++            let enc = agent
++                .encode_question(&fw.payload, &fw.qdef)
++                .unwrap_or_else(|e| die(&format!("encode: {e}")));
++            for (a, b) in enc.hidden.iter().zip(&f.hidden) {
++                hidden_vs_encode_max = hidden_vs_encode_max.max(f64::from((a - b).abs()));
++            }
++        }
++        if fw.record < fit_end {
++            fit_idx.push(fi);
++        } else {
++            eval_idx.push(fi);
++        }
++        r0.push(f);
++        if fi % 500 == 0 {
++            eprintln!(
++                "  encoder {fi}/{}: {:.1}s",
++                forwards.len(),
++                t0.elapsed().as_secs_f64()
++            );
++        }
++    }
++    if seam_fidelity_max > FIDELITY_TOL {
++        die(&format!(
++            "seam fidelity FAILED: max |Δlogit| {seam_fidelity_max:.3e}"
++        ));
++    }
++    let row_of = |f: &R0Forward, m: usize| -> Vec<f64> {
++        let p = f.markers[m];
++        f.hidden[p * d..(p + 1) * d]
++            .iter()
++            .map(|&x| f64::from(x))
++            .collect()
++    };
++
++    // ── Activity at R0: mean + Cov over the fit marker rows ────────────
++    let n_rows = 2 * fit_idx.len();
++    let mut mean = vec![0.0; d];
++    for &i in &fit_idx {
++        for m in 0..2 {
++            for (a, x) in mean.iter_mut().zip(row_of(&r0[i], m)) {
++                *a += x;
++            }
++        }
++    }
++    mean.iter_mut().for_each(|a| *a /= n_rows as f64);
++    let mut cov = vec![0.0; d * d];
++    let mut c = vec![0.0; d];
++    for &i in &fit_idx {
++        for m in 0..2 {
++            for (ci, (x, mu)) in c.iter_mut().zip(row_of(&r0[i], m).iter().zip(&mean)) {
++                *ci = x - mu;
++            }
++            for a in 0..d {
++                for b in a..d {
++                    cov[a * d + b] += c[a] * c[b];
++                }
++            }
++        }
++    }
++    for a in 0..d {
++        for b in a..d {
++            let v = cov[a * d + b] / n_rows as f64;
++            cov[a * d + b] = v;
++            cov[b * d + a] = v;
++        }
++    }
++    let trace: f64 = (0..d).map(|a| cov[a * d + a]).sum();
++
++    // ── PCA basis P (top-k rows) via relevance_core's S = I control ────
++    let mut scratch = CoreScratch::new(d);
++    let mut ident = vec![0.0; d * d];
++    (0..d).for_each(|a| ident[a * d + a] = 1.0);
++    let mut p_rows = vec![0.0; k * d];
++    let mut lam = vec![0.0; d];
++    extract_core_from_matrices(
++        &cov,
++        &ident,
++        d,
++        RankRule::Fixed(k),
++        &mut p_rows,
++        &mut lam,
++        &mut scratch,
++    )
++    .unwrap_or_else(|e| die(&format!("pca: {e}")));
++    let captured: f64 = lam.iter().take(k).map(|e: &f64| e.max(0.0)).sum::<f64>() / trace;
++    eprintln!(
++        "  pca top-{k} captures {captured:.4} of tr(Cov); {:.1}s",
++        t0.elapsed().as_secs_f64()
++    );
++
++    // ── Relevance in P coords: central FD along each p_j ───────────────
++    let sens_idx: Vec<usize> = spread(fit_idx.len(), n_sens)
++        .into_iter()
++        .map(|j| fit_idx[j])
++        .collect();
++    let mut sens_k = vec![0.0; k * k];
++    let mut n_seen = 0u64;
++    let mut g = vec![0.0; k];
++    let mut work = Vec::new();
++    for (si, &i) in sens_idx.iter().enumerate() {
++        let f = &r0[i];
++        for m in 0..2 {
++            let pos = f.markers[m];
++            for j in 0..k {
++                let step = eps_rel * lam[j].max(0.0).sqrt();
++                let pj = &p_rows[j * d..(j + 1) * d];
++                let mut probe = |sign: f64| -> f64 {
++                    work.clear();
++                    work.extend_from_slice(&f.hidden);
++                    for (w, &pv) in work[pos * d..(pos + 1) * d].iter_mut().zip(pj) {
++                        *w += (sign * step * pv) as f32;
++                    }
++                    r0_logits(&agent, &scorer, f, &work, &mut ssc)[m]
++                };
++                g[j] = (probe(1.0) - probe(-1.0)) / (2.0 * step);
++            }
++            accumulate_sens(&mut sens_k, k, &g, &mut n_seen).expect("accumulate_sens");
++        }
++        if si % 16 == 0 {
++            eprintln!(
++                "  sens {si}/{}: {:.1}s",
++                sens_idx.len(),
++                t0.elapsed().as_secs_f64()
++            );
++        }
++    }
++
++    // ── ACE in the k-subspace (Cov_k = diag λ), map back through P ─────
++    let mut cov_k = vec![0.0; k * k];
++    (0..k).for_each(|j| cov_k[j * k + j] = lam[j]);
++    let mut kscratch = CoreScratch::new(k);
++    let mut energies = vec![0.0; k];
++    let mut qk = vec![0.0; k * k];
++    let core = extract_core_from_matrices(
++        &cov_k,
++        &sens_k,
++        k,
++        RankRule::Fixed(k),
++        &mut qk,
++        &mut energies,
++        &mut kscratch,
++    )
++    .unwrap_or_else(|e| die(&format!("extract core: {e}")));
++    let r_energy = core_rank_energy(&energies, ENERGY);
++    let mut q_core = vec![0.0; k * d];
++    for r in 0..k {
++        for j in 0..k {
++            let w = qk[r * k + j];
++            for a in 0..d {
++                q_core[r * d + a] += w * p_rows[j * d + a];
++            }
++        }
++    }
++    let mut rnd32 = vec![0.0f32; k * d];
++    random_basis_into(&mut rnd32, d, RANDOM_SEED);
++    let q_rand: Vec<f64> = rnd32.iter().map(|&x| f64::from(x)).collect();
++
++    // ── Causal reads at R0 on the held-out eval subset ─────────────────
++    let eval_sel: Vec<usize> = spread(eval_idx.len(), n_eval)
++        .into_iter()
++        .map(|j| eval_idx[j])
++        .collect();
++    let decide = |l: [f64; 2]| l[1] > l[0];
++    let base: Vec<bool> = eval_sel
++        .iter()
++        .map(|&i| decide(r0_logits(&agent, &scorer, &r0[i], &r0[i].hidden, &mut ssc)))
++        .collect();
++    let base_true_rate = base.iter().filter(|&&b| b).count() as f64 / base.len().max(1) as f64;
++    let mut ranks: Vec<usize> = [1usize, 2, 4, 8, 16]
++        .into_iter()
++        .filter(|&r| r <= k)
++        .collect();
++    if r_energy <= k && !ranks.contains(&r_energy) {
++        ranks.push(r_energy);
++        ranks.sort_unstable();
++    }
++    let arms: [(&str, &[f64]); 3] = [("core", &q_core), ("pca", &p_rows), ("random", &q_rand)];
++    let mut buf = vec![0.0; d];
++    let mut table = Vec::new();
++    for &r in &ranks {
++        let mut row = serde_json::Map::new();
++        row.insert("r".into(), json!(r));
++        for (name, q) in arms {
++            let proj = CoreProjector { mean: &mean, q, r };
++            let (mut keep, mut flip) = (0usize, 0usize);
++            for (&i, &b) in eval_sel.iter().zip(&base) {
++                let f = &r0[i];
++                for (mode, counter) in [(0, &mut keep), (1, &mut flip)] {
++                    work.clear();
++                    work.extend_from_slice(&f.hidden);
++                    for m in 0..2 {
++                        let h = row_of(f, m);
++                        match mode {
++                            0 => proj.keep(&h, &mut buf),
++                            _ => proj.remove(&h, &mut buf),
++                        }
++                        let pos = f.markers[m];
++                        for (w, &v) in work[pos * d..(pos + 1) * d].iter_mut().zip(&buf) {
++                            *w = v as f32;
++                        }
++                    }
++                    let dec = decide(r0_logits(&agent, &scorer, f, &work, &mut ssc));
++                    *counter += usize::from(if mode == 0 { dec == b } else { dec != b });
++                }
++            }
++            let n = eval_sel.len().max(1) as f64;
++            row.insert(format!("{name}_keep_retention"), json!(keep as f64 / n));
++            row.insert(format!("{name}_remove_flip"), json!(flip as f64 / n));
++        }
++        let get = |key: &str| row[key].as_f64().unwrap();
++        let sufficient = get("core_keep_retention") >= 0.95
++            && get("core_keep_retention") > get("pca_keep_retention")
++            && get("core_keep_retention") > get("random_keep_retention");
++        let necessary = get("core_remove_flip") >= 0.25
++            && get("core_remove_flip") >= 2.0 * get("random_remove_flip");
++        row.insert("SUFFICIENT".into(), json!(sufficient));
++        row.insert("NECESSARY".into(), json!(necessary));
++        eprintln!("  r {r:3}: {}", Value::Object(row.clone()));
++        table.push(Value::Object(row));
++    }
++    let low_dim_core = table
++        .iter()
++        .any(|r| r["SUFFICIENT"] == true && r["r"].as_u64().unwrap() <= 32);
++    let total_e: f64 = energies.iter().map(|e: &f64| e.max(0.0)).sum();
++    let energy_share: Vec<Value> = [1usize, 2, 4, 8, 16, 32]
++        .into_iter()
++        .filter(|&r| r <= k)
++        .map(|r| {
++            let s: f64 = energies.iter().take(r).map(|e: &f64| e.max(0.0)).sum();
++            json!({"r": r, "share": s / total_e})
++        })
++        .collect();
++    let report = json!({
++        "issue": 1237,
++        "readout": "R0 encoder-output marker rows through head layers + scorer (FD in the top-k activity subspace)",
++        "checkpoint": ckpt_name, "device": agent.device(), "d": d, "k": k,
++        "suite": suite, "suite_blake3": suite_blake3, "records": records.len(), "fit_records": fit_end,
++        "fit_rows": n_rows, "sens_forwards": sens_idx.len(), "eval_forwards": eval_sel.len(),
++        "eps_rel": eps_rel, "pca_captured_trace_share": captured,
++        "seam_fidelity_max_abs_logit": seam_fidelity_max,
++        "encode_question_hidden_vs_encoder_only_max_abs": hidden_vs_encode_max,
++        "eval_base_true_rate": base_true_rate, "r_energy_090": r_energy,
++        "core_participation_ratio": core.participation_ratio,
++        "energy_share_top": energy_share,
++        "secs": t0.elapsed().as_secs_f64(),
++        "table": table, "LOW_DIM_CORE": low_dim_core,
++    });
++    let path = out.join(format!("{ckpt_name}_r0_report.json"));
++    std::fs::write(&path, serde_json::to_string_pretty(&report).unwrap()).expect("write report");
++    let bytes: Vec<u8> = q_core.iter().flat_map(|v| v.to_le_bytes()).collect();
++    std::fs::write(out.join(format!("{ckpt_name}_r0_core.f64")), bytes).expect("write core");
++    println!("{}", serde_json::to_string(&json!({
++        "checkpoint": ckpt_name, "r_energy_090": r_energy, "LOW_DIM_CORE": low_dim_core,
++        "seam_fidelity": seam_fidelity_max, "hidden_vs_encode": hidden_vs_encode_max, "report": path,
++    })).unwrap());
 +}
