@@ -1,3 +1,28 @@
+## 2026-11-19 — Issue 1226 CLOSED (file removed; this row is the note): the f16-B lane follow-ups — F1 VALID (Bench 1234), F2 PROMOTED default-ON in the dist lane (`07ad293b`), F3 done (katgpt-rs-ec@amo, 1795103700)
+
+**F2 — producer-writes-f16.** The shadow lane and G1 landed 2026-11-17 (zed-ee646c82: `c0054df2` + `67ef17db`, G1 3/3 bit-identical per kernel). The rest landed 2026-11-19 under katgpt-rs-ec@amo (claim `18e09278`, lease folded here):
+- **Price cell, [Bench 1245](.benchmarks/1245_i1226_f2_price_cell.md)** (instrument `6e420ad1`): B is the armed twin with the cast, C adds the shadow. C runs ZERO cast encoders (3456 per pass saved at pp4096, 24960 at pp32k) and is byte-identical to B end to end. **Δ median 39.76 ms = 1.04% at pp4096 and 257.30 ms = 0.31% at pp32k, positive on all 5 ABBA pairs at both sizes.** That is ~6–7% of the isolated Bench-1223 per-launch tax: the pipelined frame hides most of the cast. The pp32k half was flagged poisoned (a busy editor process) and kept by the rule recorded at poison time.
+- **Tap retention:** satisfied by construction, since C's logits equal B's.
+- **Delegated-owner verdict: AGREE WITH CONDITIONS** (an independent read-only review).
+  - (a) exact-`0` demote `RIIR_PREFILL_F16B_PRODUCER=0` beside `RIIR_PREFILL_F16B`;
+  - (b) identity at the dist frame width — chunk 128 × 32 + tail 37: C == B, 12672 casts saved, 0 misaligned;
+  - (c) the shadow predicate also requires the zero-copy flag + its site admission;
+  - (d) cap the size-keyed caches — filed as Issue 1238, non-blocking.
+- **Promotion:** (a)–(c) landed in `07ad293b`; the substrate latch stays opt-in.
+
+**F3:** Bench 1245 carries start/end `bench_preflight` PROVENANCE lines per cell.
+
+## 2026-11-19 — Issue 1234 CLOSED (file removed; this row is the note): the shared-clone `reset --hard` that wiped the F2 WIP — F2 re-authored past it and landed
+
+The incident (2026-11-17, zed-b2e60a87): a `git reset --hard origin/develop` in the shared clone wiped ~800 lines of the F2 lane's unstaged edits. There was no git-object or snapshot recovery. The narrow-posture compile red it left was re-gated in `44930994`. Both close conditions now hold:
+- **The F2 edits are back** — re-authored past the wipe (`c0054df2` + `67ef17db`, G1 green).
+- **The F2 landing commit references this issue** (`07ad293b`).
+
+The standing lessons stay binding for every lane:
+- A failed fast-forward is a STOP.
+- Read `git status --porcelain` before any tree-mutating verb in a shared clone.
+- Sync a dirty shared clone only through a detached worktree.
+
 ## 2026-11-19 — Issue 1231 CLOSED (file removed; this row is the note): the pipelined resident snapshot-future harvest — T1+T2+T3 all landed, the delegated verdict AGREE (amo-idle-hk, 1795081500)
 
 The lane arc: T1 substrate+consumer+cells (riir-infer `f881fb87` + riir-ai `387cb84be`); T2 the wall cell at the pre-registered bars (riir-infer Bench 1243, `9663ce79` + logs) — ADOPT BAR MET: within-cell ABBA -0.351 ms/tok (14.98 to 14.63, >= the 0.3 bar), G1 FNV `121982e1b7878d05` pairwise + across pairs + vs the cadence ref, stop prefixes truncation-exact, overshoot 7 <= 2K, TTFT 222.2 vs 142.7 ms reported; the cell's first catch was a real T1 defect (the pipelined loop lacked the EOS drain, walk 505/512) — fixed riir-ai `cbea4ef0d`, re-run green. T3 the promotion lane (riir-ai `865884e66` + `f5724d02a`, riir-ai Bench 1174): PROMOTE-ONLY `RIIR_RESIDENT_PIPELINE` (exact 1/true/on, OnceLock; unset = the cadence schedule byte-identically) + `resident_chain_pipelined` (ONE production definition site; ring burst*2; the EOS drain load-bearing) + the serving cell consults the arm (the lane line names the schedule) + grammar pins; GOAT gates GREEN (G1 FNV EXACT both serving postures + the T2 ref; G2 -0.348 ms/tok serving-corroborated; G3 demote byte-identical; modelless by construction). **Delegated verdict (1165 pattern, claude-sub-agent-verdict round 1, session `44bd13a0`): AGREE with 3 corrections, all fixed `f5724d02a`** — (a) the OnceLock doc claim vs the unwrapped env read, (b) the TTFT break-even missing from the doc (~227 generated tokens: arm for long greedy generations, a net loss for short interactive turns), (c) "the serving loop wires it" overstates (router surface + bench serving cell; no binary consumer yet — as with the old schedule). Caveat recorded: the gain clears the bar by 0.05, one machine (amo/Metal), one setting — the 1165 scoping stands (greedy on Metal only; re-measure before any default-posture proposal); the env is opt-in forever, the default stays the cadence schedule.
