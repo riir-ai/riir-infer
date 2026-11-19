@@ -1,0 +1,13 @@
+ok   power        AC
+ok   powermode    0 (Automatic)
+info last power transition: 2026-11-13 01:30:43 (Using AC)
+ok   settle       on AC 9810 min (>= 5)
+ok   load         2.64 (ceiling 6.0)
+warn swap used   3905.12M — paging can masquerade as a slow kernel
+warn canary       SKIPPED — build it first:
+                  cargo build --release --features laya-riir-metal \
+                      --example sgemm_shape_timing
+ok   ane          idle through the 3s window (aned CPU delta 0.00s)
+
+PROVENANCE: power=AC Power load=2.64 swap=3905.12M canary=skipped powermode=0(auto) ane=ok
+✓ preflight PASSED — quote the PROVENANCE line in the bench record

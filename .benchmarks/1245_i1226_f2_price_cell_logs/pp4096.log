@@ -1,0 +1,29 @@
+
+running 1 test
+test f2_price_cell ... CubeCL runtime initialized: wgpu<msl>
+[Issue 864] attention KV working set = 513 MiB (block_size 4106 × kvd 1024 × K+V × 16 attention layers) — above the 256 MiB warn line. If the workload never drives this many positions, clamp `config.block_size` to the real sequence bound BEFORE construction (the riir-train driver pattern); the unbounded variant measured a ~50 s first-touch burst at a 262,144-token context (riir-train Bench 573). Steady-state throughput is unaffected.
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x102230ca0, queue=0x10223b580)
+[i1225] f16b twin compiled (patched B-side half; cast kernel armed)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# i1226 F2 price cell · relaxed · 5 ABBA pairs (B=twin+cast, C=twin+shadow) · chunk 512 × frames 8 = 4098 tok/pass · 64 layers
+# engagement per pass: B cast encoders 3456 (skipped 0) · C cast encoders 0 (skipped 3456) · misaligned B 0 C 0
+# saved cast launches: 3456 per pass = 6.75 per layer per frame
+  pair 0: B mean 3826.08 ms · C mean 3778.68 ms · Δ 47.40 ms (1.24%) · A 4056.69 ms
+  pair 1: B mean 3820.86 ms · C mean 3781.31 ms · Δ 39.55 ms (1.04%) · A 4119.16 ms
+  pair 2: B mean 3882.16 ms · C mean 3845.17 ms · Δ 37.00 ms (0.95%) · A 4124.96 ms
+  pair 3: B mean 3880.22 ms · C mean 3813.68 ms · Δ 66.54 ms (1.71%) · A 4054.18 ms
+  pair 4: B mean 3821.41 ms · C mean 3781.65 ms · Δ 39.76 ms (1.04%) · A 4055.89 ms
+# bit anchors: A × 5, B × 10, C × 10 — HELD; C == B byte-identical (e2e shadow identity), A ≠ B
+
+B median 3830.85 ms · C median 3784.63 ms · Δ median 39.76 ms (range [37.00, 66.54]) = 1.04% of the armed-twin frame · sign-consistent true
+prediction (Bench 1223 tax × 3456 saved launches): 518.40–656.64 ms · measured / prediction-mid 0.07
+f32 lane (informational, not interleaved): A median 4056.69 ms → C is 6.71% under A
+
+F2 PRICE CELL VERDICT (pp4096): GAIN — sign-consistent on every pair
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 139.36s
+
+rc=0
