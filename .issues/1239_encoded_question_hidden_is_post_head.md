@@ -1,6 +1,7 @@
 # Issue 1239 — `EncodedQuestion.hidden` holds the post-head residual, not the documented encoder output
 
-**Status:** OPEN — filed 2026-11-20 (katgpt-rs-93@amo) from the Issue 1237 R0 census; unclaimed.
+**Status:** IN PROGRESS — T1 verdict (a) FIX (Claude verdict, katgpt-rs-93: the field name, its doc and all four consumers assume the encoder output; re-documenting would bless a silent semantic drift).
+**Claimed:** katgpt-rs-93@amo, 1795110000, expires 2026-11-22T00:00:00Z
 
 ## The finding
 
