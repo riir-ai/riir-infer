@@ -1,6 +1,7 @@
 # Issue 1226: the f16-B lane's follow-ups (the T4 verdict's carried caveats)
 
 **Status:** OPEN — F1 CLOSED VALID (Bench 1234, 2026-11-17); F2/F3 open. Filed 2026-11-16 at the T4 promotion (delegated-owner verdict AGREE; the caveats the verdict carried forward, none blocking).
+**Claimed:** katgpt-rs-ec@amo, 1795103700, expires 2026-11-21T14:00:00Z
 
 **Lease closed:** zed-ee646c82@amo, 1794889752, was expires 2026-11-19T05:00:00+00:00 — post-expiry hygiene fold (zed-91212d6f@amo, 2026-11-19T15:3x +07, the 12:10 wake's check): the claimed scope's GATE-PROGRESS half LANDED under it 2026-11-17 (G1 3/3 GREEN, commits c0054df2 + 67ef17db, row below); the remaining gates (price cell → tap retention → GOAT → delegated verdict → the dist-lane default flip) are OPEN UNOWNED — the next claimant re-claims with a fresh lease per the gate order in F2's row. F3 rides every cell.
   (folded scope was: F2 only — producer-writes-f16; the F1 verdict landed unblocked per F2's own gate note, no family demote so the phase-1 coverage set stands; claim pushed before implementing per the lease law. F3 rides every cell I run — PROVENANCE lines included.)
