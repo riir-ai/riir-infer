@@ -72,7 +72,7 @@ The measured code is `code_at_measurement.patch`: `riir-infer-laya` feature `dec
 
 ## Addendum — T-ml: multilingual on a balanced suite (2026-11-20)
 
-The pre-registration is in `.issues/1237` (`2c9d6cc0`), committed before this number. The suite is the tetris v4 fixture rendered into es / th / ja from its closed template vocabulary (`ml_gen_suite.py`, hand-written phrase tables, no machine translation; deterministic from the fixture, suite blake3 `dce4757d…2f34`). Records are interleaved round-robin across the languages.
+The pre-registration is in `.issues/1237` (`2c9d6cc0`), committed before this number. The suite is the tetris v4 fixture rendered into es / th / ja from its closed template vocabulary (`ml_gen_suite.py`, hand-written phrase tables, no machine translation; deterministic from the fixture, suite blake3 `3d3064ce…8198`). Records are interleaved round-robin across the languages.
 
 The question was chosen by a disjoint pilot (records 200–239): Q1 "is the stack clean" scored true-rate 0.323 and Q2 "holes under it" scored 0.671. Q1 was first to pass the [0.2, 0.8] gate. Census on the first 200 records, multilingual (d = 768): eval true-rate 0.356, Cov rows/d 5.99, fidelity max |Δlogit| 1.0e-6. Run locally on amo while it was quiet (~30 s of forwards); no latency is claimed.
 
