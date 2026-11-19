@@ -1063,6 +1063,15 @@ name = "i1226_f2_shadow_g1"
 path = "tests/i1226_f2_shadow_g1.rs"
 required-features = ["prefill_f16b", "cubecl_runtime", "ternary_gemv"]
 
+# i1226 F2 — the producer-writes-f16 PRICE CELL (B = armed twin + cast,
+# C = + producer shadow; engagement counters, e2e C==B bit identity, the
+# saved-launch price). Same feature row as the 1225 frame A/B (the
+# production comparability law). Run explicitly (--ignored, --release).
+[[test]]
+name = "i1226_f2_price_cell"
+path = "tests/i1226_f2_price_cell.rs"
+required-features = ["prefill_f16b", "production", "cubecl_runtime", "multi_host", "riir-infer-core/bonsai2_hadamard"]
+
 [[test]]
 name = "issue1160_g0_collapse_probe"
 path = "tests/issue1160_g0_collapse_probe.rs"
