@@ -1,6 +1,7 @@
 # Issue 1237: Decision-core census lane over laya encoders (ACE application)
 
 **Status:** OPEN — fusion idea from katgpt-rs Research 683 (arXiv:2602.22600, Algorithmic Core Extraction); novelty TBD; GPU-window-gated at the large-checkpoint arm; claimable. **Producer LANDED 2026-11-19** (katgpt-rs Plan 640 DONE — `relevance_core` feature, `2d50c0f06` + `78f7433dd`; Bench 988 GOAT G0–G6 PASS on a planted nonlinear head) — this lane is UNBLOCKED; consume `katgpt_core::relevance_core::{accumulate_sens, extract_core_from_matrices}` (do not fork). Carry Bench 988's disclosed rule: the Cov sample budget scales with the largest variance ratio (mapped-back leak ∝ amplitude/√N) — use a large Cov sample or shrink the cross-block. Routed by katgpt-rs-57@m3 (unclaimed; heavy/large-checkpoint arm → amo/4090 via `agent-mail rig run`).
+**Claimed:** katgpt-rs-93@amo, 1795103000, expires 2026-11-21T18:00:00Z
 
 **The idea.** The ACE extraction operator (balanced SVD of activation covariance and per-sample tail-Jacobian outer products — closed-form, label-free, f64) applied OFFLINE to the laya decision lane's encoders: per suite, extract the decision core at the encoder's readout layer, causally validate it through the decision head (keep/remove/flip — the keep/remove protocol already ships as katgpt-rs `subspace_intervention`), and measure cross-checkpoint core agreement (the paper's headline: necessary+sufficient cores recur across independently trained models, and a linear operator transfers across model families).
 
@@ -11,3 +12,18 @@
 **Downstream (named, not wired):** if a core is sufficient at rank r ≪ D, the lossy-surface law governs any dist-lane activation-projection arm (the f16-B pattern: retention-gated, per-family, demote-only) — an idea-class follow-up that starts only after (1) measures sufficiency. The rethink decision family is the eventual product consumer; nothing here ships a serving posture or a rethink-class surface — this stays public-substrate analysis.
 
 **Provenance:** paper pinned in Research 683 (`joshseth/cores @ 527948bb`, MIT); the ACE math summarized there §2. Box state: quote `bench_preflight.sh` PROVENANCE on any quoted latency; accuracy tables need no box state.
+
+
+## Pre-registration (katgpt-rs-93@amo, 2026-11-19, BEFORE any number)
+
+- **Readout R1:** the head's scorer-input marker rows (`EncodedQuestion.marker_rows`, after type-emb + both head layers). `f` = the per-marker scorer logit (LN → Linear+GELU → Linear), Jacobian ANALYTIC in f64 from `scorer_tensors()` (exact, no finite differences). R0 (encoder output through the head layers, finite differences) is a named follow-up, not this slice.
+- **Suite:** riir-reflex `tests/fixtures/tetris_oracle_laya_en_v4.jsonl` (read as data by path, no dep), the first 200 records, every option, as the oracle's `noul` forward (`<state_sentence>\n<option sentence>`). The decision is `sign(l_true − l_false)`. **Fit on records 0..100, evaluate the causal reads on 100..200** (held out). Cov sample ≥ 4·d rows (Bench 988's rule, disclosed per run).
+- **Checkpoints:** english + typed (same family, ModernBERT-large, d = 1024), plus multilingual (d = 768) solo for (1).
+- **Ranks:** `RankRule::Energy(0.90)` plus a fixed sweep r ∈ {1, 2, 4, 8, 16, 32, 64}.
+- **Causal (mean-ablation):** keep = μ + QQᵀ(h−μ), remove = h − QQᵀ(h−μ), applied to both marker rows. Controls at the same r: the PCA top-r of Cov and a seeded random orthonormal r.
+- **Verdicts:**
+  - SUFFICIENT at r ⇔ keep-retention ≥ 0.95 AND it beats both controls' keep.
+  - NECESSARY at r ⇔ remove-flip ≥ 0.25 AND ≥ 2× random's remove-flip.
+  - A low-dim core is claimed ⇔ SUFFICIENT at some r ≤ 32.
+- **(2) english vs typed:** mean cos² of the principal angles between the two cores at the english E0.90 rank (capped at 32), against the random baseline r/d. Agreement is claimed ⇔ ≥ 5× baseline. Caveat disclosed: separately fine-tuned heads share coordinates only through the common ModernBERT-large init.
+- **(3) transport:** deferred (needs a second paired family).
