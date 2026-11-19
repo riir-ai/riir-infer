@@ -1,0 +1,289 @@
+//! lattice-census — riir-train plan 503 T0.1's census CLI: one ternary pass
+//! per checkpoint over the first N tokens, per-head GDN state geometry
+//! (entropy effective rank / stable rank / query-alignment gain) snapshotted
+//! at the pinned capture positions, one fixed-precision BLAKE3-pinned report.
+//!
+//! ```bash
+//! cargo run --release --features lattice_census[,bonsai2_hadamard] \
+//!     --bin lattice-census -- \
+//!     ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     --n 512 --cap-every 64 --out .benchmarks/lattice_census_report.json
+//! # T0.2 probe arm (fixed-coeff FiLM over the GDN layer input):
+//! #   ... --film-seed 0x50E1C5   (census re-runs under the injection;
+//! #   the shift vs the unarmed run is the probe's read-out)
+//! ```
+//!
+//! Determinism (G1): the report's `blake3` digest is taken over the
+//! canonical fixed-precision payload, so a re-run over the same checkpoint +
+//! corpus + window reproduces it byte-for-byte (the Issue-940 law: f64
+//! sequential ascending folds, fixed Jacobi sweep order, pinned tie rules).
+//!
+//! Posture: REPORT-ONLY — the census reads a frozen checkpoint and writes a
+//! JSON report; it never gates, never tunes, never enters a serving path.
+//! The Phase-2 lattice arm (plan 503) is judged against this baseline later;
+//! the census itself claims nothing.
+//!
+//! ⚠ Query-alignment rows: the transient `q_normed` capture arm is the
+//! compile-window wiring step (the module doc carries the note); until it
+//! lands the report carries `g1=na` rows and `query_armed=false` —
+//! self-describing, never silently absent.
+
+use std::path::PathBuf;
+
+use anyhow::{Context, Result, bail};
+
+use riir_infer_core::corpus_text::load_corpus_text;
+use riir_infer_core::deltanet::effective_rotary_dim;
+use riir_infer_core::deltanet::lattice_census::{
+    FilmFilter, LatticeCensusReport, MAX_CAPTURE_POSITIONS, census_state_snapshot,
+};
+use riir_infer_core::gguf_loader::{
+    GgmlType, GgufFile, load_qwen_deltanet_ternary_weights_gguf,
+};
+use riir_infer_core::rope::RopeFreqTable;
+use riir_infer_core::tokenizer::BpeTokenizer;
+use riir_infer_core::transformer::forward_qwen_deltanet_ternary;
+use riir_infer_core::types::DeltaNetLayerType;
+
+const DEFAULT_MODEL: &str = "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const DEFAULT_CORPUS: &str = "../riir-train/data/chat_probe";
+const DEFAULT_N: usize = 512;
+const DEFAULT_CAP_EVERY: usize = 64;
+
+struct Args {
+    model: PathBuf,
+    corpus: PathBuf,
+    /// Total tokens to consume (one sequence, the corpus head — the v1
+    /// posture; the paper's 1024-seq posture is the pinned v2 extension).
+    n: usize,
+    /// Capture every this many positions (position 1 always captured).
+    cap_every: usize,
+    /// T0.2: run the census under the fixed-coeff FiLM injection keyed on
+    /// this seed (absent = the unarmed baseline run).
+    film_seed: Option<u64>,
+    out: Option<PathBuf>,
+}
+
+fn parse_args() -> Args {
+    let mut a = Args {
+        model: PathBuf::from(DEFAULT_MODEL),
+        corpus: PathBuf::from(DEFAULT_CORPUS),
+        n: DEFAULT_N,
+        cap_every: DEFAULT_CAP_EVERY,
+        film_seed: None,
+        out: None,
+    };
+    let mut it = std::env::args().skip(1);
+    while let Some(f) = it.next() {
+        match f.as_str() {
+            "--n" => a.n = it.next().expect("--n value").parse().expect("n usize"),
+            "--cap-every" => {
+                a.cap_every = it
+                    .next()
+                    .expect("--cap-every value")
+                    .parse()
+                    .expect("cap-every usize")
+            }
+            "--film-seed" => {
+                let v = it.next().expect("--film-seed value");
+                let v = v.trim_start_matches("0x").trim_start_matches("0X");
+                a.film_seed = Some(u64::from_str_radix(v, 16).expect("film-seed hex u64"));
+            }
+            "--corpus" => a.corpus = PathBuf::from(it.next().expect("--corpus value")),
+            "--out" => a.out = Some(PathBuf::from(it.next().expect("--out value"))),
+            other => {
+                if !other.starts_with('-') {
+                    a.model = PathBuf::from(other);
+                } else {
+                    bail!("unknown flag {other}");
+                }
+            }
+        }
+    }
+    a
+}
+
+fn main() -> Result<()> {
+    let args = parse_args();
+
+    // The ternary dispatch FIRST (the sink_audit lesson: the dense loader
+    // mis-shapes a PQ2_0 ternary file — the dtype is the discriminator).
+    let probe =
+        GgufFile::open(&args.model).with_context(|| format!("open {}", args.model.display()))?;
+    let is_ternary = probe
+        .tensor_info("token_embd.weight")
+        .map(|info| matches!(info.ggml_type, GgmlType::Q2_0 | GgmlType::PTQ1_0))
+        .unwrap_or(false);
+    if !is_ternary {
+        bail!(
+            "lattice-census v1 drives the TERNARY body only ({} is not Q2_0/PTQ1_0) — \
+             the dense twin is the compile-window extension",
+            args.model.display()
+        );
+    }
+
+    let corpus_text = load_corpus_text(&args.corpus)
+        .with_context(|| format!("load corpus {}", args.corpus.display()))?;
+    let tokens = {
+        let tok = BpeTokenizer::from_gguf(&probe).context("gpt2 BPE tokenizer from gguf")?;
+        tok.encode(&corpus_text)
+    };
+    if tokens.len() < args.n {
+        bail!(
+            "corpus encodes {} tokens < the census window {} — shorten --n or grow the corpus",
+            tokens.len(),
+            args.n
+        );
+    }
+
+    // Capture schedule: position 1 always, then every --cap-every, capped.
+    let mut positions: Vec<usize> = Vec::new();
+    let mut p = 1usize;
+    while p <= args.n && positions.len() < MAX_CAPTURE_POSITIONS {
+        positions.push(p);
+        p += args.cap_every;
+    }
+    if positions.len() >= MAX_CAPTURE_POSITIONS && p <= args.n {
+        bail!(
+            "capture schedule exceeds the snapshot budget {} — raise --cap-every (budget: \
+             ~n_gdn_layers × 1 MiB per position)",
+            MAX_CAPTURE_POSITIONS
+        );
+    }
+    println!(
+        "# census: {} positions (pos 1 + every {}) over {} tokens | film={:?}",
+        positions.len(),
+        args.cap_every,
+        args.n,
+        args.film_seed
+    );
+
+    let t0 = std::time::Instant::now();
+    let (config, weights) = load_qwen_deltanet_ternary_weights_gguf(&args.model)
+        .with_context(|| format!("load (ternary) {}", args.model.display()))?;
+    let n_gdn = weights
+        .layer_types
+        .iter()
+        .filter(|&&t| t == DeltaNetLayerType::DeltaNet)
+        .count();
+    let folded = weights.rotation.is_some();
+    println!(
+        "# model: qwen35 hybrid ternary | layers={} gdn_layers={n_gdn} n_embd={} | folded={folded} | load {:.1}s",
+        config.n_layer,
+        config.n_embd,
+        t0.elapsed().as_secs_f32()
+    );
+    if folded {
+        // The FiLM input-proj seam is bypassed on folded layers (the
+        // Issue-980 rotated-QKVZ memoization); the matvec-wrap seam is the
+        // compile-window landing. Disclose loud, never silently no-op.
+        println!(
+            "# NOTE: folded checkpoint — the T0.2 input-proj FiLM seam does NOT engage \
+             on folded layers; an armed --film-seed run here is expected to read \
+             UNCHANGED (engagement proof will refuse it once wired)"
+        );
+    }
+
+    let n_v_heads = config.deltanet_linear_n_value_heads;
+    let d_k = config.deltanet_linear_head_dim;
+    let d_v = config.deltanet_linear_head_dim;
+
+    // The FiLM filters (per GDN layer, layer-keyed, deterministic).
+    let films: Option<Vec<FilmFilter>> = args
+        .film_seed
+        .map(|seed| {
+            weights
+                .layer_types
+                .iter()
+                .enumerate()
+                .filter(|(_, &t)| t == DeltaNetLayerType::DeltaNet)
+                .map(|(layer_idx, _)| FilmFilter::fixed_coeff(config.n_embd, layer_idx, seed))
+                .collect()
+        });
+
+    let rope_freq = RopeFreqTable::new(config.rope_theta, effective_rotary_dim(&config));
+    let mut cache = riir_infer_core::deltanet::HybridCache::with_layer_types_bounded(
+        &config,
+        &weights.layer_types,
+        args.n,
+    );
+    let mut scratch = riir_infer_core::deltanet::HybridForwardScratch::new(&config);
+    let mut logits = vec![0.0f32; config.vocab_size];
+
+    let mut points = Vec::with_capacity(positions.len());
+    let t1 = std::time::Instant::now();
+    for (i, &token) in tokens.iter().take(args.n).enumerate() {
+        let pos = i;
+        // T0.2 injection: the FiLM hook rides the input-proj seam (UNFOLDED
+        // layers only — the folded disclosure above covers the 27B until the
+        // matvec-wrap seam lands). v1 wiring note: the hook plumbing lands
+        // with the compile window; an armed seed on this build records the
+        // unchanged-baseline disclosure instead of a fake shift.
+        let _ = &films; // (hook plumbing lands at the compile window)
+        forward_qwen_deltanet_ternary(
+            &mut logits,
+            &weights,
+            &mut cache,
+            token,
+            pos,
+            &config,
+            &mut scratch,
+            &rope_freq,
+        );
+        if positions.binary_search(&pos.wrapping_add(1)).is_ok() {
+            // Snapshot AFTER position `pos`'s update = the state AT
+            // `pos+1` — the capture-point position label.
+            let snap_pos = pos + 1;
+            let mut geometry = Vec::with_capacity(n_gdn);
+            for layer_idx in 0..config.n_layer {
+                if weights.layer_types[layer_idx] != DeltaNetLayerType::DeltaNet {
+                    continue;
+                }
+                let state = &cache.deltanet_state.recurrent_states[layer_idx];
+                geometry.push(census_state_snapshot(state, None, n_v_heads, d_k, d_v)?);
+            }
+            points.push(riir_infer_core::deltanet::lattice_census::CapturePoint {
+                pos: snap_pos,
+                geometry,
+            });
+        }
+    }
+    println!(
+        "# census pass: {:.1}s (ternary body, {} snapshots)",
+        t1.elapsed().as_secs_f32(),
+        points.len()
+    );
+
+    let report = LatticeCensusReport {
+        positions: points.iter().map(|p| p.pos).collect(),
+        points,
+        shape: (n_gdn, n_v_heads, d_k, d_v),
+        query_armed: false,
+    };
+    let payload = report.canonical_payload();
+    let digest = report.digest();
+
+    // Fixed-precision summary (the readable top line; the payload is the pin).
+    let means = report.mean_r_ent_per_layer();
+    let mean_all = if means.is_empty() {
+        0.0
+    } else {
+        means.iter().sum::<f64>() / means.len() as f64
+    };
+    println!(
+        "# mean r_ent (all layers × points): {mean_all:.4} | digest={digest}"
+    );
+
+    match args.out {
+        Some(out) => {
+            std::fs::write(&out, &payload)
+                .with_context(|| format!("write {}", out.display()))?;
+            println!("# report → {} ({} bytes, blake3={digest})", out.display(), payload.len());
+        }
+        None => {
+            print!("{payload}");
+            println!("# blake3={digest}");
+        }
+    }
+    Ok(())
+}

@@ -143,6 +143,19 @@ desc_len = []
 # surface (test-support only). The `weight-audit` bin is the census
 # front (required-features row in the same commit — the P30 law).
 weight_audit = []
+
+# riir-train plan 503 T0.1/T0.2 — the lattice-conditioning geometry census
+# over per-head GDN recurrent states (r_ent / r_stable / query-alignment
+# closed forms; cyclic-Jacobi spectrum in f64, Issue-940 deterministic
+# folds). Offline, REPORT-ONLY, zero new deps (blake3/anyhow in-tree).
+# The T0.2 FiLM probe filter rides the same gate. The capture seam:
+# state snapshots happen in the DRIVER (states are durably held in
+# HybridCache between steps — zero forward-body edits, the sink_audit
+# extraction lesson); the query-gain capture arm rides the scratch the
+# way sink_audit_q does (its scratch field + write-sites are the
+# compile-window wiring step). The `lattice-census` bin is the census
+# front (required-features row in the same commit — the P30 law).
+lattice_census = ["deltanet_ternary_inference"]
 # Issue 036 T1/T2: the LittleBit-derived init-only sub-1-bit PTQ lane —
 # `quant::svd_lbit` (seeded Halko truncated SVD + Dual-SVID init + residual
 # restack, deterministic) + the `svd_lbit_eval` PPL-ladder bin. Opt-in per
@@ -817,6 +830,17 @@ required-features = ["sink_audit"]
 name = "weight-audit"
 path = "src/bin/weight-audit.rs"
 required-features = ["weight_audit"]
+
+# riir-train plan 503 T0.1 — the lattice-conditioning geometry census CLI:
+# one ternary pass per checkpoint over the first N tokens, per-head GDN
+# state geometry at the pinned capture positions, a fixed-precision
+# BLAKE3-pinned report (G1: same checkpoint + corpus + window → same
+# digest). Reader protection row (the green-zero law): a default build
+# skips the bin loudly.
+[[bin]]
+name = "lattice-census"
+path = "src/bin/lattice-census.rs"
+required-features = ["lattice_census"]
 
 # riir-infer Issue 014 T1 — the activation-diagonal collector bin. The
 # module lives behind #[cfg(feature = "act_diagonal_calibration")]; this

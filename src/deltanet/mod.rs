@@ -65,6 +65,12 @@ pub mod sink_audit;
 #[cfg(feature = "sink_audit")]
 pub mod width_census;
 
+// riir-train plan 503 T0.1/T0.2 — the lattice-conditioning geometry census
+// (per-head GDN state closed forms + the fixed-coeff FiLM probe filter).
+// Offline only, report-only; zero forward-body edits for the state half.
+#[cfg(feature = "lattice_census")]
+pub mod lattice_census;
+
 // Issue 049 — the GDN delta-roll state journal (Research 629 E2's
 // riir-infer half): post-commit state recovery by rank-1 unwind from the
 // final state + per-token (u, k, β, g) contexts (~64× vs materialized
