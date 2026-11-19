@@ -69,3 +69,21 @@ No serving posture follows from this. R1 is not a dist-lane activation, so the i
 ## Code
 
 The measured code is `code_at_measurement.patch`: `riir-infer-laya` feature `decision_core_census`, `laya/riir/decision_core.rs` + the `laya-decision-core-census` bin. Landing it is gated on this box's `katgpt-rs` working tree reaching `relevance_core`; see the issue. Cargo validates `katgpt-core/relevance_core` at resolution, so committing it earlier would break every riir-infer build on a stale checkout. The run used an isolated worktree pair: riir-infer @ `15954292` + katgpt-rs @ `19fa122b7`.
+
+## Addendum — T-ml: multilingual on a balanced suite (2026-11-20)
+
+The pre-registration is in `.issues/1237` (`2c9d6cc0`), committed before this number. The suite is the tetris v4 fixture rendered into es / th / ja from its closed template vocabulary (`ml_gen_suite.py`, hand-written phrase tables, no machine translation; deterministic from the fixture, suite blake3 `dce4757d…2f34`). Records are interleaved round-robin across the languages.
+
+The question was chosen by a disjoint pilot (records 200–239): Q1 "is the stack clean" scored true-rate 0.323 and Q2 "holes under it" scored 0.671. Q1 was first to pass the [0.2, 0.8] gate. Census on the first 200 records, multilingual (d = 768): eval true-rate 0.356, Cov rows/d 5.99, fidelity max |Δlogit| 1.0e-6. Run locally on amo while it was quiet (~30 s of forwards); no latency is claimed.
+
+| r | keep core / PCA / random | remove-flip core / PCA / random | SUFFICIENT | NECESSARY |
+|---:|---|---|---|---|
+| 1 | **0.795 / 0.374 / 0.652** | 0.262 / 0.212 / 0.001 | ✗ (< 0.95) | ✓ |
+| 2 | 0.999 / 0.999 / 0.672 | 0.449 / 0.448 / 0.001 | ✗ (ties PCA) | ✓ |
+| 4–64 | 1.000 / 1.000 / 0.790–0.999 | 0.48–0.69 / 0.54–0.69 / ≤0.001 | ✗ (ties PCA) | ✓ |
+
+Energy share: r = 1 0.920, r = 2 0.9999996. Participation ratio 1.17.
+
+**Verdict:** multilingual is now DECIDABLE, and LOW_DIM_CORE is NOT CLAIMED by the rule. Its relevance is rank-2. The rank-1 core already beats both controls by a wide margin (0.795 against 0.374 / 0.652) but is not sufficient. The rank-2 core is sufficient (0.999) but coincides with the top-2 PCA span, the same tie english showed at r = 1. It is necessary at every rank.
+
+Across the three checkpoints the R1 picture is one shape: a 1–2-dim relevance core that is causally necessary. In english and multilingual it lies inside the dominant variance directions, so PCA finds it too. In typed it does not, and only there does ACE beat PCA.
