@@ -33,6 +33,12 @@
 - [x] **T1 — R1 census** (pre-registered above): Bench 1247, job `901d28cb`.
 - [ ] **T-land — commit the census code** (`.benchmarks/1247_i1237_decision_core_census_logs/code_at_measurement.patch`, applies clean at `15954292`'s tree). It needs `katgpt-core` with `relevance_core` at `../katgpt-rs`: cargo validates `katgpt-core/relevance_core` at resolution, so landing early breaks every riir-infer build on a stale katgpt-rs checkout. amo's katgpt-rs is 23 commits behind (blocked by uncommitted `.agents/skills/{boundary-guard,doc-sync}/SKILL.md` WIP that conflicts with upstream). Unblock: that WIP is committed or reconciled, then `git apply` + clippy + commit.
 - [ ] **T-R0 — the encoder-output readout** (through the two head layers, finite differences): the deeper read R1 cannot give.
+  **Pre-registration (2026-11-20, before any R0 number):**
+  - Readout: the encoder-output marker rows (new seams `encoder_hidden` + `head_rows_from_hidden`, feature-gated). `f` = the scorer logit after both head layers. Seam fidelity ≤ 1e-3 against the lane's logits (the smoke run measured 7.6e-7).
+  - Relevance is estimated by central finite differences along the top-k = 64 activity (PCA) directions of the fit marker rows. The step is 1e-2 × √λ_j, on 128 fit forwards spread over records 0–99 (256 marker rows). ACE runs in that k-subspace (Cov = diag λ) and maps back. Disclosed approximation: directions outside the top-64 span are never probed; the captured trace share is reported.
+  - Causal reads at R0 on 256 eval forwards spread over records 100–199. Ranks {1, 2, 4, 8, 16} ∪ E0.90; same arms (core / PCA / random) and verdict rules as R1.
+  - Runs: english + typed on the tetris v4 suite, multilingual on the balanced es/th/ja suite. Then english ↔ typed R0 core agreement at the english R0 E0.90 rank (≥ 5× random = AGREEMENT).
+  - Side finding from the smoke run, filed as Issue 1239: `EncodedQuestion.hidden` is the post-head residual (max |Δ| 1281.6 vs encoder-only).
 - [x] **T-ml — a balanced multilingual suite** (Bench 1247 addendum: decidable now; relevance is rank-2, necessary at every r, rank-2 keep 0.999 ties PCA → NOT CLAIMED; r=1 core beats both controls 0.795 vs 0.374/0.652) so multilingual sufficiency becomes decidable.
   **Pre-registration (2026-11-20, before the census number):**
   - Suite: the tetris v4 fixture rendered into es / th / ja from its closed template vocabulary (`gen_suite.py`, phrase tables, no LLM translation), records interleaved round-robin across the three languages.
