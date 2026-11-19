@@ -1,0 +1,19 @@
+
+running 1 test
+test f2_price_cell ... CubeCL runtime initialized: wgpu<msl>
+[Issue 864] attention KV working set = 513 MiB (block_size 4106 × kvd 1024 × K+V × 16 attention layers) — above the 256 MiB warn line. If the workload never drives this many positions, clamp `config.block_size` to the real sequence bound BEFORE construction (the riir-train driver pattern); the unbounded variant measured a ~50 s first-touch burst at a 262,144-token context (riir-train Bench 573). Steady-state throughput is unaffected.
+[Issue 727] metal-rs GEMM cache skipped (PREFILL_USE_METAL_TENSOR off at construction; set it BEFORE new() to A/B this path)
+[Issue 657] wgpu MSL passthrough GEMM initialized (zero-copy)
+[Issue 663 T5] zero-copy raw-Metal GEMM initialized (device=0x104935570, queue=0x10493b8c0)
+[i1225] f16b twin compiled (patched B-side half; cast kernel armed)
+[Issue 663 T5] zero-copy raw-Metal weight cache complete.
+# i1226 F2 price cell · relaxed · 5 ABBA pairs (B=twin+cast, C=twin+shadow) · chunk 512 × frames 8 = 4098 tok/pass · 64 layers
+# engagement per pass: B cast encoders 3456 (skipped 0) · C cast encoders 0 (skipped 3456) · misaligned B 0 C 0
+# saved cast launches: 3456 per pass = 6.75 per layer per frame
+
+F2 IDENTITY CELL (chunk 512 × frames 8 + tail 2 = 4098 tok): C == B byte-identical × 4 passes; 3456 casts saved/pass; misaligned 0 — PASS
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 54.51s
+
+rc=0

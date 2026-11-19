@@ -31,6 +31,10 @@
 //!   --features prefill_f16b,production,cubecl_runtime,multi_host,riir-infer-core/bonsai2_hadamard \
 //!   --test i1226_f2_price_cell -- --ignored --nocapture --test-threads=1
 //! # I1226P_PAIRS (default 5) · I1226P_CHUNK (512) · I1226P_FRAMES (8 = pp4096; 64 = pp32k)
+//! # I1226P_TAIL (2) — tokens past chunk × frames (a ragged final frame)
+//! # I1226P_IDENTITY_ONLY=1 — the delegated verdict's condition (b): engagement +
+//! #   C == B identity at another shape (e.g. chunk 128 = the dist default, tail 37),
+//! #   no timed pairs
 //! ```
 
 #![cfg(all(
@@ -101,6 +105,8 @@ fn f2_price_cell() {
     assert!(pairs >= 3, "need at least 3 pairs for a median");
     let chunk = env_usize("I1226P_CHUNK", 512);
     let frames = env_usize("I1226P_FRAMES", 8);
+    let tail = env_usize("I1226P_TAIL", 2);
+    let identity_only = std::env::var("I1226P_IDENTITY_ONLY").as_deref() == Ok("1");
 
     // The serving posture (relaxed — the promoted dist default), identical
     // for every arm; the ONLY deltas are the route and producer latches.
@@ -123,7 +129,7 @@ fn f2_price_cell() {
         .encode(SEED_TEXT)
         .iter()
         .cycle()
-        .take(chunk * frames + 2)
+        .take(chunk * frames + tail)
         .copied()
         .collect();
     config.block_size = toks.len() + 8;
@@ -195,6 +201,29 @@ fn f2_price_cell() {
         "a shadow fell back on a misaligned offset — the price would be mixed"
     );
     let saved = b_enc - c_enc;
+
+    if identity_only {
+        // Condition (b): the shadow's end-to-end identity at a shape the
+        // price cell did not time — two passes per twin arm, every digest
+        // equal across AND between arms.
+        let digests: Vec<(Arm, String)> = [Arm::B, Arm::C, Arm::C, Arm::B]
+            .into_iter()
+            .map(|arm| (arm, pass(arm).1))
+            .collect();
+        set_arm(Arm::B);
+        assert!(
+            digests.windows(2).all(|w| w[0].1 == w[1].1),
+            "C != B (or an arm is non-deterministic) at chunk {chunk} × frames {frames} + tail \
+             {tail}: {digests:?}"
+        );
+        println!(
+            "\nF2 IDENTITY CELL (chunk {chunk} × frames {frames} + tail {tail} = {} tok): \
+             C == B byte-identical × {} passes; {saved} casts saved/pass; misaligned 0 — PASS",
+            toks.len(),
+            digests.len()
+        );
+        return;
+    }
 
     // ── The timed pairs ───────────────────────────────────────────────
     let (mut b_walls, mut c_walls, mut a_walls) = (Vec::new(), Vec::new(), Vec::new());

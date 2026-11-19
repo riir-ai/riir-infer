@@ -744,8 +744,8 @@ pub use ternary_deltanet_gpu_forward::set_prefill_use_metal_tensor_zerocopy;
 #[cfg(feature = "prefill_f16b")]
 pub use prefill_f16b::{
     F16B_SITE_MASK_ALL, f16b_flip_samples, f16b_route_armed, f16b_site_admits, f16b_tap_armed,
-    f16b_tap_reset, f16b_tap_snapshot, set_f16b_placebo, set_f16b_route, set_f16b_site_mask,
-    set_f16b_tap,
+    f16b_tap_reset, f16b_tap_snapshot, set_f16b_placebo, set_f16b_producer, set_f16b_route,
+    set_f16b_site_mask, set_f16b_tap,
 };
 #[cfg(all(feature = "ternary_gemm_batched", feature = "ternary_gemm_simdgroup"))]
 pub use ternary_deltanet_gpu_forward::set_prefill_use_simdgroup;

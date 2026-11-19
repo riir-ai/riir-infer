@@ -6375,8 +6375,14 @@ impl TernaryDeltanetGpuForward {
         width: usize,
         site: PrefillSite,
     ) -> Option<Handle> {
+        // i1226 F2 delegated verdict (c): the shadow is consumed ONLY by the
+        // zero-copy twin dispatch, so also require that path's own gates —
+        // the zero-copy flag and its site admission — or a posture that
+        // cannot read the shadow would still pay to write it.
         let armed = crate::prefill_f16b::f16b_route_armed()
             && crate::prefill_f16b::f16b_producer_armed()
+            && PREFILL_USE_METAL_TENSOR_ZEROCOPY.load(std::sync::atomic::Ordering::Relaxed)
+            && site_admits(site)
             && crate::prefill_f16b::f16b_site_admits(site)
             && !crate::prefill_f16b::placebo_pinned()
             && self.metal_zerocopy_f16b.is_some();

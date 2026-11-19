@@ -109,6 +109,18 @@ impl TernaryGpuStage {
             riir_infer_gpu::set_f16b_route(
                 std::env::var("RIIR_PREFILL_F16B").as_deref() != Ok("0"),
             );
+            // i1226 F2: the producer-writes-f16 shadow — **PROMOTED
+            // default-ON in THIS serving lane** (delegated-owner verdict
+            // AGREE WITH CONDITIONS 2026-11-19: Bench 1245 GAIN 1.04% pp4096
+            // / 0.31% pp32k sign-consistent with C == B byte-identical e2e,
+            // so the twin's G1 retention carries unchanged; G3/G4 by
+            // construction; the chunk-128 + ragged-tail identity cell is the
+            // condition (b) record). `RIIR_PREFILL_F16B_PRODUCER=0` (the
+            // exact literal) is DEMOTE-ONLY: every twin site casts again,
+            // byte-identically. It rides the route — no route, no shadow.
+            riir_infer_gpu::set_f16b_producer(
+                std::env::var("RIIR_PREFILL_F16B_PRODUCER").as_deref() != Ok("0"),
+            );
             riir_infer_gpu::set_f16b_tap(
                 std::env::var("RIIR_PREFILL_F16B_TAP").as_deref() == Ok("1"),
             );

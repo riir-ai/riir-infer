@@ -53,3 +53,14 @@ The gate order's next rungs:
 - **Tap retention on one posture:** satisfied BY CONSTRUCTION here. C's frame logits are byte-identical to B's at both sizes, so C inherits B's measured retention (Bench 1224 at pp4096, Bench 1234 at pp32768) exactly. Running the tap would compare identical bytes.
 - **GOAT against Bench 1225's armed posture:** G1 is bit-identical to the incumbent. G2 is this cell. G3 holds because the producer touches only `launch_forward`/`launch_forward_copy` on the prefill rotate (decode's `launch_inverse` is untouched). G4 holds because the shadow pool keys by size with `or_insert_with`, so steady state allocates nothing.
 - **Then the delegated-owner verdict** and the dist-lane default flip.
+
+## Addendum — the delegated verdict's condition (b): identity at the dist frame width (2026-11-19, shared job `ad6187af`)
+
+The verdict was **AGREE WITH CONDITIONS**: the dist head's default `--prefill-chunk` is 128, and the timed cell ran only chunk 512. Identity-only mode (`I1226P_IDENTITY_ONLY=1`, B C C B, every digest equal) was run on the FINAL predicate (condition (c): the shadow also requires the zero-copy flag + its site admission):
+
+| shape | tok | B cast encoders | C cast encoders (skipped) | misaligned | C == B |
+|---|---:|---:|---:|---:|---|
+| chunk 128 × 32 + tail 37 | 4133 | 12672 | 0 (12672) | 0 | **byte-identical × 4** |
+| chunk 512 × 8 + tail 2 (re-check) | 4098 | 3456 | 0 (3456) | 0 | **byte-identical × 4** |
+
+Logs: `identity_c128_tail37.log`, `identity_c512_recheck.log`. Correctness only, so no timing claim (shared lane).
