@@ -1,0 +1,161 @@
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/cubecl-common-0.11.0-pre.2/build.rs:10:5
+   |
+10 | /     cfg_aliases! {
+11 | |         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+12 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/cubecl-common-0.11.0-pre.2/build.rs:10:5
+   |
+10 | /     cfg_aliases! {
+11 | |         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+12 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `cubecl-common` (build script) generated 7 warnings (5 duplicates)
+warning: `cubecl-common` (build script) generated 7 warnings (7 duplicates)
+warning: trailing semicolon in macro used in expression position
+  --> vendor/cubecl-runtime-0.11.0-pre.2/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Some features like autotune caching, compilation caching, and config loading
+ 7 | |         // require std with OS-level filesystem and environment access.
+ 8 | |         std_io: { all(feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", ...
+...  |
+14 | |         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+15 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> vendor/cubecl-runtime-0.11.0-pre.2/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Some features like autotune caching, compilation caching, and config loading
+ 7 | |         // require std with OS-level filesystem and environment access.
+ 8 | |         std_io: { all(feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", ...
+...  |
+14 | |         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+15 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/wgpu-hal-30.0.0/build.rs:2:5
+   |
+ 2 | /     cfg_aliases::cfg_aliases! {
+ 3 | |         native: { not(target_arch = "wasm32") },
+ 4 | |         send_sync: { any(
+ 5 | |             not(target_arch = "wasm32"),
+...  |
+34 | |         supports_ptr_atomics: { target_has_atomic = "ptr" }
+35 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases::cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/wgpu-hal-30.0.0/build.rs:2:5
+   |
+ 2 | /     cfg_aliases::cfg_aliases! {
+ 3 | |         native: { not(target_arch = "wasm32") },
+ 4 | |         send_sync: { any(
+ 5 | |             not(target_arch = "wasm32"),
+...  |
+34 | |         supports_ptr_atomics: { target_has_atomic = "ptr" }
+35 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases::cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `cubecl-runtime` (build script) generated 81 warnings (79 duplicates)
+warning: `wgpu-hal` (build script) generated 161 warnings (159 duplicates)
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/cubecl-wgpu-0.11.0-pre.2/build.rs:6:5
+   |
+ 6 | /     cfg_aliases! {
+ 7 | |         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
+ 8 | |         apple_silicon: { all(target_os = "macos", target_arch = "aarch64") },
+...  |
+11 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/cubecl-wgpu-0.11.0-pre.2/build.rs:6:5
+   |
+ 6 | /     cfg_aliases! {
+ 7 | |         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
+ 8 | |         apple_silicon: { all(target_os = "macos", target_arch = "aarch64") },
+...  |
+11 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `cubecl-wgpu` (build script) generated 31 warnings (29 duplicates)
+warning: unused variable: `first_occurrence`
+   --> crates/riir-gpu/tests/bench_831_decode_long.rs:871:9
+    |
+871 |     let first_occurrence = walk
+    |         ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_first_occurrence`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `riir-gpu` (test "bench_831_decode_long") generated 1 warning (run `cargo fix --test "bench_831_decode_long" -p riir-gpu` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.22s
+     Running tests/bench_831_decode_long.rs (/tmp/i1231cell/release/deps/bench_831_decode_long-bd3b87d16f2284d9)
+
+running 1 test
+test bench_831_decode_long_resident_ab ... ═══════════════════════════════════════════════════════════════
+  Issue 1165 T2 — resident decode re-cell (league ctx class)
+  ctx=2048 n_gen=512 pairs=3 ABBA · cadence K=8 · census posture: uniform-cache override ON
+═══════════════════════════════════════════════════════════════
+Loading Ternary-Bonsai-27B (~2 min)...
+Loaded in 7.0s
+Initializing GPU + uploading weights...
+CubeCL runtime initialized: wgpu<msl>
+[Issue 864] attention KV working set = 328 MiB (block_size 2624 × kvd 1024 × K+V × 16 attention layers) — above the 256 MiB warn line. If the workload never drives this many positions, clamp `config.block_size` to the real sequence bound BEFORE construction (the riir-train driver pattern); the unbounded variant measured a ~50 s first-touch burst at a 262,144-token context (riir-train Bench 573). Steady-state throughput is unaffected.
+GPU ready
+  pair 0 (warm-up): incumbent 8.491s · resident 7.665s
+  pair 1: incumbent 16.75 ms/tok · resident 14.96 ms/tok
+  pair 2: incumbent 16.76 ms/tok · resident 14.97 ms/tok
+  pair 3: incumbent 16.77 ms/tok · resident 14.97 ms/tok
+─── results ───
+  G1 ref: greedy-argmax-walk FNV hash = 121982e1b7878d05 (ctx=2048 n=512)
+  incumbent: 59.67 tok/s (0.0168 s/tok) · resident: 66.79 tok/s (0.0150 s/tok)
+  DECODE_LONG_RESIDENT ctx=2048 n=512 pairs=3: delta -1.787 ms/tok · ratio 0.893x
+═══════════════════════════════════════════════════════════════
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 254.25s
+

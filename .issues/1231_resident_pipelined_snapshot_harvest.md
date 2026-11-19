@@ -36,7 +36,7 @@ The vendor patch that made it expressible: `read_async`'s RPIT pinned `+ 'static
 ## Tasks
 
 - [x] **T1 — substrate + consumer + cells** — LANDED `f881fb87` + `387cb84be` (see above; clippy clean at the resident + full bench postures, the bench target gated at RELEASE after the dev run green-zeroed it, rustfmt edition 2024, grammar pins pass).
-- [ ] **T2 — the wall cell + stop cell at the pre-registered bars** (quiet exclusive; the run_cell template with the two new test names).
+- [x] **T2 — the wall cell + stop cell at the pre-registered bars** — **PASS, ADOPT BAR MET** (Bench 1243, 2026-11-19, amo-idle-hk lease; quiet-exclusive amo, load 1.43–1.74): pipelined −0.351 ms/tok vs the same-cell cadence arm (14.98→14.63, pairs 1–3 identical, ratio 0.977×; ≥ the 0.3 bar), G1 FNV `121982e1b7878d05` identical to the cadence ref, stop prefixes truncation-exact both cells, overshoot 7 ≤ 2K, TTFT 222.2 vs 142.7 ms reported. **The cell's first catch (fixed same session, riir-ai):** the wall cell's pipelined loop lacked the EOS drain — the 7 tail tokens after the last snapshot were never harvested, the walk ended 505/512 (G1 pair assert red); fix = the post-future EOS `harvest()` in `resident_chain_pipelined` (the stop cell's tail-path contract); re-run green, the numbers above are the fixed run. T3 (serving wiring + GOAT + owner verdict) unblocked, unclaimed.
 - [ ] **T3 — GOAT + promotion lane** (only on a T2 PASS; the serving loop + env + owner verdict).
 
 ## Boundary

@@ -1,0 +1,164 @@
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/cubecl-common-0.11.0-pre.2/build.rs:10:5
+   |
+10 | /     cfg_aliases! {
+11 | |         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+12 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/cubecl-common-0.11.0-pre.2/build.rs:10:5
+   |
+10 | /     cfg_aliases! {
+11 | |         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+12 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `cubecl-common` (build script) generated 7 warnings (5 duplicates)
+warning: `cubecl-common` (build script) generated 7 warnings (7 duplicates)
+warning: trailing semicolon in macro used in expression position
+  --> vendor/cubecl-runtime-0.11.0-pre.2/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Some features like autotune caching, compilation caching, and config loading
+ 7 | |         // require std with OS-level filesystem and environment access.
+ 8 | |         std_io: { all(feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", ...
+...  |
+14 | |         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+15 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> vendor/cubecl-runtime-0.11.0-pre.2/build.rs:5:5
+   |
+ 5 | /     cfg_aliases! {
+ 6 | |         // Some features like autotune caching, compilation caching, and config loading
+ 7 | |         // require std with OS-level filesystem and environment access.
+ 8 | |         std_io: { all(feature = "std", any(target_os = "windows", target_os = "linux", target_os = "macos", ...
+...  |
+14 | |         multi_threading: { all(feature = "std", not(target_family = "wasm")) },
+15 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/wgpu-hal-30.0.0/build.rs:2:5
+   |
+ 2 | /     cfg_aliases::cfg_aliases! {
+ 3 | |         native: { not(target_arch = "wasm32") },
+ 4 | |         send_sync: { any(
+ 5 | |             not(target_arch = "wasm32"),
+...  |
+34 | |         supports_ptr_atomics: { target_has_atomic = "ptr" }
+35 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases::cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/wgpu-hal-30.0.0/build.rs:2:5
+   |
+ 2 | /     cfg_aliases::cfg_aliases! {
+ 3 | |         native: { not(target_arch = "wasm32") },
+ 4 | |         send_sync: { any(
+ 5 | |             not(target_arch = "wasm32"),
+...  |
+34 | |         supports_ptr_atomics: { target_has_atomic = "ptr" }
+35 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases::cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `cubecl-runtime` (build script) generated 81 warnings (79 duplicates)
+warning: `wgpu-hal` (build script) generated 161 warnings (159 duplicates)
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/cubecl-wgpu-0.11.0-pre.2/build.rs:6:5
+   |
+ 6 | /     cfg_aliases! {
+ 7 | |         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
+ 8 | |         apple_silicon: { all(target_os = "macos", target_arch = "aarch64") },
+...  |
+11 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: `#[warn(semicolon_in_expressions_from_non_local_macros)]` (part of `#[warn(future_incompatible)]`) on by default
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: trailing semicolon in macro used in expression position
+  --> /Users/katopz/git/riir-infer/vendor/cubecl-wgpu-0.11.0-pre.2/build.rs:6:5
+   |
+ 6 | /     cfg_aliases! {
+ 7 | |         exclusive_memory_only: { any(feature = "exclusive-memory-only", target_family = "wasm") },
+ 8 | |         apple_silicon: { all(target_os = "macos", target_arch = "aarch64") },
+...  |
+11 | |     }
+   | |_____^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+   = note: for more information, see issue #79813 <https://github.com/rust-lang/rust/issues/79813>
+   = note: this warning originates in the macro `$crate::cfg_aliases` which comes from the expansion of the macro `cfg_aliases` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `cubecl-wgpu` (build script) generated 31 warnings (29 duplicates)
+warning: unused variable: `first_occurrence`
+   --> crates/riir-gpu/tests/bench_831_decode_long.rs:871:9
+    |
+871 |     let first_occurrence = walk
+    |         ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_first_occurrence`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `riir-gpu` (test "bench_831_decode_long") generated 1 warning (run `cargo fix --test "bench_831_decode_long" -p riir-gpu` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.23s
+     Running tests/bench_831_decode_long.rs (/tmp/i1231cell/release/deps/bench_831_decode_long-bd3b87d16f2284d9)
+
+running 1 test
+test bench_831_decode_long_resident_pipeline ... ═══════════════════════════════════════════════════════════════
+  Issue 1231 T2 — pipelined-harvest wall cell (snapshot futures)
+  ctx=2048 n_gen=512 pairs=3 ABBA · burst K=8 · ring depth 16 · census posture: uniform-cache override ON
+═══════════════════════════════════════════════════════════════
+Loading Ternary-Bonsai-27B (~2 min)...
+Loaded in 3.1s
+Initializing GPU + uploading weights...
+CubeCL runtime initialized: wgpu<msl>
+[Issue 864] attention KV working set = 328 MiB (block_size 2624 × kvd 1024 × K+V × 16 attention layers) — above the 256 MiB warn line. If the workload never drives this many positions, clamp `config.block_size` to the real sequence bound BEFORE construction (the riir-train driver pattern); the unbounded variant measured a ~50 s first-touch burst at a 262,144-token context (riir-train Bench 573). Steady-state throughput is unaffected.
+GPU ready
+
+thread 'bench_831_decode_long_resident_pipeline' (144116036) panicked at crates/riir-gpu/tests/bench_831_decode_long.rs:740:13:
+assertion `left == right` failed: pair 0 arm 1: walk diverged within the pair
+  left: [248046, 198, 248045, 74455, 198, 248068, 198, 8160, 579, 264, 7047, 1817, 25, 271, 16, 13, 220, 2972, 2014, 53983, 2570, 5396, 64700, 198, 256, 471, 561, 1879, 369, 264, 10632, 2424, 314, 1414, 421, 7701, 310, 381, 264, 4055, 38645, 362, 314, 4105, 11, 30705, 11, 1970, 66320, 11, 321, 17210, 494, 5081, 15005, 318, 21874, 11, 8193, 11, 8260, 11, 32988, 11, 14712, 11, 8323, 11, 5753, 11, 10452, 11, 15659, 11, 46862, 11, 4831, 34163, 198, 256, 471, 1049, 5435, 33358, 1040, 25, 51515, 6066, 76018, 23758, 31677, 39596, 47515, 55434, 63353, 71272, 79191, 87110, 95029, 102948, 110867, 118786, 126705, 134624, 142543, 155046, 2874, 25891, 6799, 7561, 1510, 49699, 50, 92198, 96850, 99402, 115955, 123874, 131793, 139712, 147631, 2938, 179307, 187226, 195145, 203064, 210983, 35670, 226821, 234740, 242659, 2258, 10177, 18096, 26015, 33934, 41853, 49772, 57691, 65610, 73529, 81448, 501, 38856, 97286, 105205, 113124, 121043, 128962, 136881, 144800, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184]
+ right: [248046, 198, 248045, 74455, 198, 248068, 198, 8160, 579, 264, 7047, 1817, 25, 271, 16, 13, 220, 2972, 2014, 53983, 2570, 5396, 64700, 198, 256, 471, 561, 1879, 369, 264, 10632, 2424, 314, 1414, 421, 7701, 310, 381, 264, 4055, 38645, 362, 314, 4105, 11, 30705, 11, 1970, 66320, 11, 321, 17210, 494, 5081, 15005, 318, 21874, 11, 8193, 11, 8260, 11, 32988, 11, 14712, 11, 8323, 11, 5753, 11, 10452, 11, 15659, 11, 46862, 11, 4831, 34163, 198, 256, 471, 1049, 5435, 33358, 1040, 25, 51515, 6066, 76018, 23758, 31677, 39596, 47515, 55434, 63353, 71272, 79191, 87110, 95029, 102948, 110867, 118786, 126705, 134624, 142543, 155046, 2874, 25891, 6799, 7561, 1510, 49699, 50, 92198, 96850, 99402, 115955, 123874, 131793, 139712, 147631, 2938, 179307, 187226, 195145, 203064, 210983, 35670, 226821, 234740, 242659, 2258, 10177, 18096, 26015, 33934, 41853, 49772, 57691, 65610, 73529, 81448, 501, 38856, 97286, 105205, 113124, 121043, 128962, 136881, 144800, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085, 190184, 153085]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    bench_831_decode_long_resident_pipeline
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 65.35s
+
+error: test failed, to rerun pass `-p riir-gpu --test bench_831_decode_long`
