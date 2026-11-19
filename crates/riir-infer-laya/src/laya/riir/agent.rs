@@ -707,6 +707,12 @@ impl RiirAgent {
                 #[cfg(all(target_os = "macos", feature = "laya-riir-ane"))]
                 EncoderStack::Ane(_) => 0,
             };
+            // Issue 1239: read the encoder output BEFORE the head runs —
+            // `layers_forward_rows` writes `h` in place (type-emb add + both
+            // head layers' residual adds), so a download after it returned
+            // the post-head residual, not the documented encoder output.
+            let mut h_host = vec![0f32; h.len()];
+            self.backend.download_into(&h, &mut h_host);
             let mut sc = HeadScratch::new();
             self.head.layers_forward_rows(
                 self.backend.as_ref(),
@@ -718,8 +724,6 @@ impl RiirAgent {
             let k = markers.len();
             let mut rows_host = vec![0f32; k * d];
             self.backend.download_into(&sc.rows, &mut rows_host);
-            let mut h_host = vec![0f32; h.len()];
-            self.backend.download_into(&h, &mut h_host);
             Ok((h_host, rows_host, d))
         })?;
         Ok(EncodedQuestion {
@@ -729,6 +733,73 @@ impl RiirAgent {
             hidden,
             marker_rows,
             d,
+        })
+    }
+
+    /// The ENCODER-ONLY final hidden states of one rendered question,
+    /// row-major `[seq_len, d]` (pre-type-emb — the head never runs), plus
+    /// its markers and question type. One `begin_pass` + one device sync;
+    /// calibration only (Issue 1237 R0 census, Issue 1239 pin).
+    pub fn encoder_hidden(
+        &self,
+        state: &Value,
+        qdef: &Value,
+    ) -> Result<(Vec<f32>, Vec<usize>, usize)> {
+        let q = to_internal(qdef)?;
+        let (ids, markers) = build_sequence(
+            &self.tok,
+            state,
+            &q,
+            self.cfg.max_len,
+            self.cfg.head_max_len,
+        )?;
+        #[allow(
+            clippy::infallible_destructuring_match,
+            reason = "the ANE arm is cfg-gated; the match is fallible with laya-riir-ane"
+        )]
+        let enc = match &self.enc {
+            EncoderStack::Local(e) => e,
+            #[cfg(all(target_os = "macos", feature = "laya-riir-ane"))]
+            EncoderStack::Ane(_) => {
+                return Err(LayaError::Runtime(
+                    "encoder_hidden: local encoder postures only (no ANE residual seam)".into(),
+                ));
+            }
+        };
+        let hidden = pass_pool(|| {
+            self.backend.begin_pass();
+            let h = enc.forward(self.backend.as_ref(), &ids)?;
+            let mut h_host = vec![0f32; h.len()];
+            self.backend.download_into(&h, &mut h_host);
+            Ok::<_, LayaError>(h_host)
+        })?;
+        Ok((hidden, markers, q.qtype))
+    }
+
+    /// The head's gathered marker rows `[k, d]` for a CALLER-SUPPLIED
+    /// encoder output (copied — the caller's buffer is never written), so
+    /// a census can perturb encoder rows and re-read the scorer input. One
+    /// `begin_pass` + one device sync per call (Issue 1237 R0 census).
+    pub fn head_rows_from_hidden(
+        &self,
+        hidden: &[f32],
+        qtype: usize,
+        markers: &[usize],
+    ) -> Result<Vec<f32>> {
+        pass_pool(|| {
+            self.backend.begin_pass();
+            let mut h = hidden.to_vec();
+            let mut sc = HeadScratch::new();
+            self.head.layers_forward_rows(
+                self.backend.as_ref(),
+                &mut h,
+                qtype,
+                markers,
+                &mut sc,
+            )?;
+            let mut rows = vec![0f32; sc.rows.len()];
+            self.backend.download_into(&sc.rows, &mut rows);
+            Ok(rows)
         })
     }
 

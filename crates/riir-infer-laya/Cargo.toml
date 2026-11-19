@@ -260,6 +260,12 @@ required-features = ["laya-riir-metal"]
 name = "prefix_state_coupling"
 required-features = ["laya-riir"]
 
+# Issue 1239 — EncodedQuestion.hidden is the encoder output (bit-exact CPU
+# pin vs the encoder-only seam) and marker_rows is the head over it.
+[[test]]
+name = "encode_question_hidden_contract"
+required-features = ["laya-riir"]
+
 # The cuda_ops_smoke pattern — whole-file #![cfg]-gated (not-macOS + the
 # cuda feature), compiles to an empty binary elsewhere; this row is the
 # reader protection (a --features selection without the union SKIPS the
