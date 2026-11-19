@@ -459,6 +459,22 @@ fn dequant_host_f32(gguf: &GgufFile, name: &str, m: usize, n: usize) -> Result<V
             }
             Ok(host)
         }
+        GgmlType::Q8_0 => {
+            // The i701 lane: the 0.8B Q8_0 screen model — host-dequant to
+            // f32 (the dense route; the F16ACT arm's cast applies the same
+            // way). Read-only dequant, no new kernel, no posture change.
+            let host = gguf
+                .dequant_f16_to_f32(name)
+                .map_err(|e| format!("weights: {name}: {e}"))?;
+            if host.len() != m * n {
+                return Err(format!(
+                    "weights: {name}: {} floats, expected {} ({m}x{n})",
+                    host.len(),
+                    m * n
+                ));
+            }
+            Ok(host)
+        }
         other => Err(format!(
             "weights: {name} is {other:?} - expected Q4_K or Q6_K (the Q4_K_M \
              recipe mixes both; Q6K-native GPU kernels are the Issue-1150 \
@@ -524,6 +540,11 @@ impl QuantWeight {
                 Ok(QuantWeight::Q4(q4))
             }
             GgmlType::Q6_K => Ok(QuantWeight::F32(
+                upload_f32(client, &dequant_host_f32(gguf, name, m, n)?),
+                m,
+                n,
+            )),
+            GgmlType::Q8_0 => Ok(QuantWeight::F32(
                 upload_f32(client, &dequant_host_f32(gguf, name, m, n)?),
                 m,
                 n,
@@ -1076,28 +1097,47 @@ impl Qwen38WgpuForward {
         let hd = config.head_dim;
 
         // Global tensors — embedding + lm_head host-dequant to f32.
-        let wte_blocks = gguf
-            .q4k_tensor_blocks("token_embd.weight")
-            .map_err(|err| format!("token_embd: {err}"))?;
-        let mut wte = vec![0.0f32; vocab * e];
-        {
-            let bpr = e / 256;
-            let mut row = vec![0.0f32; e];
-            for r in 0..vocab {
-                riir_infer_core::quant::q4k::dequantize_row_q4_k(
-                    &wte_blocks[r * bpr..(r + 1) * bpr],
-                    &mut row,
-                );
-                wte[r * e..(r + 1) * e].copy_from_slice(&row);
+        // The i701 lane: the 0.8B screen model stores BOTH globals as Q8_0
+        // (the census proves it); the Q4_K path is the 27B Q4_K_M recipe.
+        // Both dequant host-side here — read-only, no kernel change.
+        let wte_host = {
+            let info = gguf
+                .tensor_info("token_embd.weight")
+                .ok_or("token_embd: missing tensor")?;
+            let mut wte = vec![0.0f32; vocab * e];
+            match info.ggml_type {
+                riir_infer_core::gguf_loader::GgmlType::Q4_K => {
+                    let wte_blocks = gguf
+                        .q4k_tensor_blocks("token_embd.weight")
+                        .map_err(|err| format!("token_embd: {err}"))?;
+                    let bpr = e / 256;
+                    let mut row = vec![0.0f32; e];
+                    for r in 0..vocab {
+                        riir_infer_core::quant::q4k::dequantize_row_q4_k(
+                            &wte_blocks[r * bpr..(r + 1) * bpr],
+                            &mut row,
+                        );
+                        wte[r * e..(r + 1) * e].copy_from_slice(&row);
+                    }
+                }
+                _ => {
+                    let host = gguf
+                        .dequant_f16_to_f32("token_embd.weight")
+                        .map_err(|err| format!("token_embd: {err}"))?;
+                    if host.len() != vocab * e {
+                        return Err(format!(
+                            "token_embd: {} floats, expected {}",
+                            host.len(),
+                            vocab * e
+                        ));
+                    }
+                    wte = host;
+                }
             }
-        }
-        let big_gb = (wte.len() + vocab * e) as f64 * 4.0 / 1e9;
-        // wte stays on the host (module doc); lm_head uploads in chunks.
-        let wte_host = wte;
+            wte
+        };
 
-        let lm_blocks = gguf
-            .q6k_tensor_blocks("output.weight")
-            .map_err(|err| format!("output.weight: {err}"))?;
+        let big_gb = (vocab * e * 2) as f64 * 4.0 / 1e9; // wte + lm_head rows
         // The Q6_K packed tail (issue 1150 follow-up 3). Issue 1176:
         // DEMOTE-ONLY on Metal (the league default — 5× less tail traffic,
         // the 10.7 GB f32 host dequant NEVER runs), promote-only elsewhere.
@@ -1112,7 +1152,19 @@ impl Qwen38WgpuForward {
         let mut lm_head_chunks = Vec::new();
         let mut lm_head_q6k_chunks = Vec::new();
         let mut lm_head_q6k_d = Vec::new();
+        // The i701 screen model ties the lm head to wte (no output.weight
+        // tensor); the Q6_K packed-tail arm needs output.weight blocks and
+        // is refused LOUD on a tied file (demote it for this lane).
+        if lm_q6k_armed && gguf.tensor_info("output.weight").is_none() {
+            return Err(
+                "lm head: RIIR_QWEN38_LMHEAD_Q6K armed but the file has no output.weight                  (tied embeddings) — demote the env for this model"
+                    .into(),
+            );
+        }
         if lm_q6k_armed {
+            let lm_blocks = gguf
+                .q6k_tensor_blocks("output.weight")
+                .map_err(|err| format!("output.weight: {err}"))?;
             let bpr = e / 256;
             let mut c0 = 0usize;
             while c0 < vocab {
@@ -1126,8 +1178,16 @@ impl Qwen38WgpuForward {
                 c0 += rows;
             }
         } else {
-            let mut lm = vec![0.0f32; vocab * e];
-            {
+            // Tied embeddings: reuse wte_host as the lm head; otherwise
+            // dequant the Q6_K output.weight rows.
+            let lm_owned;
+            let lm: &[f32] = if gguf.tensor_info("output.weight").is_none() {
+                &wte_host
+            } else {
+                let lm_blocks = gguf
+                    .q6k_tensor_blocks("output.weight")
+                    .map_err(|err| format!("output.weight: {err}"))?;
+                let mut buf = vec![0.0f32; vocab * e];
                 let bpr = e / 256;
                 let mut row = vec![0.0f32; e];
                 for r in 0..vocab {
@@ -1135,16 +1195,17 @@ impl Qwen38WgpuForward {
                         &lm_blocks[r * bpr..(r + 1) * bpr],
                         &mut row,
                     );
-                    lm[r * e..(r + 1) * e].copy_from_slice(&row);
+                    buf[r * e..(r + 1) * e].copy_from_slice(&row);
                 }
-            }
+                lm_owned = buf;
+                &lm_owned
+            };
             let mut c0 = 0usize;
             while c0 < vocab {
                 let rows = lm_chunk_rows.min(vocab - c0);
                 lm_head_chunks.push(upload_f32(&client, &lm[c0 * e..(c0 + rows) * e]));
                 c0 += rows;
             }
-            drop(lm);
         }
         let lm_chunks = if lm_q6k_armed {
             lm_head_q6k_chunks.len()
@@ -2370,6 +2431,13 @@ impl Qwen38WgpuForward {
     fn read_chunk_argmax(&self) -> u32 {
         let logits = self.read_logits(&self.logits_b);
         Self::argmax_first(&logits)
+    }
+
+    /// Public read of the LAST chunk/step's logits buffer (the i701 cell's
+    /// teacher-forced scorer; a pure read-back, no launch, no posture
+    /// change — the buffer holds whatever the last tail-logits pass wrote).
+    pub fn last_logits(&self) -> Result<Vec<f32>, String> {
+        Ok(self.read_logits(&self.logits_b))
     }
 
     /// Issue 1170 half-B staging: under the F16ACT posture, cast the f32

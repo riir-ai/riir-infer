@@ -1205,3 +1205,10 @@ required-features = [
 [[bin]]
 name = "cq3_quantize"
 required-features = ["cq3_calibrate"]
+
+# Issue 701 cell-2 consumer — the paired base-vs-precomp retention cell on
+# the dense-league GPU forward (the splice producer's artifact scorer; the
+# kill-bar instrument). Needs the league forward (qwen38_wgpu) only.
+[[bin]]
+name = "i701_cell"
+required-features = ["qwen38_wgpu"]
