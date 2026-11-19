@@ -1,0 +1,9 @@
+# nofile: unchanged
+  pca top-64 captures 0.9980 of tr(Cov); 28.0s
+  r   1: {"r":1,"core_keep_retention":0.9109470026064292,"core_remove_flip":0.2988705473501303,"pca_keep_retention":0.7211120764552563,"pca_remove_flip":0.30755864465682015,"random_keep_retention":0.7089487402258905,"random_remove_flip":0.0,"SUFFICIENT":false,"NECESSARY":true}
+  r   2: {"r":2,"core_keep_retention":0.9795829713292789,"core_remove_flip":0.3001737619461338,"pca_keep_retention":0.9769765421372719,"pca_remove_flip":0.24543874891398784,"random_keep_retention":0.32971329278887923,"random_remove_flip":0.0008688097306689834,"SUFFICIENT":true,"NECESSARY":true}
+  r   4: {"r":4,"core_keep_retention":0.9839270199826238,"core_remove_flip":0.49304952215464815,"pca_keep_retention":0.9804517810599479,"pca_remove_flip":0.4635099913119027,"random_keep_retention":0.34969591659426585,"random_remove_flip":0.0008688097306689834,"SUFFICIENT":true,"NECESSARY":true}
+  r   8: {"r":8,"core_keep_retention":0.9943527367506516,"core_remove_flip":0.6168549087749783,"pca_keep_retention":0.9895742832319722,"pca_remove_flip":0.7141615986099045,"random_keep_retention":0.9161598609904431,"random_remove_flip":0.0008688097306689834,"SUFFICIENT":true,"NECESSARY":true}
+  r  16: {"r":16,"core_keep_retention":0.9956559513466551,"core_remove_flip":0.5981754995655951,"pca_keep_retention":0.9939183318853171,"pca_remove_flip":0.45351867940920937,"random_keep_retention":0.9682884448305821,"random_remove_flip":0.0017376194613379669,"SUFFICIENT":true,"NECESSARY":true}
+{"checkpoint":"multilingual","r_energy_090":2,"LOW_DIM_CORE":true,"seam_fidelity":1.0111538264467868e-6,"hidden_vs_encode":0.0,"report":"/tmp/ace/out/multilingual_r0_report.json"}
+RUN_DONE

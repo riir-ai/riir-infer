@@ -128,3 +128,20 @@ Keep and remove-flip, as core / PCA / random:
 **Side finding:** filed as Issue 1239 (`EncodedQuestion.hidden` is the post-head residual: max |Δ| 1281.6 english, 1311.8 typed, 899.3 multilingual against the encoder-only seam).
 
 The code patch now also carries the R0 seams and mode (`code_at_measurement.patch`, 1247 lines, applies clean).
+
+### R0 multilingual, full held-out eval (2026-11-20, job `6b9950c9`)
+
+The re-run the R0 verdict called for: the same protocol on all 2302 eval forwards instead of a 256-forward spread. It ran at the Issue 1239 fix, and `hidden_vs_encode` now measures 0.0. Eval true-rate 0.356.
+
+| r | keep core / PCA / random | core − PCA (forwards of 2302) | remove-flip core / PCA / random | S | N |
+|---:|---|---:|---|---|---|
+| 1 | 0.911 / 0.721 / 0.709 | **+437** | 0.299 / 0.308 / 0.000 | ✗ (< 0.95) | ✓ |
+| 2 | 0.980 / 0.977 / 0.330 | +6 | 0.300 / 0.245 / 0.001 | ✓ | ✓ |
+| 4 | 0.984 / 0.981 / 0.350 | +8 | 0.493 / 0.464 / 0.001 | ✓ | ✓ |
+| 8 | 0.994 / 0.990 / 0.916 | +11 | 0.617 / 0.714 / 0.001 | ✓ | ✓ |
+| 16 | 0.996 / 0.994 / 0.968 | +4 | 0.598 / 0.454 / 0.002 | ✓ | ✓ |
+
+**Verdict:** multilingual R0 LOW_DIM_CORE **CLAIMED at r = 2** (the E0.90 rank), and the claim now holds on the full eval set.
+- The edge over PCA is sign-consistent at every rank ≥ 2 (+4 to +11 forwards), but it is 0.2–0.5 points. No paired significance test was run, so read it as robust in sign and small in size.
+- The large ACE-over-PCA gap is at r = 1 (+437 forwards, 0.911 vs 0.721), where neither reaches sufficiency.
+- So multilingual is the one checkpoint where the encoder-output decision direction measurably differs from the top-variance direction.
