@@ -36,7 +36,6 @@
 
 #![cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -138,7 +137,7 @@ pub fn set_prefill_attn_metal_tensor(on: bool) {
 pub struct MetalTensorAttentionPrefill {
     pipeline: ComputePipelineState,
     /// Dedicated output buffers keyed by byte length (see the module doc).
-    output_cache: Mutex<HashMap<u64, Buffer>>,
+    output_cache: crate::frame_bucket_cache::FrameBucketCache<Buffer>,
     dispatch_count: AtomicU64,
     /// The last committed command buffer, for [`Self::wait_last`].
     last_cmd: Mutex<Option<CommandBuffer>>,
@@ -189,7 +188,7 @@ impl MetalTensorAttentionPrefill {
         }
         Ok(Self {
             pipeline,
-            output_cache: Mutex::new(HashMap::new()),
+            output_cache: crate::frame_bucket_cache::FrameBucketCache::new(),
             dispatch_count: AtomicU64::new(0),
             last_cmd: Mutex::new(None),
         })
@@ -258,17 +257,17 @@ impl MetalTensorAttentionPrefill {
         let o_ref: &BufferRef = unsafe { BufferRef::from_ptr(o_ptr) };
 
         let out_bytes = (out_len * std::mem::size_of::<f32>()) as u64;
-        let dedicated = {
-            let mut cache = self.output_cache.lock().expect("output_cache lock");
-            cache
-                .entry(out_bytes)
-                .or_insert_with(|| {
-                    let device_ref: &DeviceRef =
-                        unsafe { DeviceRef::from_ptr(host.device_ptr() as *mut metal::MTLDevice) };
-                    device_ref.new_buffer(out_bytes, MTLResourceOptions::StorageModeShared)
-                })
-                .clone()
-        };
+        // Issue 1238: bucketed by row count (`p`) — tails reuse their class;
+        // the kernel and the blit use the exact `out_bytes` extent.
+        let dedicated = self.output_cache.get_or_alloc(
+            (n_head * HEAD_DIM * std::mem::size_of::<f32>()) as u64,
+            p,
+            |bytes| {
+                let device_ref: &DeviceRef =
+                    unsafe { DeviceRef::from_ptr(host.device_ptr() as *mut metal::MTLDevice) };
+                device_ref.new_buffer(bytes, MTLResourceOptions::StorageModeShared)
+            },
+        );
 
         let (n_head_u, n_kv_u, p_u, base_u) =
             (n_head as u32, n_kv as u32, p as u32, base_pos as u32);

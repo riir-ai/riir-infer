@@ -48,6 +48,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::frame_bucket_cache::FrameBucketCache;
+
 use metal::foreign_types::ForeignTypeRef;
 use metal::{
     Buffer, BufferRef, CommandQueueRef, CompileOptions, ComputePipelineState, DeviceRef,
@@ -188,7 +190,9 @@ pub struct MetalTensorZeroCopyGemm {
     /// cooperative-tensor store. The dedicated output buffer breaks the
     /// aliasing; after the kernel writes, we copy back to the CubeCL handle.
     /// This is ONE GPU→GPU copy (not a host round-trip).
-    output_cache: Mutex<HashMap<u64, Buffer>>,
+    /// Issue 1238: keyed by `(row bytes, bucketed rows)` — a tail reuses
+    /// its power-of-two class, so serving many prompt lengths stays bounded.
+    output_cache: FrameBucketCache<Buffer>,
     /// Issue 1146: CubeCL output ranges wgpu has already marked initialized,
     /// per pool buffer, as SORTED, MERGED `[start, end)` intervals — see
     /// [`Self::ensure_wgpu_initialized`]. Containment (not exact-key match):
@@ -234,11 +238,11 @@ pub struct MetalTensorZeroCopyGemm {
 }
 
 /// Issue 1225: the f16-B twin's extra state (cast pipeline + the dedicated
-/// f16 input buffers, keyed by byte length — same shape as `output_cache`).
+/// f16 input buffers, bucketed like `output_cache` — Issue 1238).
 #[cfg(feature = "prefill_f16b")]
 struct F16bState {
     cast_pipeline: ComputePipelineState,
-    input_cache: Mutex<HashMap<u64, Buffer>>,
+    input_cache: FrameBucketCache<Buffer>,
 }
 
 // SAFETY: The raw `id` pointers are Objective-C object pointers that can be
@@ -317,7 +321,7 @@ impl MetalTensorZeroCopyGemm {
             device: device_ptr,
             queue: queue_ptr,
             pipeline,
-            output_cache: Mutex::new(HashMap::new()),
+            output_cache: FrameBucketCache::new(),
             wgpu_initialized: Mutex::new(HashMap::new()),
             init_fills: std::sync::atomic::AtomicU64::new(0),
             dispatch_count: std::sync::atomic::AtomicU64::new(0),
@@ -531,16 +535,7 @@ impl MetalTensorZeroCopyGemm {
         // but ONLY for the output (not the input + weights) — reducing the
         // copy count from 2 (Issue 657) to 1.
         let output_bytes = (p * w.m * std::mem::size_of::<f32>()) as u64;
-        let dedicated_output = {
-            let mut cache = self.output_cache.lock().unwrap();
-            cache
-                .entry(output_bytes)
-                .or_insert_with(|| {
-                    let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
-                    device_ref.new_buffer(output_bytes, MTLResourceOptions::StorageModeShared)
-                })
-                .clone()
-        };
+        let dedicated_output = self.output_buffer(w.m, p);
 
         // matmul2d tile constants — from THIS context's compiled config
         // (Issue 1122 gate 2; must mirror the `SWEEP_*` defines above). The
@@ -716,7 +711,7 @@ impl MetalTensorZeroCopyGemm {
             .map_err(|e| format!("f16b cast pipeline failed: {e}"))?;
         me.f16b = Some(F16bState {
             cast_pipeline,
-            input_cache: Mutex::new(HashMap::new()),
+            input_cache: FrameBucketCache::new(),
         });
         eprintln!("[i1225] f16b twin compiled (patched B-side half; cast kernel armed)");
         Ok(me)
@@ -809,23 +804,16 @@ impl MetalTensorZeroCopyGemm {
         // only allocated when the CAST path is actually taken.
         let cast_input: Option<Buffer> = if shadow.is_none() {
             crate::prefill_f16b::count_cast_encoder();
-            let f16_bytes = (p * w.n * std::mem::size_of::<u16>()) as u64;
-            let f16_input = {
-                let mut cache = f16b.input_cache.lock().unwrap();
-                cache
-                    .entry(f16_bytes)
-                    .or_insert_with(|| {
-                        let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
-                        device_ref.new_buffer(f16_bytes, MTLResourceOptions::StorageModeShared)
-                    })
-                    .clone()
-            };
+            let row_bytes = (w.n * std::mem::size_of::<u16>()) as u64;
+            let f16_input = f16b
+                .input_cache
+                .get_or_alloc(row_bytes, p, |bytes| self.new_shared_buffer(bytes));
             Some(f16_input)
         } else {
             None
         };
         let output_bytes = (p * w.m * std::mem::size_of::<f32>()) as u64;
-        let dedicated_output = self.dedicated_output(output_bytes);
+        let dedicated_output = self.output_buffer(w.m, p);
 
         let nra = u64::from(self.config.nra);
         let nrb = u64::from(self.config.nrb);
@@ -1010,8 +998,7 @@ impl MetalTensorZeroCopyGemm {
         let neg_ref: &BufferRef = unsafe { BufferRef::from_ptr(neg_ptr) };
         let scale_ref: &BufferRef = unsafe { BufferRef::from_ptr(scale_ptr) };
 
-        let output_bytes = (p * w.m * std::mem::size_of::<f32>()) as u64;
-        let dedicated_output = self.dedicated_output(output_bytes);
+        let dedicated_output = self.output_buffer(w.m, p);
 
         let nra = u64::from(self.config.nra);
         let nrb = u64::from(self.config.nrb);
@@ -1061,27 +1048,43 @@ impl MetalTensorZeroCopyGemm {
         Ok(dedicated_output)
     }
 
-    /// The dedicated output buffer last written for `byte_len` (the tap reads
-    /// the twin's result from here after [`Self::wait_last`]).
+    /// The dedicated output buffer the last `p`-row dispatch of an
+    /// `m`-wide weight wrote (the tap reads the twin's result from here
+    /// after [`Self::wait_last`]; read exactly `p * m` f32s — the buffer is
+    /// the row-bucket's size, Issue 1238).
     #[cfg(feature = "prefill_f16b")]
-    pub fn dedicated_output_for(&self, byte_len: u64) -> Option<Buffer> {
-        self.output_cache.lock().unwrap().get(&byte_len).cloned()
+    pub fn dedicated_output_for(&self, m: usize, p: usize) -> Option<Buffer> {
+        self.output_cache
+            .get((m * std::mem::size_of::<f32>()) as u64, p)
     }
 
-    /// Allocate-or-reuse a dedicated output buffer of `byte_len` (the shared
-    /// body of `dispatch_f16b`/`dispatch_scratch`; plain `dispatch` keeps its
-    /// inline copy — the incumbent path is never refactored under an opt-in
-    /// lane).
-    #[cfg(feature = "prefill_f16b")]
-    fn dedicated_output(&self, byte_len: u64) -> Buffer {
-        let mut cache = self.output_cache.lock().unwrap();
-        cache
-            .entry(byte_len)
-            .or_insert_with(|| {
-                let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
-                device_ref.new_buffer(byte_len, MTLResourceOptions::StorageModeShared)
+    /// Allocate-or-reuse the dedicated f32 output buffer serving a `p`-row
+    /// frame of an `m`-wide weight — every dispatch form shares it (Issue
+    /// 1238: bucketed by row count, so the cache stays bounded across tail
+    /// lengths; the blit and the kernel use the exact `p * m` extent).
+    fn output_buffer(&self, m: usize, p: usize) -> Buffer {
+        self.output_cache
+            .get_or_alloc((m * std::mem::size_of::<f32>()) as u64, p, |bytes| {
+                self.new_shared_buffer(bytes)
             })
-            .clone()
+    }
+
+    /// A fresh `StorageModeShared` buffer on this context's device.
+    fn new_shared_buffer(&self, bytes: u64) -> Buffer {
+        let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
+        device_ref.new_buffer(bytes, MTLResourceOptions::StorageModeShared)
+    }
+
+    /// Issue 1238 census: `(live buffers, resident bytes)` across this
+    /// context's frame caches (dedicated outputs + the twin's cast inputs).
+    pub fn frame_cache_census(&self) -> (usize, u64) {
+        let outputs = self.output_cache.census();
+        #[cfg(feature = "prefill_f16b")]
+        if let Some(f) = self.f16b.as_ref() {
+            let (k, b) = f.input_cache.census();
+            return (outputs.0 + k, outputs.1 + b);
+        }
+        outputs
     }
 
     /// Convenience: get the device pointer (for T4b-style device-equality checks).

@@ -251,6 +251,8 @@ pub mod gemm_ternary_i8_mma_cuda_raw;
     not(target_os = "macos")
 ))]
 pub mod gemm_ternary_i8_mma_v6_src;
+// Issue 1238 — bucketed frame-size-keyed buffer cache (pure std).
+pub mod frame_bucket_cache;
 #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
 pub mod gemm_ternary_metal_tensor;
 #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]

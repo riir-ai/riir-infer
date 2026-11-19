@@ -34,7 +34,8 @@
 //! # I1226P_TAIL (2) — tokens past chunk × frames (a ragged final frame)
 //! # I1226P_IDENTITY_ONLY=1 — the delegated verdict's condition (b): engagement +
 //! #   C == B identity at another shape (e.g. chunk 128 = the dist default, tail 37),
-//! #   no timed pairs
+//! #   no timed pairs; prints the B/C and A digests (Issue 1238: a cross-commit
+//! #   byte-identity read)
 //! ```
 
 #![cfg(all(
@@ -210,6 +211,10 @@ fn f2_price_cell() {
             .into_iter()
             .map(|arm| (arm, pass(arm).1))
             .collect();
+        // Issue 1238: the f32 lane's digest too — printed beside B's so a
+        // run at another commit is a cross-version byte-identity read
+        // (the size-keyed caches' bucketing must leave every arm's bytes).
+        let a_digest = pass(Arm::A).1;
         set_arm(Arm::B);
         assert!(
             digests.windows(2).all(|w| w[0].1 == w[1].1),
@@ -218,9 +223,11 @@ fn f2_price_cell() {
         );
         println!(
             "\nF2 IDENTITY CELL (chunk {chunk} × frames {frames} + tail {tail} = {} tok): \
-             C == B byte-identical × {} passes; {saved} casts saved/pass; misaligned 0 — PASS",
+             C == B byte-identical × {} passes; {saved} casts saved/pass; misaligned 0 — PASS\n\
+             digest B/C: {}\ndigest A (f32 lane): {a_digest}",
             toks.len(),
-            digests.len()
+            digests.len(),
+            digests[0].1
         );
         return;
     }

@@ -3544,7 +3544,8 @@ pub struct TernaryDeltanetGpuForward {
     #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
     metal_zerocopy_f16b: Option<crate::gemm_ternary_metal_zero_copy::MetalTensorZeroCopyGemm>,
     // i1226 F2 — the producer-writes-f16 shadow pool: one packed-u32 f16
-    // handle per byte length, written by the shadow rotate kernels and handed
+    // handle per (row width, row-count bucket) — Issue 1238 — written by the
+    // shadow rotate kernels and handed
     // to the twin dispatch as EXPLICIT DATAFLOW (never a handle-identity
     // registry — validity is lexical at the call site, and a stale shadow is
     // structurally unreachable because the producer and the consumer are the
@@ -3552,7 +3553,7 @@ pub struct TernaryDeltanetGpuForward {
     // `input_cache` (the next rotate to the same length is a later command
     // on the shared queue).
     #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
-    f16b_shadow_pool: std::sync::Mutex<std::collections::HashMap<usize, Handle>>,
+    f16b_shadow_pool: crate::frame_bucket_cache::FrameBucketCache<Handle>,
     // riir-ai Plan 644 G4: ONE `[block × max(n−k)]` f32 scratch for every
     // channel-split seam's GPU suffix (seams are queue-serial, so one buffer
     // is reused in queue order) — sized at registration, never per seam.
@@ -4993,7 +4994,7 @@ impl TernaryDeltanetGpuForward {
             #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
             metal_zerocopy_f16b,
             #[cfg(all(feature = "prefill_f16b", target_os = "macos"))]
-            f16b_shadow_pool: std::sync::Mutex::new(std::collections::HashMap::new()),
+            f16b_shadow_pool: crate::frame_bucket_cache::FrameBucketCache::new(),
             #[cfg(all(
                 feature = "ane_zc_channel_split",
                 target_os = "macos",
@@ -6391,12 +6392,14 @@ impl TernaryDeltanetGpuForward {
             return None;
         }
         let signs = tables.signs_for_width(width).clone();
-        let shadow = {
-            let mut pool = self.f16b_shadow_pool.lock().expect("f16b shadow pool");
-            pool.entry(total * 2)
-                .or_insert_with(|| self.client.empty(total * 2))
-                .clone()
-        };
+        // Issue 1238: bucketed by row count (`total = p * width`) — a tail
+        // reuses its power-of-two class; the launch binds exactly `total / 2`
+        // u32 words, so the bucket's slack is never written or read.
+        let shadow =
+            self.f16b_shadow_pool
+                .get_or_alloc((width * 2) as u64, total / width.max(1), |bytes| {
+                    self.client.empty(bytes as usize)
+                });
         unsafe {
             match dst {
                 None => RotationCubeCL::launch_forward_shadow::<ActiveRuntime>(
@@ -9746,8 +9749,7 @@ impl TernaryDeltanetGpuForward {
         // The scratch committed AFTER the twin's buffer on the shared queue —
         // one wait transitively completes the twin's commit too.
         incumbent.wait_last();
-        let out_len_bytes = (p * w.m * std::mem::size_of::<f32>()) as u64;
-        let Some(twin_buf) = twin.dedicated_output_for(out_len_bytes) else {
+        let Some(twin_buf) = twin.dedicated_output_for(w.m, p) else {
             eprintln!("[i1225] tap: twin dedicated output missing; site skipped");
             return;
         };

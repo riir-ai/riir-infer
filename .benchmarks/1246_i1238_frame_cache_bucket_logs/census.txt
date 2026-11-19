@@ -1,0 +1,6 @@
+chunk   128 exact: shadow    350 keys     0.42 GiB | output    665 keys     1.30 GiB | total     1.72 GiB  (fixed-width floor 0.032 GiB)
+chunk   128 pow2 : shadow     24 keys     0.01 GiB | output     56 keys     0.05 GiB | total     0.06 GiB  (fixed-width floor 0.032 GiB)
+chunk   512 exact: shadow   1396 keys     6.65 GiB | output   2656 keys    20.74 GiB | total    27.40 GiB  (fixed-width floor 0.127 GiB)
+chunk   512 pow2 : shadow     30 keys     0.05 GiB | output     70 keys     0.20 GiB | total     0.25 GiB  (fixed-width floor 0.127 GiB)
+chunk  4096 exact: shadow  11166 keys   425.27 GiB | output  21239 keys  1326.11 GiB | total  1751.37 GiB  (fixed-width floor 1.016 GiB)
+chunk  4096 pow2 : shadow     39 keys     0.44 GiB | output     91 keys     1.60 GiB | total     2.03 GiB  (fixed-width floor 1.016 GiB)

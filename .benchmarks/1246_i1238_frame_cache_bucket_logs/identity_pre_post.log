@@ -1,0 +1,39 @@
+# nofile: unchanged
+   Compiling cubecl-cpp v0.11.0-pre.2
+    Finished `release` profile [optimized] target(s) in 53.93s
+  Executable tests/i1226_f2_price_cell.rs (/tmp/i1238pre/release/deps/i1226_f2_price_cell-0d887f8a34c0e064)
+   Compiling cubecl-cpp v0.11.0-pre.2
+    Finished `release` profile [optimized] target(s) in 52.61s
+  Executable tests/i1226_f2_price_cell.rs (/tmp/i1238rel/release/deps/i1226_f2_price_cell-d6fb145f375caa93)
+PRE=/tmp/i1238pre/release/deps/i1226_f2_price_cell-0d887f8a34c0e064 POST=/tmp/i1238rel/release/deps/i1226_f2_price_cell-d6fb145f375caa93
+=== PRE chunk 128 frames 32 tail 37
+F2 IDENTITY CELL (chunk 128 × frames 32 + tail 37 = 4133 tok): C == B byte-identical × 4 passes; 12672 casts saved/pass; misaligned 0 — PASS
+digest B/C: fnv b16d8f8397008d06 argmax 11679 (16.3860)
+digest A (f32 lane): fnv 7c4aabbeb2aabb72 argmax 11679 (16.3892)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 79.57s
+=== POST chunk 128 frames 32 tail 37
+F2 IDENTITY CELL (chunk 128 × frames 32 + tail 37 = 4133 tok): C == B byte-identical × 4 passes; 12672 casts saved/pass; misaligned 0 — PASS
+digest B/C: fnv b16d8f8397008d06 argmax 11679 (16.3860)
+digest A (f32 lane): fnv 7c4aabbeb2aabb72 argmax 11679 (16.3892)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 78.67s
+=== PRE chunk 96 frames 8 tail 37
+F2 IDENTITY CELL (chunk 96 × frames 8 + tail 37 = 805 tok): C == B byte-identical × 4 passes; 3456 casts saved/pass; misaligned 0 — PASS
+digest B/C: fnv b6bf3c9a5375b3e3 argmax 1208 (17.5304)
+digest A (f32 lane): fnv 7c68bbe2dab357bb argmax 1208 (17.5425)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.95s
+=== POST chunk 96 frames 8 tail 37
+F2 IDENTITY CELL (chunk 96 × frames 8 + tail 37 = 805 tok): C == B byte-identical × 4 passes; 3456 casts saved/pass; misaligned 0 — PASS
+digest B/C: fnv b6bf3c9a5375b3e3 argmax 1208 (17.5304)
+digest A (f32 lane): fnv 7c68bbe2dab357bb argmax 1208 (17.5425)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 24.02s
+=== PRE chunk 512 frames 8 tail 2
+F2 IDENTITY CELL (chunk 512 × frames 8 + tail 2 = 4098 tok): C == B byte-identical × 4 passes; 3456 casts saved/pass; misaligned 0 — PASS
+digest B/C: fnv f19e1c9279557c00 argmax 324 (16.2649)
+digest A (f32 lane): fnv cbdf9103745a0026 argmax 324 (16.2689)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 57.28s
+=== POST chunk 512 frames 8 tail 2
+F2 IDENTITY CELL (chunk 512 × frames 8 + tail 2 = 4098 tok): C == B byte-identical × 4 passes; 3456 casts saved/pass; misaligned 0 — PASS
+digest B/C: fnv f19e1c9279557c00 argmax 324 (16.2649)
+digest A (f32 lane): fnv cbdf9103745a0026 argmax 324 (16.2689)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 57.60s
+RUN_DONE

@@ -165,7 +165,7 @@ pub struct MetalDenseF16ZeroCopyGemm {
     /// (Metal hazard tracking silently drops the cooperative store when the
     /// output shares the CubeCL pool buffer with the operands). One GPU→GPU
     /// copy-back per dispatch, zero host round-trip.
-    output_cache: Mutex<HashMap<u64, Buffer>>,
+    output_cache: crate::frame_bucket_cache::FrameBucketCache<Buffer>,
     /// First-use zero-init tracking, per pool buffer, as sorted merged
     /// `[start, end)` intervals — wgpu's lazy buffer clears behind the raw
     /// write (Issue 1146 root cause) are prevented by one CubeCL fill on
@@ -397,7 +397,7 @@ impl MetalDenseF16ZeroCopyGemm {
             q4k_pipeline,
             mma_q4k_pipeline,
             relaxed_precision: relaxed,
-            output_cache: Mutex::new(HashMap::new()),
+            output_cache: crate::frame_bucket_cache::FrameBucketCache::new(),
             wgpu_initialized: Mutex::new(HashMap::new()),
             init_fills: std::sync::atomic::AtomicU64::new(0),
             dispatch_count: std::sync::atomic::AtomicU64::new(0),
@@ -510,16 +510,14 @@ impl MetalDenseF16ZeroCopyGemm {
 
         // Dedicated output buffer — the pool-aliasing cure (see field doc).
         let output_bytes = (p * m * std::mem::size_of::<f32>()) as u64;
-        let dedicated_output = {
-            let mut cache = self.output_cache.lock().unwrap();
-            cache
-                .entry(output_bytes)
-                .or_insert_with(|| {
+        // Issue 1238: bucketed by row count — tails reuse their class; the
+        // kernel and the blit use the exact `output_bytes` extent.
+        let dedicated_output =
+            self.output_cache
+                .get_or_alloc((m * std::mem::size_of::<f32>()) as u64, p, |bytes| {
                     let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
-                    device_ref.new_buffer(output_bytes, MTLResourceOptions::StorageModeShared)
-                })
-                .clone()
-        };
+                    device_ref.new_buffer(bytes, MTLResourceOptions::StorageModeShared)
+                });
 
         // Tile geometry — the compiled MSL defaults (the DENSE_* constants;
         // the host and the kernel agree by construction).
@@ -648,16 +646,14 @@ impl MetalDenseF16ZeroCopyGemm {
         let cubecl_output_ref: &BufferRef = unsafe { BufferRef::from_ptr(output_ptr) };
 
         let output_bytes = (p * m * std::mem::size_of::<f32>()) as u64;
-        let dedicated_output = {
-            let mut cache = self.output_cache.lock().unwrap();
-            cache
-                .entry(output_bytes)
-                .or_insert_with(|| {
+        // Issue 1238: bucketed by row count — tails reuse their class; the
+        // kernel and the blit use the exact `output_bytes` extent.
+        let dedicated_output =
+            self.output_cache
+                .get_or_alloc((m * std::mem::size_of::<f32>()) as u64, p, |bytes| {
                     let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
-                    device_ref.new_buffer(output_bytes, MTLResourceOptions::StorageModeShared)
-                })
-                .clone()
-        };
+                    device_ref.new_buffer(bytes, MTLResourceOptions::StorageModeShared)
+                });
 
         let nra = DENSE_NRA;
         let nrb = DENSE_NRB;
@@ -782,16 +778,14 @@ impl MetalDenseF16ZeroCopyGemm {
         let cubecl_output_ref: &BufferRef = unsafe { BufferRef::from_ptr(output_ptr) };
 
         let output_bytes = (p * m * std::mem::size_of::<f32>()) as u64;
-        let dedicated_output = {
-            let mut cache = self.output_cache.lock().unwrap();
-            cache
-                .entry(output_bytes)
-                .or_insert_with(|| {
+        // Issue 1238: bucketed by row count — tails reuse their class; the
+        // kernel and the blit use the exact `output_bytes` extent.
+        let dedicated_output =
+            self.output_cache
+                .get_or_alloc((m * std::mem::size_of::<f32>()) as u64, p, |bytes| {
                     let device_ref: &DeviceRef = unsafe { DeviceRef::from_ptr(self.device) };
-                    device_ref.new_buffer(output_bytes, MTLResourceOptions::StorageModeShared)
-                })
-                .clone()
-        };
+                    device_ref.new_buffer(bytes, MTLResourceOptions::StorageModeShared)
+                });
 
         let num_threads = 32u64 * MMA_NSG;
         let grid = MTLSize {
