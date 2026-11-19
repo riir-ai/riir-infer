@@ -1,6 +1,7 @@
 # Issue 1238 — cap the f16-B size-keyed caches (shadow pool + twin input cache) for many-prompt-length serving
 
-**Status:** OPEN — filed 2026-11-19 (katgpt-rs-ec@amo) from the i1226 F2 delegated-owner verdict, condition (d) (non-blocking; the F2 promotion landed in `07ad293b`).
+**Status:** IN PROGRESS — T1 measured (analytic key census, growth matters: up to 27 GiB at chunk 512); T2 in flight.
+**Claimed:** katgpt-rs-93@amo, 1795100000, expires 2026-11-21T16:00:00Z
 
 ## The finding (from the verdict, re-checked in code)
 
