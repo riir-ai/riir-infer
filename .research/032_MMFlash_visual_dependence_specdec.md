@@ -107,3 +107,5 @@ The loss recipe ports to the plan-492 successor with **zero extra target forward
 ---
 
 Session: zed-21e8a973@m3, epoch 1794962704 · Panels: No-GD advocate 72b04f41 (16 extractions) + Model-based advocate af966468 (10 items, grounded in plan 492/679/693/Bench 709) · Coordinator spot-checks passed: issue 679/693/R533/Bench 709 on disk, survival 0.635/0.415/0.240 verified in 679 (the VALID Bench-709 numbers — the rank0 diagnostic is RETRACTED-CLASS and carries no spot-check pass; see §2.3's ⚠ block), tap set [1,16,31,46,61] verified in plan 492 T1.
+
+> **PASS-Redirects (synthesis):** Kim et al. [2DSD: Two-Dimensional Speculative Decoding for Looped Language Models, github.com/SqueezeAILab/2DSD @ 431aade, 2026-11-19] — the looped-target sibling of this note: the fourth DFlash-family instance + the unified (r1, r2, k) two-axis schedule + last-loop KV sharing (lagged window W=64); its drafter DATA-recipe half files riir-train Issue 702 (complementary to 698's objective half), PARKED under the same d9c2bb28 pause; riir-infer `.research/034_2DSD_looped_2d_specdec.md` carries the record.
