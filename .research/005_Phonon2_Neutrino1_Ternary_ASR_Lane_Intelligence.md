@@ -180,3 +180,5 @@ per-class-precision priors our probes and trainer can consume.
   ("5 trits per byte", "base-3", bpw arithmetic), not just the competitor's name.
 - `*.rs` census: audio-input zero hits workspace-wide (Research 001 §3 stands);
   `twt_bonsai_audition.rs` is TWT calibration profiling, not audio.
+
+> **PASS-Redirects (synthesis):** Fermion Research "Reading the neurons of a speech model" (fermionresearch.com, 2026-11-16) — the Phonon-2.5 interpretability layer (25 language neurons beating a dedicated LID model 99.1/97.2, tempo direction → slowdown preprocessing 23.6→3.2 WER at 2.5×, room neurons, phantom-voice direction, the bouncer gate shipping in Detta 1.1.3); the audio lane stays owner-DEFERRED (Issue 015) — recorded as doctrine + watch rows; full distill: katgpt-rs Research 684.

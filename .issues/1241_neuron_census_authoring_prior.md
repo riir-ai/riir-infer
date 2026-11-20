@@ -1,0 +1,26 @@
+# Issue 1241: Neuron-census instrument — offline interventional census as the WSP/AHA authoring prior
+
+**Status:** open — poc task, unclaimed (claimable on a quiet-rig or 4090 lane; heavy cells route via `agent-mail rig run --needs cuda --est`).
+
+**Filed from:** katgpt-rs Research 684 (Fermion "Mapping every neuron in Qwen3-8B" distill, 2026-11-20). The census instrument (interventional push sweep + matched-random control battery + typed verdicts) is new to this workspace; its consumer is the overlay-authoring family (AHA `matched_pair_authoring` Issue 1224 LANDED, `probe_circuit_grammar`, `closed_form_weight_write` Issue 990, `weight_edit_overlay` Issue 980). **Repo split:** the modelless scoring primitives (AUROC-vs-scrambles screen, decoy-battery scorer, `EditForm::ColumnScale`) are katgpt-rs code and live under **katgpt-rs Issue 1237** — this issue owns ONLY the riir-infer runner + cell + consumption rows and consumes those primitives. Related lanes this must NOT duplicate: `mech_attribution` (contrastive activation attribution — the cheap screen this battery confirms), `lens` (weight-only reads — demoted for SERVING, 666; this lane is OFFLINE-first and never claims serving cost), `sink_audit` (981) / `weight_audit` (1209) — the census-artifact shape to copy.
+
+## Goal
+
+An opt-in offline lane that sweeps a checkpoint's MLP neurons with interventional pushes, screens candidates against a matched-random band with typed verdicts, and ships a BLAKE3-digested census artifact (per-neuron: layer, direction-sign, best dose, effect size, random-band margin, optional description) that (a) validates authored edits via the two-sided decoy battery (primitives from katgpt-rs Issue 1237) and (b) hands site/dose priors to the authoring lanes. GOAT = authoring cost/quality delta vs the no-prior baseline on the AHA lane. Kill bar below — no runnable proof, no lane.
+
+## Pre-registered gates (write the fixtures BEFORE any sweep)
+
+- [ ] **T1 — census runner skeleton** (riir-infer, opt-in feature `neuron_census`): per-layer chunked, resumable (durable state dir, per-layer cursor, `--resume`; compute law), zero-alloc capture loop; artifact = canonical encoding + BLAKE3 digest at `.census/neuron_census.canonical`; serving bins never link it (G3: unarmed builds byte-identical, no `mod` leak into default features). Fixture gate G1: a planted closed-form column-scale edit on a toy fixture is recovered rank-1 with effect ≥ max(absolute floor, 28× the *measured* random band — the 40-vs-1.4 ratio is Fermion's scale, not portable; pre-register per fixture); false-fire on the 20-random-neuron control arm ≤ pinned rate.
+- [ ] **T2 — census cell on `Qwen3.5-0.8B-Base-Q8_0.gguf`** (on disk, riir-train data), using katgpt-rs Issue 1237's `screen_auroc` + typed-verdict battery as the scorer: layer-prior-ordered first cell (bands 0–8 + 24–35 before the middle — the prior is advisory-only, asserted by a test that no gate consumes it); dose ladder ≥5 points per direction; then the free **access check**: compare base vs chat switch-sets (set operation over digested artifacts; G1 fixture: same edit in two fixture checkpoints classifies replicated, one-only classifies present-inert).
+- [ ] **T3 — decoy-battery integration** beside `closed_form_write`: wire the katgpt-rs Issue 1237 decoy scorer + `ColumnScale` edit form into a validation pass over candidate census edits (chosen direction on random sites / random directions on chosen sites, scored on ONE frozen held-out read; verdict = chosen ≥ best-decoy + pre-registered margin; canary: a decoy planted as the edit must FAIL).
+- [ ] **T4 — authoring-prior consumption (the GOAT that decides the lane):** hand the artifact's top-K (site, dose, direction) to the AHA/matched-pair + probe-authoring lanes; paired eval (reflex harness discipline: paired LB95, one frozen read); **GOAT bar: authoring cost-to-first-passing-edit and edit quality vs the no-prior baseline — Pareto win or the lane stays report-only.**
+
+**Kill bar:** if T2's planted-control recovery misses the pre-registered G1 margin (or the random band cannot be measured at floor on our checkpoint), close NEGATIVE in this file, record the numbers in Research 684, and demote any row already landed (including katgpt-rs Issue 1237's primitives, which are only worth shipping as this lane's scorer). Fixture-first order is load-bearing: no sweep runs before G1 fixtures exist.
+
+## Population floors
+
+`min_neurons_scanned` ≥ 2,048 (two full layers' worth) for any artifact the authoring lanes may consume; `min_control_neurons` = 20 per candidate (30 is Fermion's, 20 is the pre-registered floor here); `min_doses` = 5. Floors fire DOWNWARD.
+
+## Boundary
+
+Machinery lives in riir-infer (checkpoints + census-lane home per BOUNDARY.md); modelless scoring primitives live in katgpt-rs (consume, never fork — goat-audit the edge when T2 lands). The `Qwen3.5-0.8B-edited` reference artifact (Fermion, Apache-2.0) is the known-good target if a validation chase is wanted. No serving-path claim anywhere — this lane is offline by construction (the Research-666 demotion binds exactly the claim this lane refuses to make).
