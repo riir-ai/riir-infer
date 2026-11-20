@@ -84,6 +84,12 @@ objc2 = { version = "0.6", optional = true }
 # every non-macOS host (the host compiles to a documented stub there).
 riir-infer-ane = { path = "../riir-infer-ane", optional = true }
 
+# Issue 1237 — the ACE extraction primitive (katgpt-rs Plan 640
+# `relevance_core`) + the subspace-intervention basis helpers, consumed by
+# the decision-core census bin only. Public upstream (BOUNDARY allowlist);
+# default features off so the lane pulls nothing else.
+katgpt-core = { path = "../../../katgpt-rs/crates/katgpt-core", default-features = false, optional = true }
+
 # ── non-macOS: the CUDA backend (`laya-riir-cuda`, .issues/002) ──────────
 # cudarc 0.19 with driver + nvrtc ONLY (no cublas, no runtime) — the lane
 # compiles its own CUDA C source to PTX at backend construction
@@ -139,6 +145,12 @@ laya-riir-cubecl = ["laya-riir", "dep:riir-infer-gpu"]
 # core is pure integer std).
 int_ref = ["laya-riir"]
 
+# Issue 1237 — the decision-core census (ACE over the head's scorer-input
+# marker rows): OFFLINE, once-per-checkpoint, never a serving path. The
+# `laya-decision-core-census` bin; `--features laya-riir-metal` beside it
+# runs the forwards on Metal.
+decision_core_census = ["laya-riir", "dep:katgpt-core", "katgpt-core/relevance_core"]
+
 # Issue 022 (TWT phase collapse) — the residual-state capture hook
 # (`Encoder::forward_capture`). No deps: pure compile gating of a
 # debug-only forward variant (one `download_into` per layer — device
@@ -155,6 +167,11 @@ twt_profile = []
 name = "laya-quant8"
 path = "src/bin/laya_quant8.rs"
 required-features = ["laya-riir"]
+
+[[bin]]
+name = "laya-decision-core-census"
+path = "src/bin/laya_decision_core_census.rs"
+required-features = ["decision_core_census"]
 
 [[bin]]
 name = "laya-quant4"

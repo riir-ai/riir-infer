@@ -44,6 +44,9 @@
 pub mod agent;
 pub mod backend;
 pub mod blocked_artifact;
+// Issue 1237 — the decision-core census math (offline, R1 readout).
+#[cfg(feature = "decision_core_census")]
+pub mod decision_core;
 pub mod encoder;
 pub mod fake_quant;
 pub mod head;

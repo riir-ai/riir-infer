@@ -2263,7 +2263,7 @@ dependencies = [
 
 [[package]]
 name = "katgpt-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ahash",
  "arrayvec",
@@ -2307,7 +2307,7 @@ dependencies = [
 
 [[package]]
 name = "katgpt-hla"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "katgpt-types",
 ]
@@ -2378,7 +2378,7 @@ dependencies = [
 
 [[package]]
 name = "katgpt-sense"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "blake3",
  "fastrand",
@@ -3703,6 +3703,7 @@ dependencies = [
  "blake3",
  "cudarc",
  "gemm",
+ "katgpt-core",
  "libm",
  "metal",
  "objc2",
