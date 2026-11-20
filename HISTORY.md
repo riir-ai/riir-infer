@@ -691,7 +691,7 @@ Commits: riir-infer `1f85c99`, riir-ai `e6a2cd1e0`, riir-train `bcd9e30e`.
 
 ## 2026-11-02 — Issue 1156 CLOSED + removed: the sparse-prefill league lane — T1–T6 all DONE, τ=0.85 promoted-by-verdict (bench 1157; promotion lane = issue 1165)
 
-Full arc: T2 block-sparse arm (τ=1.0 bit-identity contract, riir-ai bench 1151); T3 the ΩMSR per-family sweep — blanket promotion REFUSED on the mean scorer (riir-ai riir-ai bench 1152), T3-v2 the envelope scorer re-open CONFIRMED — 7/7 families floored (riir-ai bench 1153,…
+Full arc: T2 block-sparse arm (τ=1.0 bit-identity contract, riir-ai bench 1151); T3 the ΩMSR per-family sweep — blanket promotion REFUSED on the mean scorer (riir-ai bench 1152), T3-v2 the envelope scorer re-open CONFIRMED — 7/7 families floored (riir-ai bench 1153,…
 
 ## 2026-11-05 — Plan 485 P2 landed in riir-train: fixed-workspace `_into` dispatch variants (`f7b0e2d`) + the pre-existing gate red fixed (`5142561`)
 
