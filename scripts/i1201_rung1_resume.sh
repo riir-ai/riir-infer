@@ -30,15 +30,21 @@ fi
 
 cd "$REPO" || exit 3
 git fetch origin develop 2>&1 | tail -1
-git checkout --force develop 2>&1 | tail -1
+# Pin to FETCH_HEAD, not the local branch name: a plain `checkout develop`
+# after a fetch leaves the local branch at its stale tip (measured: job
+# 01a1f724's log pinned b9de7d8 while origin/develop had moved; benign for
+# an identical binary, wrong for any code-bearing landing).
+git checkout --force FETCH_HEAD 2>&1 | tail -1
+GOT="$(git rev-parse --short HEAD)"; WANT="$(git rev-parse --short FETCH_HEAD)"
+[ "$GOT" = "$WANT" ] || { echo "REFUSED: HEAD $GOT != FETCH_HEAD $WANT after checkout"; exit 3; }
+echo "riir-infer @ $GOT (= origin/develop)"
 # Untracked-source scrub ONLY — never a pathspec clean over .benchmarks:
 # the run dirs are untracked, so `git clean -fd -- .benchmarks` DELETED the
 # 16_2048_s0 run state (a0 rows + a0p cursor, measured 10:38 +07 today,
 # job 01a1f708) and two sibling lanes' bench dirs. -e exclusions are the
 # safe form; the runner's own manifest/rows live under .benchmarks.
 git clean -qfd -e target -e .benchmarks -e .raw -e .deploy || true
-HEAD_SHA="$(git rev-parse --short HEAD)"
-echo "riir-infer @ $HEAD_SHA (binary rebuilt only if the Nov-18 binary's source moved)"
+echo "binary posture: rebuilt only if the source moved"
 
 # The warm binary predates b9de7d8's tree only by docs commits; but a
 # rebuild is cheap insurance against a stale-binary-silent-mismatch —
