@@ -1,6 +1,6 @@
 ## 2026-11-20 — Issue 1237 CLOSED: decision-core census over laya (ACE) — Bench 1247 (katgpt-rs-93@amo)
 
-Consumes katgpt-core `relevance_core` (Plan 640).
+Consumes katgpt-core `relevance_core` (katgpt-rs Plan 640).
 Multilingual is CLAIMED at r = 2 on the full 2302-forward eval (a small, sign-consistent edge). Side finding: Issue 1239 (`EncodedQuestion.hidden` was the post-head residual), fixed `954b27be`.…
 
 ## 2026-11-20 — Issue 1239 CLOSED: `EncodedQuestion.hidden` is the encoder output again (katgpt-rs-93@amo)
@@ -42,7 +42,7 @@ The Metal serving posture's promoted prefill lane is the bit-exact multi-token d
 
 1214 (the int_ref lane) closed 2026-11-17 in `395407ea` — G1 FULL PASS all four arms, G3 ΔPPL +0.067, the fusion promotion (plan 632), T4/T5 routed external-blocked — with the status line saying "Issue file removed this close" while the file stayed…
 
-## 2026-11-17 — i1221 lane: T0–T3(b) swept (the Dory looped checkpoint consumed end to end) — the trained/dense loopability mirror pair + Plan 304's cost_floor answered on real data (`4e6d5161` + `bc9fa3e0` + `c5de8e46` + `613916c4` + `0571def5`)
+## 2026-11-17 — i1221 lane: T0–T3(b) swept (the Dory looped checkpoint consumed end to end) — the trained/dense loopability mirror pair + katgpt-rs Plan 304's cost_floor answered on real data (`4e6d5161` + `bc9fa3e0` + `c5de8e46` + `613916c4` + `0571def5`)
 
 The consumer-lane sweep, one session per leg under the plan-636 pre-registration (read order d→a→b, cheapest-signal-first).
 Verdict: loop-trained invariance confirmed — KL(full‖exit) collapses 13.8–24.1 → exactly 0 at the trained k=4, monotone 24/24 positions, KL(exit₁‖exit_d) grows 8→27 (the loop deepens while the…
@@ -153,7 +153,7 @@ The Bench-958 smoke's per-arm "merge failed to parse" lines were this pre-existi
 
 ## 2026-11-05 — Issue 1164 CLOSED + removed: the T5 mixed-mode mask PROVEN at model level — Cell D re-cell reads fnv 0/6 (was 6/6 vacuous), anchor intact
 
-The closure bar the fix `a9aeedd` (any → all predicate, 2026-11-04) named: re-run bench 1157's Cell D through the same harness (`bench_1156_t6_league_cells`, name-filtered, one process, release, amo QUIET, preflight PROVENANCE quoted, runtime 3902…
+The closure bar the fix `a9aeedd` (any → all predicate, 2026-11-04) named: re-run riir-ai bench 1157's Cell D through the same harness (`bench_1156_t6_league_cells`, name-filtered, one process, release, amo QUIET, preflight PROVENANCE quoted, runtime 3902…
 
 ## 2026-11-05 — Issues 1170 + 1171 + 1172 CLOSED + removed: the dense-lane prefill campaign's three landed lanes — half-B past the fork (bench 941), tensor-flash attention (942), the GDN-bucket census (943)
 
@@ -171,7 +171,7 @@ Bench 945's ablation matrix later REFUTED the per-section floor reading (marker-
 The five-env league posture (`DENSE_MM2D` / `LMHEAD_Q6K` / `DENSE_MM2D_RELAXED` / `DENSE_MM2D_F16ACT` / `ATTN_TENSOR`) flipped DEMOTE-ONLY on macOS+metal_tensor_gemm (exact `=0` each restores the incumbent; promote-only `=1` elsewhere; dependent…
 Record: `.benchmarks/946_issue1176_default_posture_promotion.md`.
 
-## 2026-11-05 — Issue 1165 CLOSED + removed: the tau=0.85 envelope-sparse prefill promotion LANDED (Metal/wgpu, >=16K) — P1-P6 all done, bench 1158 PASS
+## 2026-11-05 — Issue 1165 CLOSED + removed: the tau=0.85 envelope-sparse prefill promotion LANDED (Metal/wgpu, >=16K) — P1-P6 all done, riir-ai bench 1158 PASS
 
 Every task was already `[x]` (the Status line was stale — the promotion landed 2026-11-02: P1+P2+P3 `657b9caf` (default-on >=16384, demote-only `RIIR_PREFILL_SPARSE=0` byte-identical, default tau 0.9->0.85, the embedded digest-pinned v2 manifest…
 
@@ -691,7 +691,7 @@ Commits: riir-infer `1f85c99`, riir-ai `e6a2cd1e0`, riir-train `bcd9e30e`.
 
 ## 2026-11-02 — Issue 1156 CLOSED + removed: the sparse-prefill league lane — T1–T6 all DONE, τ=0.85 promoted-by-verdict (bench 1157; promotion lane = issue 1165)
 
-Full arc: T2 block-sparse arm (τ=1.0 bit-identity contract, bench 1151); T3 the ΩMSR per-family sweep — blanket promotion REFUSED on the mean scorer (bench 1152), T3-v2 the envelope scorer re-open CONFIRMED — 7/7 families floored (bench 1153,…
+Full arc: T2 block-sparse arm (τ=1.0 bit-identity contract, riir-ai bench 1151); T3 the ΩMSR per-family sweep — blanket promotion REFUSED on the mean scorer (riir-ai riir-ai bench 1152), T3-v2 the envelope scorer re-open CONFIRMED — 7/7 families floored (riir-ai bench 1153,…
 
 ## 2026-11-05 — Plan 485 P2 landed in riir-train: fixed-workspace `_into` dispatch variants (`f7b0e2d`) + the pre-existing gate red fixed (`5142561`)
 
