@@ -1,6 +1,7 @@
 # Issue 1237: Decision-core census lane over laya encoders (ACE application)
 
 **Status:** MEASURED 2026-11-19 — [Bench 1247](../.benchmarks/1247_i1237_decision_core_census.md): R1 relevance is rank-1 (≥99.3% energy) on all three checkpoints; typed LOW_DIM_CORE CLAIMED at r=1 (keep 0.999 vs PCA 0.197); english NOT CLAIMED (core ties PCA — the decision direction IS the top-variance direction); multilingual UNINFORMATIVE (99.5% one class on this suite); english↔typed AGREEMENT CLAIMED (cos² 0.951 = 974× random at r=1). Code landing GATED on this box's katgpt-rs working tree reaching `relevance_core` (see T-land).
+**Claimed:** katgpt-rs-93@amo, 1795136000, expires 2026-11-21T12:00:00Z
 **Lease closed:** katgpt-rs-93@amo, 1795103000, was expires 2026-11-21T18:00:00Z — T1 + T-ml + T-R0 done (Bench 1247); T-land left UNCLAIMED for whichever lane sees amo's katgpt-rs unblocked first (git apply the patch, clippy, commit)
 
 **The idea.** The ACE extraction operator (balanced SVD of activation covariance and per-sample tail-Jacobian outer products — closed-form, label-free, f64) applied OFFLINE to the laya decision lane's encoders: per suite, extract the decision core at the encoder's readout layer, causally validate it through the decision head (keep/remove/flip — the keep/remove protocol already ships as katgpt-rs `subspace_intervention`), and measure cross-checkpoint core agreement (the paper's headline: necessary+sufficient cores recur across independently trained models, and a linear operator transfers across model families).
