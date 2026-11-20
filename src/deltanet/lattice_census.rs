@@ -39,7 +39,7 @@
 //! land, [`LatticeCensusReport`] carries `query_gain: None` rows and the
 //! r_ent / r_stable halves are complete.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::fmt::Write as _;
 
 /// Snapshot budget guard (the family cost-bound law): a capture position
@@ -184,10 +184,13 @@ pub fn census_state_snapshot(
             state.len()
         );
     }
-    if let Some(q) = queries {
-        if q.len() != n_v_heads * d_k {
-            bail!("queries len {} != n_v_heads({n_v_heads}) × d_k({d_k})", q.len());
-        }
+    if let Some(q) = queries
+        && q.len() != n_v_heads * d_k
+    {
+        bail!(
+            "queries len {} != n_v_heads({n_v_heads}) × d_k({d_k})",
+            q.len()
+        );
     }
     let mut out = Vec::with_capacity(n_v_heads);
     for h in 0..n_v_heads {
@@ -215,7 +218,6 @@ fn head_geometry(s: &[f32], q: Option<&[f32]>, d_k: usize, d_v: usize) -> Result
             a[j * d_k + i] = acc;
         }
     }
-    let frob2: f64 = a.diagonal_fold(d_k); // Σ λ = tr(A) = ‖S‖²_F
     let (eigenvalues, top_vec) = jacobi_eigen(&mut a, d_k)?;
     let lambda_max = eigenvalues[0]; // descending order from jacobi_eigen
 
@@ -360,22 +362,6 @@ fn jacobi_eigen(a: &mut [f64], d: usize) -> Result<(Vec<f64>, Vec<f64>)> {
     Ok((eigenvalues, top))
 }
 
-/// Determinism helper used by `head_geometry`: the Frobenius-square read as
-/// the trace of the Gram matrix, folded sequentially ascending.
-trait DiagonalFold {
-    fn diagonal_fold(&self, d: usize) -> f64;
-}
-
-impl DiagonalFold for [f64] {
-    fn diagonal_fold(&self, d: usize) -> f64 {
-        let mut acc = 0.0f64;
-        for i in 0..d {
-            acc += self[i * d + i];
-        }
-        acc
-    }
-}
-
 // ── T0.2 — the fixed-coeff FiLM probe filter (modelless extraction test) ──
 
 /// A deterministic fixed-coefficient FiLM affine filter over the GDN layer
@@ -439,8 +425,13 @@ impl FilmFilter {
             let ug = ((g >> 11) as f64) / ((1u64 << 53) as f64);
             let ub = ((b >> 11) as f64) / ((1u64 << 53) as f64);
             // EMA-style sigmoid-bounded map: sigmoid centered at 0.
-            let sg = 1.0f64 / (1.0 + (-((ug - 0.5) * 4.0).exp()));
-            let sb = 1.0f64 / (1.0 + (-((ub - 0.5) * 4.0).exp()));
+            // ⛔ unary minus binds LOOSER than the method call in Rust:
+            // `-(x).exp()` parses as `-(x.exp())` = −exp(x), not exp(−x)
+            // — the sg=1.185/−0.248 fixture failure was exactly this.
+            let xg = (ug - 0.5) * 4.0;
+            let xb = (ub - 0.5) * 4.0;
+            let sg = 1.0f64 / (1.0 + (-xg).exp());
+            let sb = 1.0f64 / (1.0 + (-xb).exp());
             gamma.push((1.0 + (2.0 * sg - 1.0) * (GAMMA_AMP as f64)) as f32);
             beta.push(((2.0 * sb - 1.0) * (BETA_AMP as f64)) as f32);
         }
@@ -489,7 +480,11 @@ mod tests {
         }
         let g = census_state_snapshot(&s, None, 1, 8, 8).expect("census");
         assert!(approx(g[0].r_ent, 8.0, 1e-6), "r_ent={}", g[0].r_ent);
-        assert!(approx(g[0].r_stable, 8.0, 1e-6), "r_stable={}", g[0].r_stable);
+        assert!(
+            approx(g[0].r_stable, 8.0, 1e-6),
+            "r_stable={}",
+            g[0].r_stable
+        );
     }
 
     #[test]
@@ -505,7 +500,11 @@ mod tests {
         }
         let g = census_state_snapshot(&s, None, 1, 8, 8).expect("census");
         assert!(approx(g[0].r_ent, 1.0, 1e-6), "r_ent={}", g[0].r_ent);
-        assert!(approx(g[0].r_stable, 1.0, 1e-6), "r_stable={}", g[0].r_stable);
+        assert!(
+            approx(g[0].r_stable, 1.0, 1e-6),
+            "r_stable={}",
+            g[0].r_stable
+        );
     }
 
     #[test]
@@ -524,9 +523,10 @@ mod tests {
         let mut q = vec![0.0f32; 8];
         q[0] = 1.0;
         assert!(approx(query_alignment_gain(&u1, &q, 8), 8.0, 1e-12));
-        // Orthogonal query: G1 = 0.
-        q[1] = 1.0;
-        assert!(approx(query_alignment_gain(&u1, &q, 8), 0.0, 1e-12));
+        // Orthogonal query: G1 = 0 (fresh q — the previous case's e0 must not leak in).
+        let mut q2 = vec![0.0f32; 8];
+        q2[1] = 1.0;
+        assert!(approx(query_alignment_gain(&u1, &q2, 8), 0.0, 1e-12));
         // Zero query: 0.0 (structural).
         let qz = vec![0.0f32; 8];
         assert_eq!(query_alignment_gain(&u1, &qz, 8), 0.0);

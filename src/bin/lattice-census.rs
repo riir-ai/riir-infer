@@ -37,12 +37,10 @@ use riir_infer_core::deltanet::effective_rotary_dim;
 use riir_infer_core::deltanet::lattice_census::{
     FilmFilter, LatticeCensusReport, MAX_CAPTURE_POSITIONS, census_state_snapshot,
 };
-use riir_infer_core::gguf_loader::{
-    GgmlType, GgufFile, load_qwen_deltanet_ternary_weights_gguf,
-};
+use riir_infer_core::gguf_loader::{GgmlType, GgufFile, load_qwen_deltanet_ternary_weights_gguf};
 use riir_infer_core::rope::RopeFreqTable;
 use riir_infer_core::tokenizer::BpeTokenizer;
-use riir_infer_core::transformer::forward_qwen_deltanet_ternary;
+use riir_infer_core::deltanet::forward_qwen_deltanet_ternary;
 use riir_infer_core::types::DeltaNetLayerType;
 
 const DEFAULT_MODEL: &str = "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
@@ -64,7 +62,7 @@ struct Args {
     out: Option<PathBuf>,
 }
 
-fn parse_args() -> Args {
+fn parse_args() -> anyhow::Result<Args> {
     let mut a = Args {
         model: PathBuf::from(DEFAULT_MODEL),
         corpus: PathBuf::from(DEFAULT_CORPUS),
@@ -100,11 +98,11 @@ fn parse_args() -> Args {
             }
         }
     }
-    a
+    Ok(a)
 }
 
 fn main() -> Result<()> {
-    let args = parse_args();
+    let args = parse_args()?;
 
     // The ternary dispatch FIRST (the sink_audit lesson: the dense loader
     // mis-shapes a PQ2_0 ternary file — the dtype is the discriminator).
@@ -189,17 +187,15 @@ fn main() -> Result<()> {
     let d_v = config.deltanet_linear_head_dim;
 
     // The FiLM filters (per GDN layer, layer-keyed, deterministic).
-    let films: Option<Vec<FilmFilter>> = args
-        .film_seed
-        .map(|seed| {
-            weights
-                .layer_types
-                .iter()
-                .enumerate()
-                .filter(|(_, &t)| t == DeltaNetLayerType::DeltaNet)
-                .map(|(layer_idx, _)| FilmFilter::fixed_coeff(config.n_embd, layer_idx, seed))
-                .collect()
-        });
+    let films: Option<Vec<FilmFilter>> = args.film_seed.map(|seed| {
+        weights
+            .layer_types
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| **t == DeltaNetLayerType::DeltaNet)
+            .map(|(layer_idx, _)| FilmFilter::fixed_coeff(config.n_embd, layer_idx, seed))
+            .collect()
+    });
 
     let rope_freq = RopeFreqTable::new(config.rope_theta, effective_rotary_dim(&config));
     let mut cache = riir_infer_core::deltanet::HybridCache::with_layer_types_bounded(
@@ -270,15 +266,16 @@ fn main() -> Result<()> {
     } else {
         means.iter().sum::<f64>() / means.len() as f64
     };
-    println!(
-        "# mean r_ent (all layers × points): {mean_all:.4} | digest={digest}"
-    );
+    println!("# mean r_ent (all layers × points): {mean_all:.4} | digest={digest}");
 
     match args.out {
         Some(out) => {
-            std::fs::write(&out, &payload)
-                .with_context(|| format!("write {}", out.display()))?;
-            println!("# report → {} ({} bytes, blake3={digest})", out.display(), payload.len());
+            std::fs::write(&out, &payload).with_context(|| format!("write {}", out.display()))?;
+            println!(
+                "# report → {} ({} bytes, blake3={digest})",
+                out.display(),
+                payload.len()
+            );
         }
         None => {
             print!("{payload}");
