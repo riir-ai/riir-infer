@@ -1,0 +1,79 @@
+# Research 037: Feedback Shortcut — Speculative Decoding for Latent Feedback Transformers (the family's serving-class fix)
+
+> **Source:** "Feedback Shortcut: Speculative Decoding for Latent Feedback Transformers" — Benhao Huang, Xuezhe Ma, Hector Liu (Institute of Foundation Models), 2026-11-20, alphaXiv `2611.feedback-shortcut-speculative-decoding` (no standalone arXiv number yet; grep anchors: `feedback-shortcut-speculative-decoding`, `Feedback Shortcut`, `state_alignment`, `pipelined correction`). Code: github.com/ifm-ai/LoRM — the SAME testbed as riir-train R497's source — Apache-2.0, PyTorch/uv; cloned read-only to `.raw/LoRM` @ `1367e7a46b17d8ad51852feae319084b82d93379`, quotes byte-verified (`works/feedback_shortcut/measure/engine.py` docstring + `STAND_INS`, `works/feedback_shortcut/model.py` alignment-map row, `works/feedback_shortcut/README.md` table), clone removed post-verdict.
+> **Date:** 2026-11-21
+> **Status:** RECORD — Gain (family amendment + serving-class recipe record; **NO lane opens** — the specdec beat lane stays PAUSED per delegated verdict d9c2bb28 2026-11-18; no issue, no plan, no transcription filed — the wait-gates already live in riir-train Issue 690 + riir-infer Issues 1179/1183, and an unconsumed primitive files nothing per the stall discipline)
+> **Related Research:** riir-train R497 (the family's training/scaling half — same authors, same repo; **its serving watch-row is AMENDED by this paper**), katgpt-rs 492 (Recirculation + Full-bandwidth 2608.08888 — the family's trained-half home; 08888 is the paper's ref [2], the trained-feedback antecedent — and the paper's own related-work section names the class-level obstacle verbatim: "this sequential dependence breaks speculative decoding … Feedback Shortcut is a step toward removing this obstacle"), katgpt-rs 073 (LT2 looped — the family hub; redirect line appended), katgpt-rs 241 (SwiR — the MODELLESS feedback runtime, DEFAULT-ON; its PASS-redirect stack carries 08888 + the below-top-source blog), katgpt-rs 593 (top-down feedback wiring `s⁰_{t+1} = s^L_t`), katgpt-rs 608 (looped-LM verdict stack), riir-infer R034 (2DSD — the looped-target specdec cousin, filed 2026-11-20), R032 (MMFlash), R031 (Sigma distill-spec), R023 (FlashStates state prefix cache)
+> **Related Plans/issues:** riir-infer [Issues 1179](../.issues/1179_qwen38_specdec_verify_lane.md) + [1183](../.issues/1183_dspine_b16_draft_model_support.md) (specdec beat lane + DSpine — PAUSED, re-open triggers (1) trained head ≥3.2 mean_j / (2) serving-side consumer / (3) new draft-head objective pre-registering its own stop line; ordering: a Bonsai-target lane ranks ABOVE a qwen3.8 restart), riir-train Issue 690 (the family's training-half sequencing — guard cell first, gain arm owner-priced), riir-train Issue 702 (2DSD's drafter DATA recipe — PARKED), riir-train plan 492 (STOPPED at its stop branch), riir-refine kernel_opt `gdn-state-snapshot-per-position-verify-early-exit` (`src/domains/kernel_opt/corpus/entries_gpu_152.rs:61` — the GDN-state-rollback cousin, jitengine distill)
+> **Classification:** Public (riir-infer)
+
+---
+
+## TL;DR
+
+The paper solves the serving problem its own family created. Latent-feedback transformers — `u_t = e_t + W·rms(h_{t−1})`, the class riir-train R497 priced as a compute/data amplifier — **break speculative decoding**: a drafted position needs the previous position's top state, which the verification pass itself is still computing. The fix has a training half and a decode half. **State alignment** (training, +2% FLOPs) trains ONLY a small projection P — an MLP initialized at the identity — pulling MTP-head states `g_k` toward the first-pass states the model actually reads as feedback; backbone and MTP heads untouched. **Pipelined correction** (decode) recomputes pending positions with their predecessor's now-real state inside the SAME model call that verifies the next drafts, committing a token only when its draft matches the verifier AND its conditioning state has received D corrections. Representative cell (780M, K=3 heads, D=1, batch 1): exact-decode quality (0.8287 vs 0.8288 BPB — rounding-level), **2.75× vs 2.93× for a vanilla transformer under the same engine** (94% of vanilla specdec speed). NOT exact: KL 5.7e-4 nats/token at D=1, 3.1e-5 at D=2 — the authors' own words: "still not exact".
+
+**Distilled for riir-infer:** this is the family's SERVING-CLASS recipe and the amendment to R497's serving watch-row — "decode cost unchanged" holds for exact decode ONLY; under speculation the naive draft-and-verify is not slower, it is broken, and the repair ships. Recorded as lane intel for the paused specdec lanes and the family's training half (Issue 690): the day a learned-W feedback checkpoint exists AND specdec re-opens, this is the decode schedule. No lane opens, no primitive files — there is no consumer (substrate-first law), and Bonsai (the ranked-above specdec target) carries no top-layer input feedback for the mechanism to protect.
+
+---
+
+## 1. Paper core findings (the load-bearing numbers)
+
+**The incompatibility.** A feedback transformer's input at position t reads h_{t−1}. Standard specdec verifies K drafted tokens in ONE parallel pass; under feedback, each drafted position's input is undefined until its predecessor's state exists in that same pass — a sequential chain the parallel verify cannot produce. The paper states it verbatim (§Related work): *"Feedback Transformers feed the high-level state of each position to later positions and report performance gains [1–3, 14, 15]. However, this sequential dependence breaks speculative decoding, whose verifier computes all drafted positions in a single call while each of them needs the top-layer state of the previous position. Feedback Shortcut is a step toward removing this obstacle"* — and the conclusion repeats it: *"a drafted position needs to read a state that is still being computed in its verification call. We remove this obstacle."* Exact (one-position-at-a-time) decoding is unaffected — that is why R497's serving row read "unchanged".
+
+**State alignment (the training half).** Three MTP heads draft future tokens and produce states g_k along the way, but their ordinary loss trains them to predict tokens, not to serve as feedback. The fix trains a small map P — byte-verified at the pin (`model.py`): *"state_alignment: a map P, an MLP starting at the identity, pulls P(g_k at t) towards the first pass's state at t + k"*, with `alignment_loss(prediction, target, offset)` — only the projection updates. Alternative **in-place substitution** trains the MTP state itself to BE read as feedback: lower one-call error (0.6e-3 vs 1.7e-3 BPB) but a WORSE exact-decoding ceiling (0.8306 vs 0.8288) at 6.1% vs 2.0% extra FLOPs. **Recipe datum: keep the base model's ceiling; put the adaptation in a projection** — a stand-in can reduce single-call error while lowering the model's exact ceiling.
+
+**Pipelined correction (the decode half).** Byte-verified engine docstring (`measure/engine.py` @ `1367e7a4`): *"Each call runs the pending positions after the last committed one in one forward pass … A position's depth counts the calls since a stand-in entered the states it reads. A call commits the [tokens whose drafts match and whose depth ≤ D] … positions after it stay pending, one correction deeper, and the rest is dropped. Depth 0 verifies without corrections; depth None commits only positions that read no stand-in, which is exact decoding, one position per call."* Stand-ins: `STAND_INS = ("zeros", "mtp_state", "state_alignment")` — the engine refuses `state_alignment` on a model without its trained map (`model.mtp.feedback is None` → ValueError). The engine runs *"on static buffers that CUDA graphs replay"*; the K stand-ins compute as *"one matrix product per map weight"*. One call replaces the separate correct-then-draft calls, at the price of computing extra positions (the pending recomputes).
+
+**Numbers.**
+
+| cell | value |
+|---|---|
+| quality (Paloma BPB, 780M, D=1, K=3) | 0.8287 ± 0.0001 vs exact 0.8288 ± 0.0003 — rounding-level |
+| throughput (batch 1, served Spec-Bench/SPEED-Bench) | 2.75× ± 0.04 vs vanilla transformer 2.93× ± 0.01 (same engine, same batch) |
+| batch 256 | D=1 ≈ 1.7× (correction compute matters when compute-bound); D=0 ≈ transformer speed at 80–85% of feedback quality |
+| fidelity (1024-token free gen, T=1) | KL 5.7 ± 0.3 × 10⁻⁴ nats/token at D=1; 3.1 ± 0.2 × 10⁻⁵ at D=2 — "still not exact" |
+| training cost | 1.19× vanilla FLOPs overall; alignment +2%; in-place +6.1% (and the worse ceiling, above) |
+
+The D knob is a measured latency/fidelity dial: D=0 free-and-lossy → D=1 rounding-level quality at 94% speed → D=2 KL/18 → D=None exact at 1×.
+
+## 2. What this note adds over the recorded corpus (three deltas)
+
+1. **The family's serving row is amended.** riir-train R497 recorded *"the serving profile is Transformer-identical (same KV + 1 vector, decode cost unchanged) — watch row only"*. True for exact decode ONLY. Under speculative decoding the naive draft-and-verify is broken (not slower — structurally impossible), and the serving-class fix now exists. 497's watch row carries the amendment pointer as of this landing.
+2. **The D-commit gate is new vs every specdec cousin in the corpus.** 2DSD's ordered cascade commits on acceptance with recorded proposals (R034 Eq 5); DSpine's ReplaySSM replays linear-attention draft state at verification (Issue 1183); the jitengine GDN rule snapshots per-position recurrent state so the verify walk can stop at the first rejected guess (kernel_opt entries_gpu_152). None gates COMMIT on a state-correction count — the commit-and-correction-depth coupling is this paper's alone, and its endpoints are measured (the D table above).
+3. **Signal-diff'd cousins (each read this session, §3.6 discipline):**
+   - **vs 2DSD / R034:** looped LMs' sequential dependency is the LOOP axis (per-loop KV caches; depth-axis speculation drafts from early loop readouts). Feedback transformers' dependency is the POSITION axis (an input-side top-state chain). 2DSD's own NOT-transferable note ("GDN is time-recurrent; there is no per-token depth readout to draft from") marks the same genus boundary from the other side. The corpus now holds both instances of the one genus — "sequential-dependency architectures break parallel verify" — and neither subsumes the other.
+   - **vs the jitengine GDN rule:** that rule's problem is recurrent CELL-state rollback on rejection (memory resolution: snapshot per position, early exit stops the scan). This paper's problem is an input-side state that never existed at draft time (compute resolution: recompute pending positions in later calls). Memory-vs-compute answers to DIFFERENT dependencies — adjacent-distinct, and composing: a hypothetical feedback-GDN hybrid would need both halves.
+   - **vs SwiR / katgpt-rs 241:** SwiR's modelless soft-embedding feedback (ẽ_t = Σ_v p_t[v]·e(v), DEFAULT-ON) creates the SAME position-chain dependency at runtime — and the pipelined-correction half applies to it TRAINING-FREE (stand-in = the last committed position's soft embedding; corrections = recompute in later calls). The state-alignment half does not apply (SwiR has no MTP heads). Lane-intel only: nothing in the stack serves a SwiR-feedback decoder under specdec today — the modelless decision lanes run no transformer decoder, and the qwen3.8 specdec lane is paused.
+
+## 3. Path 0 inventory (component → disposition)
+
+| # | Component | Track | Disposition |
+|---|---|---|---|
+| 1 | Stand-in state decode schedule (zeros / mtp_state / state_alignment) | modelless (decode scheduling) | RECORDED — lane intel; no consumer (no feedback checkpoint; specdec paused). Substrate-first law: no primitive files. |
+| 2 | Pipelined correction + the D-commit gate | modelless (decode scheduling) | RECORDED — the novel datum (§2 delta 2); same no-consumer posture. |
+| 3 | State-alignment loss (identity-init projection only, +2%) | model-based (recipe) | RECORDED — the family's training half (riir-train Issue 690 / Plan 344) owns feedback-model training; no checkpoint class exists; no plan filed. |
+| 4 | In-place vs alignment tradeoff (ceiling-preservation datum) | model-based (recipe) | RECORDED — §1 recipe datum. |
+| 5 | Static-buffer + CUDA-graph-replay engine (batched.py + Triton `decode_attention.py`) | modelless (serving) | KILL — positive instance of riir-refine kernel_opt's graph-capture cluster (the pool-pinning / empty_cache-before-capture / captured-reset faces, TileQuant distill, entries_gpu_148). The corpus gate working: nothing new to mine. |
+| 6 | Two-pass detached-reference training | n/a | NOT in this paper — that is 2DSD's ShareKV recipe, already recorded in R034. |
+
+## 4. What does NOT transfer / why no lane opens
+
+- **No learned-W feedback checkpoint exists in the stack.** The family's training half is at guard-cell stage (riir-train Issue 690: the Plan-344 rig sits BELOW break-even UTPP — the measured reversal regime; the gain arm is owner-priced). Until a feedback model exists there is nothing to serve.
+- **Bonsai — the ranked-above specdec target — cannot use it.** Bonsai is a ternary hybrid GDN: intra-layer recurrent state, NO top-layer input feedback, NO MTP heads. The GDN-target specdec problem is the jitengine rule's problem (state rollback), already recorded in the corpus.
+- **This is NOT re-open trigger (3) for the paused lane.** Trigger (3) reads "a new draft-head objective/architecture proposal that pre-registers its own stop line" — scoped to a head FOR our targets (Bonsai/qwen3.8). State alignment is a draft-head objective for a feedback-architecture TARGET (requires MTP heads + feedback wiring the target does not have). Recording the distinction here so a future session does not misfile this paper as the lane's re-open.
+- **Serving shape.** The paper's engine is batch-1 CUDA-graphs plus a continuous-batching variant; our league lanes (Metal/CUDA) would need their own engine work before any number — recorded, not planned.
+
+## 5. Fusion (the two honest observations)
+
+- **The D-corrected stand-in is the fog-of-war belief pattern in decode-scheduling clothing:** serve from a stand-in now (the stale `last_known_pos`), correct when the real computation lands (re-observation), gate commitment on correction count (sigmoid confidence decay). Both halves already exist in their own repos — this is a pattern correspondence, not a primitive, and it files nothing.
+- **The cheapest path from this paper to a live stack consumer is SwiR + correction (§2 delta 3):** training-free, applies to a runtime the stack already ships DEFAULT-ON — but it needs trigger (2) (a serving-side consumer demanding draft speculation) to exist first. That is the note to re-read if the paused lane ever un-pauses under a feedback-bearing decoder.
+
+## 6. Verdict
+
+**RECORD — Gain** (family amendment + serving-class recipe record; no lane, no issue, no plan, no transcription).
+
+- **MOAT gate (riir-infer):** inference-substrate novelty — YES (the family's serving recipe, public, upstream-clean material). Consumer — none today, so record-only is the honest posture: an unconsumed primitive is a stall, and the stall discipline files nothing.
+- **Fusion priority ladder:** #3 (inference-perf league). The two-sided standing check: rulewright — nothing; decision-serving self-evolve — nothing live (the ESC cheap/think reading of the D knob is an analogy, not a consumer).
+- **Training track:** no plan — the checkpoint class is absent and Issue 690 owns the family's training sequencing. **Modelless track:** no primitive — no consumer. **The note is the frozen artifact.**
+- **Filing set:** this note (037) + the R497 watch-row amendment (riir-train, same landing) + one redirect line on katgpt-rs 073 (the family hub, so a hub-grep finds the serving-class paper).
