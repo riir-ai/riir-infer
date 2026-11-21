@@ -1,0 +1,25 @@
+# Issue 1242 — QDA-derived eval instruments: KL-vs-anchor ranked selection, gencheck (truncation/repetition census), cached-anchor scoring, proxy break-even
+
+**Status:** open — filed from the humanfia/QDA distill (riir-refine Research 427); unclaimed.
+**Routing:** riir-infer quant-eval lane, beside `golden_nll` / `si_zero_shot_ppl`; heavy runs on amo/bmo per the m3 box law. Claim with a lease line before implementing (katgpt-rs Issue 943 discipline).
+
+## Why (the evidence)
+
+- QDA (arXiv:2611.23388) scores candidate quantized checkpoints by KL-vs-anchor on held-out traces in minutes (350–990× faster than full eval) and picks the more accurate checkpoint **82%** of the time over 44 pairs; layer-wise error gets 73% and ranks AWQ last of three where AWQ is second — per-layer metrics are blind to cross-layer error accumulation.
+- Its failure catch (`gencheck`) watches truncation counts from repetition loops; its biggest search win came from a candidate the proxy liked but generations caught looping.
+- Our frozen-read census (golden Δ-NLL + per-family argmax flips) IS the audit form of this instrument. The deltas: ranking purpose, a generation-behavior axis, anchor caching. Grep 2026-11-21: **zero truncation/repetition census in the riir-infer/katgpt-rs trees** (the `truncat|repetition loop|degenerate` sweep returned only unrelated belief-gate and vocab-truncation hits).
+
+## Deliverables (each opt-in, offline, zero serving-path cost)
+
+- [ ] T1 **KL-vs-anchor ranked-selection census** (opt-in feature, e.g. `anchor_kl`): anchor logits computed once per (model bytes, trace set, dtype), content-addressed cache (blake3 key), candidate = one pass + reduction. G1 bit-identity cached-vs-recomputed — the Issue-940 determinism law binds (the KL crosses a selection decision): sequential fold order pinned, strict first-index tie rule, never a tolerance band. Stale-key refusal LOUD (model-digest-swap fixture). Tokenizer-scope law: cross-vocab pairs a typed abstain, never projected. Fidelity census: frozen pair set, gold labels computed once; per-pair verdict + Wilson LB95; **Report-the-Floor comparator = the incumbent per-layer/per-family metrics** (a KL selection claim must beat that floor to stand); typed abstain for CI-straddling pairs (counted, never folded). Pre-register the fidelity bar BEFORE the first census run (calibration-gate skill).
+- [ ] T2 **gencheck instrument** — truncation-at-limit count + suffix-cycle/repetition census over long generations; thresholds pinned in-source and fixture-demonstrated; heavy-quant looping positive control + healthy zero-flag control (the Bench-007 positive-control shape); report-only at serve until a wired consumer. Slot beside `RIIR_QUANTIZE_CENSUS` in the requant/EXL3 gate harnesses; natural fit in the sink-audit/needle long-context lanes.
+- [ ] T3 **proxy break-even estimator** (folded from the no-GD advocate; generic math): `ship proxy ⟺ V·c_p + F·c_g + (1−f̄)·L < V·c_g` with f̄ the measured proxy fidelity → typed verdict SHIP-PROXY / SHIP-DIRECT / UNDECIDABLE; golden unit tests. Candidate home katgpt-core/`estimators` (keyless opt-in) only if it finds a second consumer; else stays a formula in this lane's docs.
+- [ ] T4 **composition-algebra note** — checkpoint→checkpoint transforms: memoizable content-addressed prefixes, typed non-commuting ordering, idempotence collapse. Design note in this lane's docs; implementation waits for the second consumer (two-instance bar).
+
+## Proof paths (pre-registered)
+
+Planted fixtures per instrument (canaries prove the floors fire); fidelity bar pre-registered; every latency/cost number with PROVENANCE + GPU exclusivity; the census lanes are offline so no alloc-free serving claim applies — the T1 cache's loud stale refusal IS its gate (fixture).
+
+## Refs
+
+riir-refine Research 427 (distill + Path 0 table) and Plan 393; qda @ `dc39a02b` (Apache-2.0); prior art: Fireworks 2024 + arXiv:2505.15353 (KL-as-quant-quality is a published class — the fidelity census + failure catch are our deltas).

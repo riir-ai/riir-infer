@@ -1,0 +1,31 @@
+# Issue 1243 — QDA checkpoint consumption + calibration-data arms (GGUF census first; own-traces calibration; scale search; checkpoint averaging)
+
+**Status:** open — filed from the humanfia/QDA distill (riir-refine Research 427); unclaimed.
+**Routing:** (a) is a same-week runnable census on amo/bmo; (b)–(d) ride the first quant-production window. Claim with a lease line before implementing.
+
+## (a) Consume the released checkpoints (zero new code)
+
+- [ ] T1 **`qda-lab/QDA-Qwen3.8-27B-Q4-GGUF` (+ the Q6 row) vs the incumbent W4-class backbone GGUF of the same base**, under the existing frozen-read census (`si_zero_shot_ppl --golden-nll` / `--family-ablate` posture): pooled Δ-NLL, per-family argmax flips, fp32/f64 cliff bands, ONE frozen read. **Incumbent = the upstream Q4_K_M of the same base that the league lane serves, FETCHED + PINNED at T1** — no 27B Q4 backbone GGUF sits in `riir-train/data/` on m3, and the on-disk `Qwen3.8-27B-DFlash2-Q4_K_M.gguf` is 1.14 GB, the five-layer DFlash2 DRAFTER HEAD, NOT a comparator (riir-train Plan 369:278): running a 27B backbone against it would read as false retention gains — exactly the false-green this census exists to catch. **Arch/size sanity assert:** the comparator's layer count + parameter count (GGUF header read) must equal QDA-Q4's, else the cell REFUSES LOUD before any scoring. **Bonsai control (pivot visibility, cross-architecture by construction):** the same census on `Ternary-Bonsai-2-27B-PQ2_0.gguf` (pin `3907dc16…`, the plan-631 pin) — a ternary-PQ2-vs-W4 cross-architecture control, never a like-for-like QDA verdict; its Δ-NLL labels pivot visibility, not adoption. Per-family conditional retention decides adoption, aggregate never (the lossy-surface law). Runs on bmo (release posture; PROVENANCE + GPU exclusivity; m3 stays read-only per the box law).
+- [ ] T2 same census posture for other released models ONLY where a loadable format exists (GGUF rows; vLLM compressed-tensors formats do not load in our lanes) AND a serving lane wants them. `docs/published.md` is the list.
+
+## (b) Own-traces calibration arm (opt-in)
+
+- [ ] T3 harvest N≥512 completions ≥1024 tok from the ORIGINAL model on the serving distribution (decision-lane traces); layer-streamed Hessian + requant on the 4090. Feasibility: 27B fp16 originals fit only the Mac (trace-gen there), ≤1B fully on the 4090. Disclosed deviation arm: traces from the already-quantized model itself (cheaper; biases toward already-quantized behavior — run both arms).
+- [ ] T4 **GOAT:** paired frozen-read census vs incumbent calibration — per-family conditional retention + argmax flips never-worse + the **ref-KL floor on a held-out NON-anchor slice** (the paper's own logged risk: "it raises ref KL: it specialises on anchor-style text"). Positive control: the Bench-007 damaged-payload walk (the instrument must fire loud).
+
+## (c) Scale-search arm (opt-in; cheapest, highest-confidence)
+
+- [ ] T5 K candidate scale-clip settings per family → requant → one frozen-read scoring pass each → per-family pick; 3 refinement rounds; ~1–4 GPU-h on the league artifact. **GOAT:** per-family retention + argmax flips never-worse vs native scales; per-family promotion only.
+
+## (d) Checkpoint averaging (low priority)
+
+- [ ] T6 weight-space soup of scale/mask variants, modelless, census-gated; only when (b)/(c) produce variants worth averaging.
+
+## Discard record (auditable, from the adversarial panel)
+
+- The 64-GPU-h closed-loop search agent: **NO-BUILD** — compute envelope (24 GB box) + the winning moves are published; the ceiling of what is justified is a thin scripted grid over the known axes = (b)+(c) above.
+- FP8-aware scale search (no FP8 lane on Ada today) and MoE router-weighted Hessians (no MoE PTQ lane; DSpine qwen3.8 the future candidate): watch rows, recorded in Research 427 §6.
+
+## Refs
+
+riir-refine Research 427 + Plan 393; qda @ `dc39a02b`; riir-infer Issues 959 (golden_nll), 1188 (family census), 1190 (ranked 27B cell), 1208 (deletion-mask lane); Bench 007 (positive control), 1215 (ranked family-sensitivity cell).
