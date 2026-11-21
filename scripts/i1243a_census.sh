@@ -119,7 +119,14 @@ def header(path):
     def val(t):
         if t == 8: return s()
         if t == 9:
-            et = u("<I"); n = u("<Q"); return ["ARR", n, [val(et) for _ in range(min(n, 4))]]
+            et = u("<I"); n = u("<Q")
+            items = [val(et) for _ in range(min(n, 4))]
+            rest = n - len(items)
+            if et == 8:
+                for _ in range(rest): s()
+            else:
+                f.seek(struct.calcsize(TYPES[et][0]) * rest, 1)
+            return ["ARR", n, items]
         fmt, _ = TYPES[t]; return u(fmt)
     kvs = {}
     for _ in range(nkv):
@@ -160,7 +167,12 @@ SAN_RC=$?
 set -e
 if [ "$SAN_RC" -ne 0 ]; then
   cat "$OUT/header_census.txt"
-  echo "REFUSE: the issue's sanity assert failed — no scoring (exit 3)"
+  if [ "$SAN_RC" -eq 3 ]; then
+    echo "REFUSE: the issue's sanity assert failed — no scoring (exit 3)"
+  else
+    echo "REFUSE: header census CRASHED (tooling bug, rc=$SAN_RC) — no scoring (exit 4)"
+    exit 4
+  fi
   exit 3
 fi
 cat "$OUT/header_census.txt"
