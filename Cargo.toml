@@ -858,6 +858,13 @@ name = "i508_kl_gate"
 path = "src/bin/i508_kl_gate.rs"
 required-features = ["anchor_kl"]
 
+# Plan 508 T1 base prep: the Q4_K_M student dequantized to an HF-loadable
+# safetensors (the torch-side LoRA base = the student's own bytes).
+[[bin]]
+name = "i508_dump_base"
+path = "src/bin/i508_dump_base.rs"
+required-features = ["anchor_kl"]
+
 # riir-infer Issue 014 T1 — the activation-diagonal collector bin. The
 # module lives behind #[cfg(feature = "act_diagonal_calibration")]; this
 # row is the reader protection (the green-zero law): a default build
