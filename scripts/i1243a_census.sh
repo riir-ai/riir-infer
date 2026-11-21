@@ -53,12 +53,12 @@ pmset -g batt | head -2
 df -h "$HOME" | tail -1
 git -C "$REPO" rev-parse HEAD
 
-echo "PROVENANCE: bmo (M5 Ultra, dedicated runner), job exclusive, caffeinate -is per pass, load at start: $(uptime | sed 's.*load averages*: //'), AC: $(pmset -g batt | grep -o 'AC Power' || echo MISSING)"
+echo "PROVENANCE: bmo (M5 Ultra, dedicated runner), job exclusive, caffeinate -is per pass, load at start:$(uptime | awk -F'load averages:' '{print $2}'), AC: $(pmset -g batt | grep -o 'AC Power' || echo MISSING)"
 
 # per-pass load trace (post-hoc contention attribution — the ratio law)
 (
   while kill -0 "$$" 2>/dev/null; do
-    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) load=$(uptime | sed 's.*load averages*: //')" >> "$OUT/load_trace.log"
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) load=$(uptime | awk -F'load averages:' '{print $2}')" >> "$OUT/load_trace.log"
     sleep 120
   done
 ) &
@@ -91,10 +91,12 @@ CBYTES=$(wc -c < "$CORPUS" | tr -d ' ')
 echo "corpus OK: $CBYTES bytes, sha256 $CGOT"
 
 # --- fetch + pin the QDA Q4 GGUF ---------------------------------------
+# bmo has no hf CLI (job 01a1fbc9 refused) - plain curl against the pinned
+# resolve URL (HF LFS supports ranges: -C - resumes a partial fetch).
 if [ ! -f "$QDA_FILE" ]; then
-  command -v hf >/dev/null 2>&1 || { echo "REFUSE: no hf CLI on this box"; exit 2; }
-  hf download qda-lab/QDA-Qwen3.8-27B-Q4-GGUF QDA-Qwen3.8-27B-Q4.gguf \
-    --revision "$QDA_REV" --local-dir "$QDA_DIR"
+  command -v curl >/dev/null 2>&1 || { echo "REFUSE: no curl on this box"; exit 2; }
+  URL="https://huggingface.co/qda-lab/QDA-Qwen3.8-27B-Q4-GGUF/resolve/$QDA_REV/QDA-Qwen3.8-27B-Q4.gguf"
+  curl -L -C - --retry 3 --retry-delay 5 -o "$QDA_FILE" "$URL"
 fi
 test -f "$QDA_FILE" || { echo "REFUSE: QDA download did not land: $QDA_FILE"; exit 2; }
 QDA_SHA=$(shasum -a 256 "$QDA_FILE" | cut -d' ' -f1)
