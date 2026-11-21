@@ -2,6 +2,8 @@
 
 **Status:** open — filed from the humanfia/QDA distill (riir-refine Research 427); (a) T1 PARTIAL (pins + sanity + pooled Δ-NLL delivered 2026-11-21, bench 1251; si-lane scoring census loud-blocked on the ternary-globals loader contract — see T1 note); (b)-(d) open.
 **Lease closed:** zed-1243a-census@amo — T1 partial delivered same session, bench 1251 (claim record: zed-1243a-census@amo, epoch 1795224766, was expires 2026-11-23T01:32:46+00:00)
+**Claimed:** zed-424b241b@amo, 1795280800, expires 2026-11-23T16:35:00+00:00
+(scope: the T1 REMAINDER — the dense-lane golden census instrument (wire the existing dense loader+forward into GoldenNllScratch; the quant-resident arm first: dense f32 is ~109 GB > 96 GB) + the Q6 row; the harder-corpus re-read waits on 1242 T1 anchors. The wiring starts at the next quiet riir-infer cargo window — the box's sprint!098 merge gate holds amo now, per the boss-run housekeeping contract 2026-11-21.)
 **Routing:** (a) is a same-week runnable census on amo/bmo; (b)–(d) ride the first quant-production window. Claim with a lease line before implementing.
 
 ## (a) Consume the released checkpoints (zero new code)
