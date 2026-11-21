@@ -1,6 +1,8 @@
 # Issue 1242 — QDA-derived eval instruments: KL-vs-anchor ranked selection, gencheck (truncation/repetition census), cached-anchor scoring, proxy break-even
 
 **Status:** open — filed from the humanfia/QDA distill (riir-refine Research 427); unclaimed.
+**Claimed:** zed-989683dc@4090, 1795229756, expires 2026-11-21T04:59:00+00:00
+(scope: T1 anchor-KL census + T2 gencheck + T3 break-even + T4 composition note — the instrument BUILD on this box (opt-in feature `anchor_kl`, offline, zero serving-path cost; fixtures + canaries in-repo). The instrument's FIRST consumer is plan 508 T2's gate (the SAME truncation/repetition census + anchor-KL on the KD cell), so the definitions land 508-compatible. Heavy RUNS route per the m3 box law.)
 **Routing:** riir-infer quant-eval lane, beside `golden_nll` / `si_zero_shot_ppl`; heavy runs on amo/bmo per the m3 box law. Claim with a lease line before implementing (katgpt-rs Issue 943 discipline).
 
 ## Why (the evidence)
