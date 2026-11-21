@@ -1,6 +1,10 @@
 # Issue 1241: Neuron-census instrument — offline interventional census as the WSP/AHA authoring prior
 
-**Status:** open — poc task, **CLAIMED (zed-4090-house@4090, 48h, exp 2026-11-22T12:30Z; pushed before working): scope = T1 skeleton implementation on this box (RAM free post-sweep; compile-gated in-session), T2's census cell routes to its own `agent-mail rig run 4090 --needs cuda --est` window after T1's fixture gates green; the m3-side (katgpt-rs-93@amo, the filing lane) keeps Research 033/034 + the Fermion arc.**
+**Status:** open — poc task
+
+**Claimed:** zed-4090-house@4090, 1795228200, expires 2026-11-22T12:30:00+00:00
+
+Scope: T1 skeleton implementation on this box (RAM free post-sweep; compile-gated in-session), T2's census cell routes to its own `agent-mail rig run 4090 --needs cuda --est` window after T1's fixture gates green; the m3-side (katgpt-rs-93@amo, the filing lane) keeps Research 033/034 + the Fermion arc. (Claim reshaped 2026-11-21 out of the Status line — the Issue-1226 blind class: embedded claims parse NONE fleet-wide, data + expiry preserved.)
 
 **Filed from:** katgpt-rs Research 684 (Fermion "Mapping every neuron in Qwen3-8B" distill, 2026-11-20). The census instrument (interventional push sweep + matched-random control battery + typed verdicts) is new to this workspace; its consumer is the overlay-authoring family (AHA `matched_pair_authoring` Issue 1224 LANDED, `probe_circuit_grammar`, `closed_form_weight_write` Issue 990, `weight_edit_overlay` Issue 980). **Repo split:** the modelless scoring primitives (AUROC-vs-scrambles screen, decoy-battery scorer, `EditForm::ColumnScale`) are katgpt-rs code and live under **katgpt-rs Issue 1237** — this issue owns ONLY the riir-infer runner + cell + consumption rows and consumes those primitives. Related lanes this must NOT duplicate: `mech_attribution` (contrastive activation attribution — the cheap screen this battery confirms), `lens` (weight-only reads — demoted for SERVING, 666; this lane is OFFLINE-first and never claims serving cost), `sink_audit` (981) / `weight_audit` (1209) — the census-artifact shape to copy.
 
