@@ -1,6 +1,6 @@
 # Plan 633 — the ANE audio lane's first real workload: OpenThai2.0-ASR CPU-SIMD vs ANE bench + roofline preflight calibration
 
-**Claimed:** amo-idle-i932@amo, 1795048653, expires 2026-11-21T00:40:00Z
+**Lease closed:** amo-idle-i932@amo, expired 2026-11-21T00:40:00Z unworked past the ANE-hardware gate — the lane needs the ANE box, not a GPU posture
 
 (renewal 3 — wake continuation: **P4.1 stage record LANDED — bench 1220** (`.benchmarks/1220_p633_ane_asr_stage_record.md` + `1220_p633_ane_asr_stage_tables/` — 16 row files + 7 harness scripts preserved against the P4.4 teardown; digests re-verified full-width, numbering gates green); every gate verdict now explicit — G1 FAIL +1.46 fp16/fleurs, G2 FAIL 0.57×, G3 UNMEASURED, G4 PASS 100 % cost-weighted, G5 PASS ≥28 tiers + marginal per-step miss, Posture A holds / Posture B refutes the working-set collapse; tvspeech n=100 cell queued amo-exclusive `50421460` (the summary's `01a1dbac-de7e` id is stale — superseded on resubmit), held behind sibling POISONED ×16 job `4e769f80` (owner mailed); p8 harness authored-not-run; P0 ✓ P1 ✓ P2.1 ✓ P2.2 ✓ P2.4 ✓ P2.6 stage-1 ✓ P4.1 stage ✓)
 
