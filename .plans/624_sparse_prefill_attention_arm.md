@@ -1,6 +1,6 @@
 # Plan 624 — Sparse prefill attention arm (Issue 1156 T2, XAttention-class block-sparse)
 
-**Status:** In progress — zed-amo-i1156 (lease expires 2026-10-31T17:22:37Z; issue `.issues/1156_sparse_prefill_league_eval.md`)
+**Status:** PARKED — the 1156 lease expired 2026-10-31 unworked past T1; the lane rides issue 1156's own posture (check that issue before reviving). Filed as the XAttention-class block-sparse prefill arm (Issue 1156 T2).
 
 ## Why (T1-recorded basis + one correction)
 
