@@ -169,6 +169,152 @@ pub fn mean_kl(kls: &[f64]) -> f64 {
     acc / kls.len() as f64
 }
 
+// ── T3 — the proxy break-even estimator (the no-GD advocate's generic math) ──
+
+/// The break-even inputs, in ANY consistent cost unit (seconds, dollars —
+/// the inequality is scale-invariant; the fixture pins one unit).
+#[derive(Debug, Clone, Copy)]
+pub struct BreakEvenInputs {
+    /// V — how many times the proxy decision repeats over the horizon.
+    pub decisions: f64,
+    /// c_p — the proxy's per-decision cost.
+    pub proxy_cost: f64,
+    /// c_g — the full eval's per-decision cost.
+    pub full_cost: f64,
+    /// F — the fixed cost of building/validating the proxy.
+    pub fixed_cost: f64,
+    /// f_bar — the measured proxy fidelity in [0,1] (1 = agrees with full).
+    pub fidelity: f64,
+    /// L — the loss when a WRONG proxy decision ships (one instance).
+    pub loss_per_wrong: f64,
+}
+
+/// The typed verdict: SHIP-PROXY / SHIP-DIRECT / UNDECIDABLE. UNDECIDABLE
+/// fires when the inputs are non-finite, negative where they must not be,
+/// or the fidelity is outside [0,1] — a refusal is a verdict, never an
+/// error (the instrument must be total).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BreakEvenVerdict {
+    ShipProxy,
+    ShipDirect,
+    Undecidable(&'static str),
+}
+
+/// `ship proxy ⟺ V·c_p + F + (1−f̄)·L·V < V·c_g` — the proxy wins when its
+/// horizon cost plus the fixed build plus the expected wrong-decision loss
+/// still undercuts running the full eval every time.
+pub fn break_even(i: &BreakEvenInputs) -> BreakEvenVerdict {
+    if !(i.decisions.is_finite()
+        && i.proxy_cost.is_finite()
+        && i.full_cost.is_finite()
+        && i.fixed_cost.is_finite()
+        && i.loss_per_wrong.is_finite())
+        || i.decisions < 0.0
+        || i.proxy_cost < 0.0
+        || i.full_cost < 0.0
+        || i.fixed_cost < 0.0
+        || i.loss_per_wrong < 0.0
+        || !(0.0..=1.0).contains(&i.fidelity)
+    {
+        return BreakEvenVerdict::Undecidable("inputs out of domain");
+    }
+    if i.decisions == 0.0 {
+        return BreakEvenVerdict::Undecidable("no decisions on the horizon");
+    }
+    let proxy_total = i.decisions * i.proxy_cost
+        + i.fixed_cost
+        + (1.0 - i.fidelity) * i.loss_per_wrong * i.decisions;
+    let direct_total = i.decisions * i.full_cost;
+    if proxy_total < direct_total {
+        BreakEvenVerdict::ShipProxy
+    } else {
+        BreakEvenVerdict::ShipDirect
+    }
+}
+
+#[cfg(test)]
+mod break_even_tests {
+    use super::*;
+
+    #[test]
+    fn cheap_accurate_proxy_ships() {
+        let i = BreakEvenInputs {
+            decisions: 1000.0,
+            proxy_cost: 1.0,
+            full_cost: 10.0,
+            fixed_cost: 100.0,
+            fidelity: 0.99,
+            loss_per_wrong: 5.0,
+        };
+        // proxy: 1000 + 100 + 0.01*5*1000 = 1150 < 10000.
+        assert_eq!(break_even(&i), BreakEvenVerdict::ShipProxy);
+    }
+
+    #[test]
+    fn expensive_low_fidelity_proxy_loses_to_direct() {
+        let i = BreakEvenInputs {
+            decisions: 10.0,
+            proxy_cost: 8.0,
+            full_cost: 10.0,
+            fixed_cost: 500.0,
+            fidelity: 0.5,
+            loss_per_wrong: 100.0,
+        };
+        // proxy: 80 + 500 + 0.5*100*10 = 1580 > 100.
+        assert_eq!(break_even(&i), BreakEvenVerdict::ShipDirect);
+    }
+
+    #[test]
+    fn out_of_domain_inputs_undecidable() {
+        let mut i = BreakEvenInputs {
+            decisions: 10.0,
+            proxy_cost: 1.0,
+            full_cost: 10.0,
+            fixed_cost: 1.0,
+            fidelity: 1.5,
+            loss_per_wrong: 1.0,
+        };
+        assert_eq!(
+            break_even(&i),
+            BreakEvenVerdict::Undecidable("inputs out of domain")
+        );
+        i.fidelity = 0.9;
+        i.decisions = -1.0;
+        assert_eq!(
+            break_even(&i),
+            BreakEvenVerdict::Undecidable("inputs out of domain")
+        );
+        i.decisions = 0.0;
+        assert_eq!(
+            break_even(&i),
+            BreakEvenVerdict::Undecidable("no decisions on the horizon")
+        );
+    }
+
+    #[test]
+    fn scale_invariance() {
+        // The inequality is scale-invariant: doubling every cost (and the
+        // loss, which shares the unit) cannot flip the verdict.
+        let base = BreakEvenInputs {
+            decisions: 100.0,
+            proxy_cost: 1.0,
+            full_cost: 4.0,
+            fixed_cost: 50.0,
+            fidelity: 0.95,
+            loss_per_wrong: 20.0,
+        };
+        let doubled = BreakEvenInputs {
+            decisions: 100.0,
+            proxy_cost: 2.0,
+            full_cost: 8.0,
+            fixed_cost: 100.0,
+            fidelity: 0.95,
+            loss_per_wrong: 40.0,
+        };
+        assert_eq!(break_even(&base), break_even(&doubled));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
