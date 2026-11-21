@@ -156,6 +156,13 @@ weight_audit = []
 # compile-window wiring step). The `lattice-census` bin is the census
 # front (required-features row in the same commit — the P30 law).
 lattice_census = ["deltanet_ternary_inference"]
+
+# riir-infer Issue 1242 T1 - the KL-vs-anchor ranked-selection census
+# (the QDA distill anchor instrument): per-token forward-KL from logits
+# slices + the top-k-union variant + the trace-set aggregation, OPT-IN,
+# offline report-only, zero new deps. The anchor logits cache rides the
+# census bins (content-addressed per model bytes + trace set + dtype).
+anchor_kl = []
 # Issue 036 T1/T2: the LittleBit-derived init-only sub-1-bit PTQ lane —
 # `quant::svd_lbit` (seeded Halko truncated SVD + Dual-SVID init + residual
 # restack, deterministic) + the `svd_lbit_eval` PPL-ladder bin. Opt-in per

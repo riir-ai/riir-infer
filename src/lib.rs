@@ -138,6 +138,13 @@ mod weight_audit_fixture;
 /// anchor_kl bin (the same definitions).
 pub mod gencheck;
 
+/// KL-vs-anchor ranked-selection census (Issue 1242 T1 — the QDA distill's
+/// anchor-KL instrument): per-token forward-KL from logits slices, the
+/// top-k-union variant, the trace-set aggregation. OPT-IN under
+/// `anchor_kl` (offline instruments; a serving path never reaches it).
+#[cfg(feature = "anchor_kl")]
+pub mod anchor_kl;
+
 /// f64 golden-NLL readout (Issue 959 T6, opt-in `golden_nll`): the
 /// tail-faithful per-token oracle for lossy-quant gates over
 /// katgpt-core's `fixed_log_softmax_target_f64`. Instrument-grade —
