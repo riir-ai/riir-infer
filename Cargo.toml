@@ -162,7 +162,8 @@ lattice_census = ["deltanet_ternary_inference"]
 # slices + the top-k-union variant + the trace-set aggregation, OPT-IN,
 # offline report-only, zero new deps. The anchor logits cache rides the
 # census bins (content-addressed per model bytes + trace set + dtype).
-anchor_kl = []
+# Pulls the dense deltanet loaders/forwards (the teacher/student GGUF path).
+anchor_kl = ['deltanet_inference']
 # Issue 036 T1/T2: the LittleBit-derived init-only sub-1-bit PTQ lane —
 # `quant::svd_lbit` (seeded Halko truncated SVD + Dual-SVID init + residual
 # restack, deterministic) + the `svd_lbit_eval` PPL-ladder bin. Opt-in per
@@ -848,6 +849,14 @@ required-features = ["weight_audit"]
 name = "lattice-census"
 path = "src/bin/lattice-census.rs"
 required-features = ["lattice_census"]
+
+# Plan 508's pre-GPU KL minimum-effect gate (the verdict's recovery-signal
+# risk measurement): teacher-vs-student forward-KL over the fixed panel via
+# the anchor_kl instrument. Reader protection row (the green-zero law).
+[[bin]]
+name = "i508_kl_gate"
+path = "src/bin/i508_kl_gate.rs"
+required-features = ["anchor_kl"]
 
 # riir-infer Issue 014 T1 — the activation-diagonal collector bin. The
 # module lives behind #[cfg(feature = "act_diagonal_calibration")]; this
