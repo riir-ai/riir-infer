@@ -1,6 +1,7 @@
 # Issue 1243 — QDA checkpoint consumption + calibration-data arms (GGUF census first; own-traces calibration; scale search; checkpoint averaging)
 
-**Status:** open — filed from the humanfia/QDA distill (riir-refine Research 427); unclaimed.
+**Status:** open — filed from the humanfia/QDA distill (riir-refine Research 427); (a) CLAIMED (T1 frozen-read census, lease below); (b)-(d) open.
+**Claimed:** zed-1243a-census@amo, 1795224766, expires 2026-11-23T01:32:46+00:00
 **Routing:** (a) is a same-week runnable census on amo/bmo; (b)–(d) ride the first quant-production window. Claim with a lease line before implementing.
 
 ## (a) Consume the released checkpoints (zero new code)
