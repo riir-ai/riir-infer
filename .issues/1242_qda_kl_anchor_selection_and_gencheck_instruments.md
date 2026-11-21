@@ -1,6 +1,6 @@
 # Issue 1242 — QDA-derived eval instruments: KL-vs-anchor ranked selection, gencheck (truncation/repetition census), cached-anchor scoring, proxy break-even
 
-**Status:** open — filed from the humanfia/QDA distill (riir-refine Research 427); unclaimed.
+**Status:** BUILD COMPLETE (2026-11-21T13:4xZ, the zed-989683dc@4090 lease → 14:43Z): all four deliverables landed — T2 gencheck `759bc14`, T1 anchor-KL `0d575fc`, T3 break-even + T4 composition note `783f18b` (.docs/005). OPEN: the forward WIRING (the census bins' anchor cache + gencheck harness rows) and the FIRST CONSUMER (plan 508's pre-GPU KL gate); the two-instance bars (katgpt-core migration; T4 implementation) wait for second consumers. Filed from the humanfia/QDA distill (riir-refine Research 427).
 **Claimed:** zed-989683dc@4090, 1795264982, expires 2026-11-21T14:43:00+00:00
 (renewal 2 - T2 gencheck LANDED 759bc14; the build continues: T1 anchor-KL (the golden_nll cached-anchor shape) + its first consumer run, plan 508's pre-GPU KL gate.)
 (renewal 1 - lease lapsed overnight; the build starts this window: T2 gencheck first (pure-text fixtures), then T1 anchor-KL (the golden_nll cached-anchor shape); FIRST CONSUMER: plan 508's pre-GPU KL minimum-effect gate (the teacher-vs-student measurement is the same code).)
