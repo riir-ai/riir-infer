@@ -130,6 +130,14 @@ pub mod weight_audit;
 #[cfg(all(test, feature = "weight_audit"))]
 mod weight_audit_fixture;
 
+/// Generation-check instruments (Issue 1242 T2 — the QDA distill's
+/// `gencheck`: truncation-at-limit census + suffix-cycle/repetition census
+/// over long generations). Pure text analysis, zero deps, ungated (the
+/// instrument is the reason the module is tiny + self-contained; a serving
+/// path never calls it). The plan-508 T2 gate consumes it via the
+/// anchor_kl bin (the same definitions).
+pub mod gencheck;
+
 /// f64 golden-NLL readout (Issue 959 T6, opt-in `golden_nll`): the
 /// tail-faithful per-token oracle for lossy-quant gates over
 /// katgpt-core's `fixed_log_softmax_target_f64`. Instrument-grade —
