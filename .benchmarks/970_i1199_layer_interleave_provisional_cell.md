@@ -1,6 +1,6 @@
 # Bench 970 — Issue 1199 rung (b): the fused-batch layer interleave, T3 provisional cell
 
-**Status:** PROVISIONAL — the synth-geometry cell REFUTES promotion at small scale; the real-geometry (Bonsai-2 27B) deciding cell is parked on the exclusive quiet window. `RIIR_TAIL_LAYER_INTERLEAVE` stays PROMOTE-ONLY (exact `1`/`true`/`on`; unset/other = the incumbent path, byte-identical).
+**Status:** PROVISIONAL → SUPERSEDED: the real-geometry deciding cell ADJUDICATED 2026-11-16 ([Bench 1221](./1221_i1199_t3_deciding_cell_real_27b.md)) — rung (b) DECLINED at 27B (batch+il +0.5% noise over batch, after this cell's +5–16% synth loss); the alternation tax bounded at 1.43× (not the 2.6–3.3× band); the loopback-CPU overlap thesis refuted at this geometry. `RIIR_TAIL_LAYER_INTERLEAVE` stays PROMOTE-ONLY (exact `1`/`true`/`on`; unset/other = the incumbent path, byte-identical), never promoted. Issue 1199 closed on the 1221 record (HISTORY.md 2026-11-16); this bench remains the synth-geometry refutation leg of the arc.
 **Date:** 2026-11-12
 **Session:** zed-93bcde10@amo, 1794438486 (claim `1a7c863`)
 **Issue:** 1199 (the cpu-stage alternation tax — closed+removed, record in HISTORY.md 2026-11-16)
@@ -32,7 +32,7 @@ Instrument: `RIIR_DIST_STEP_TIMING=1`, 192 tokens/stream, examples/i1199_interle
 ## What this decides
 
 - **No promotion.** The synth cell refutes rung (b) at small scale; the env stays PROMOTE-ONLY and the shipped default is byte-identical-off (the full suite ran unarmed).
-- **The deciding cell for the residency hypothesis** is REAL geometry (Bonsai-2 27B CPU stages: per-stream GDN+KV ≈ 3 MB + scratch — the working set 1198 named — and 64 layers where 64×s dispatches amortize over ~ms-per-layer compute), quiet-box, exclusive. **Parked on the rig queue; this bench does not adjudicate it.** The exclusive re-run uses this same example (`cargo run --release -p riir-infer-dist --example i1199_interleave_cell`) against the real checkpoint the way 1198's T3.5 instrument drove it.
+- **The deciding cell for the residency hypothesis** is REAL geometry (Bonsai-2 27B CPU stages: per-stream GDN+KV ≈ 3 MB + scratch — the working set 1198 named — and 64 layers where 64×s dispatches amortize over ~ms-per-layer compute), quiet-box, exclusive. Adjudicated by Bench 1221 (DECLINED — see the Status line). The exclusive re-run uses this same example (`cargo run --release -p riir-infer-dist --example i1199_interleave_cell`) against the real checkpoint the way 1198's T3.5 instrument drove it.
 - **T1's poor-man's discriminator (locality vs compute) is answered at synth scale: locality is NOT the rr tax's driver there** — the recv inflation + tiny state rule it out; the alternation tax at this geometry is scheduling-bound. The real-geometry cell re-asks the question where the premise can hold.
 
 ## Residue sighting (not this lane's)
