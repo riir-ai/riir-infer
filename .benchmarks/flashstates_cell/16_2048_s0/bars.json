@@ -1,0 +1,19 @@
+{
+  "a1_bar1_pass": false,
+  "a1_bar2_pass": false,
+  "a1_bar3_pass": false,
+  "a1_g1_checked": 8,
+  "a1_ratio_decode": 0.9604299044019204,
+  "a1_ratio_ttft_p90": 2.8381618323751523,
+  "a1_ratio_uncached": 1.0,
+  "a2_bar1_pass": false,
+  "a2_bar2_pass": false,
+  "a2_bar3_pass": false,
+  "a2_bar5_retention_pass": true,
+  "a2_g1_checked": 8,
+  "a2_ratio_decode": 0.9627344750579475,
+  "a2_ratio_ttft_p90": 2.6820077832622733,
+  "a2_ratio_uncached": 1.0,
+  "bar_applicable": true,
+  "n_sessions": 16
+}

@@ -1,0 +1,10 @@
+{
+  "budget_frac": 0.0625,
+  "chunk": 512,
+  "ctx": 5120,
+  "gguf": "/Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf",
+  "n_sessions": 16,
+  "seed": 0,
+  "trace_digest": "blake3-391d33468e7947548636f5f7cbda15d5a88f02a195c39cc8401bfd798cad1161",
+  "transcript_cap_tokens": 2048
+}

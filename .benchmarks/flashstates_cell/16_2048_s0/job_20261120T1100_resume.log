@@ -1,0 +1,458 @@
+PROVENANCE i1201-rung1-resume3 start 2026-11-20T10:41:34+0700 host bmo os 27.2.1-26B131
+single-instance guard:
+ * branch            develop    -> FETCH_HEAD
+  (use "git pull" to update your local branch)
+riir-infer @ b9de7d8 (binary rebuilt only if the Nov-18 binary's source moved)
+error: the package 'riir-infer-core' does not contain this feature: flashstates_cell
+help: package with the missing feature: riir-infer-gpu
+model: 16810714336 /Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf
+e00082f779fa385cee8c68a3ec8833a75778cc87272240b942f74e0b8243e520  /Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf
+CubeCL runtime initialized: wgpu<msl>
+[Issue 1150] dense-f16 matmul2d arm armed — league DEFAULT (issue 1176; demote: RIIR_QWEN38_DENSE_MM2D=0) (device=0x102016b80, queue=0x10201e680, relaxed_precision=true)
+[Issue 1171] tensor-flash prefill attention armed (device=0x102016b80)
+[Issue 1170] dense-f16 half-B matmul2d arm armed (device=0x102016b80, queue=0x10201e680, relaxed_precision=true)
+[Issue 1150] Q6_K packed tail armed (~2.1 GB resident, the 10.7 GB f32 dequant skipped; 1e-5 re-association class — never a parity claim)
+[qwen38-wgpu] loaded: 64 layers (48 GDN / 16 attn), vocab 248320, wte host 10.2 GB, lm_head 8 chunks of 32768 rows, ctx 5120, chunk 512
+[cell] page economics: layers=64 (attn 16 / gdn 48) kvd=1024 gdn_elems=786432 conv_elems=40960 — per chunk: kv 2097152 B, gdn 158859264 B, total 160956416 B
+[warmup] 512 tokens driven
+[cell] shared-state budget: frac 0.0625 × demand 131072 pages → 8192 pages (128 chunks/tree-index axis; a1+a2 bounded alike)
+[a0] req 0 s0 t0 uncached=2467 ttft=44329ms
+[a0] req 1 s1 t0 uncached=2461 ttft=43653ms
+[a0] req 2 s2 t0 uncached=2288 ttft=26099ms
+[a0] req 3 s3 t0 uncached=2506 ttft=48292ms
+[a0] req 4 s4 t0 uncached=2304 ttft=27748ms
+[a0] req 5 s5 t0 uncached=2347 ttft=32087ms
+[a0] req 6 s6 t0 uncached=2494 ttft=47068ms
+[a0] req 7 s7 t0 uncached=2441 ttft=41644ms
+[a0] req 8 s8 t0 uncached=2404 ttft=37875ms
+[a0] req 9 s9 t0 uncached=2335 ttft=30860ms
+[a0] req 10 s10 t0 uncached=2548 ttft=52588ms
+[a0] req 11 s11 t0 uncached=2250 ttft=22296ms
+[a0] req 12 s12 t0 uncached=2408 ttft=38312ms
+[a0] req 13 s13 t0 uncached=2454 ttft=42988ms
+[a0] req 14 s14 t0 uncached=2537 ttft=51467ms
+[a0] req 15 s15 t0 uncached=2339 ttft=31252ms
+[a0] req 16 s0 t1 uncached=2987 ttft=47136ms
+[a0] req 17 s1 t1 uncached=2802 ttft=27638ms
+[a0] req 18 s2 t1 uncached=2589 ttft=5553ms
+[a0] req 19 s3 t1 uncached=2872 ttft=35016ms
+[a0] req 20 s4 t1 uncached=2867 ttft=34441ms
+[a0] req 21 s5 t1 uncached=2782 ttft=25583ms
+[a0] req 22 s6 t1 uncached=2775 ttft=24819ms
+[a0] req 23 s7 t1 uncached=2713 ttft=18399ms
+[a0] req 24 s8 t1 uncached=2667 ttft=13631ms
+[a0] req 25 s9 t1 uncached=2579 ttft=4501ms
+[a0] req 26 s10 t1 uncached=2807 ttft=28154ms
+[a0] req 27 s11 t1 uncached=2679 ttft=14878ms
+[a0] req 28 s12 t1 uncached=3010 ttft=49569ms
+[a0] req 29 s13 t1 uncached=2990 ttft=47447ms
+[a0] req 30 s14 t1 uncached=2969 ttft=45225ms
+[a0] req 31 s15 t1 uncached=2790 ttft=26393ms
+[a0] req 32 s0 t2 uncached=3246 ttft=21664ms
+[a0] req 33 s1 t2 uncached=3270 ttft=24288ms
+[a0] req 34 s2 t2 uncached=2815 ttft=29026ms
+[a0] req 35 s3 t2 uncached=3122 ttft=8379ms
+[a0] req 36 s4 t2 uncached=3241 ttft=21135ms
+[a0] req 37 s5 t2 uncached=3263 ttft=23490ms
+[a0] req 38 s6 t2 uncached=3088 ttft=4772ms
+PROVENANCE i1201-rung1-resume3 start 2026-11-20T11:09:41+0700 host bmo os 27.2.1-26B131
+single-instance guard:
+   c4450da..d125d0d  develop    -> origin/develop
+  (use "git pull" to update your local branch)
+riir-infer @ b9de7d8 (binary rebuilt only if the Nov-18 binary's source moved)
+error: the package 'riir-infer-core' does not contain this feature: flashstates_cell
+help: package with the missing feature: riir-infer-gpu
+model: 16810714336 /Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf
+e00082f779fa385cee8c68a3ec8833a75778cc87272240b942f74e0b8243e520  /Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf
+CubeCL runtime initialized: wgpu<msl>
+[Issue 1150] dense-f16 matmul2d arm armed — league DEFAULT (issue 1176; demote: RIIR_QWEN38_DENSE_MM2D=0) (device=0x101c64120, queue=0x101c69410, relaxed_precision=true)
+[Issue 1171] tensor-flash prefill attention armed (device=0x101c64120)
+[Issue 1170] dense-f16 half-B matmul2d arm armed (device=0x101c64120, queue=0x101c69410, relaxed_precision=true)
+[Issue 1150] Q6_K packed tail armed (~2.1 GB resident, the 10.7 GB f32 dequant skipped; 1e-5 re-association class — never a parity claim)
+[qwen38-wgpu] loaded: 64 layers (48 GDN / 16 attn), vocab 248320, wte host 10.2 GB, lm_head 8 chunks of 32768 rows, ctx 5120, chunk 512
+[cell] page economics: layers=64 (attn 16 / gdn 48) kvd=1024 gdn_elems=786432 conv_elems=40960 — per chunk: kv 2097152 B, gdn 158859264 B, total 160956416 B
+[warmup] 512 tokens driven
+[cell] shared-state budget: frac 0.0625 × demand 131072 pages → 8192 pages (128 chunks/tree-index axis; a1+a2 bounded alike)
+[a0] req 39 s7 t2 uncached=3041 ttft=52826ms
+[a0] req 40 s8 t2 uncached=3204 ttft=17191ms
+[a0] req 41 s9 t2 uncached=2855 ttft=33205ms
+[a0] req 42 s10 t2 uncached=3207 ttft=17479ms
+[a0] req 43 s11 t2 uncached=3010 ttft=49577ms
+[a0] req 44 s12 t2 uncached=3327 ttft=30378ms
+PROVENANCE i1201-rung1-resume3 start 2026-11-20T11:17:26+0700 host bmo os 27.2.1-26B131
+single-instance guard:
+   d125d0d..0dd27cd  develop    -> origin/develop
+HEAD is now at 0dd27cd bench(1201): poison-2 handled - 01a1f724 cancelled at cursor 45 (short foreign build, gone on inspection), requeued clean-type 01a1f72b; row-split law v2 (boundaries 39+45) + the escalation rule recorded (third poison = keep + split, no more laps)
+riir-infer @ 0dd27cd (= origin/develop)
+binary posture: rebuilt only if the source moved
+error: the package 'riir-infer-core' does not contain this feature: flashstates_cell
+help: package with the missing feature: riir-infer-gpu
+model: 16810714336 /Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf
+e00082f779fa385cee8c68a3ec8833a75778cc87272240b942f74e0b8243e520  /Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf
+CubeCL runtime initialized: wgpu<msl>
+[Issue 1150] dense-f16 matmul2d arm armed — league DEFAULT (issue 1176; demote: RIIR_QWEN38_DENSE_MM2D=0) (device=0x1023ac120, queue=0x1023b1410, relaxed_precision=true)
+[Issue 1171] tensor-flash prefill attention armed (device=0x1023ac120)
+[Issue 1170] dense-f16 half-B matmul2d arm armed (device=0x1023ac120, queue=0x1023b1410, relaxed_precision=true)
+[Issue 1150] Q6_K packed tail armed (~2.1 GB resident, the 10.7 GB f32 dequant skipped; 1e-5 re-association class — never a parity claim)
+[qwen38-wgpu] loaded: 64 layers (48 GDN / 16 attn), vocab 248320, wte host 10.2 GB, lm_head 8 chunks of 32768 rows, ctx 5120, chunk 512
+[cell] page economics: layers=64 (attn 16 / gdn 48) kvd=1024 gdn_elems=786432 conv_elems=40960 — per chunk: kv 2097152 B, gdn 158859264 B, total 160956416 B
+[warmup] 512 tokens driven
+[cell] shared-state budget: frac 0.0625 × demand 131072 pages → 8192 pages (128 chunks/tree-index axis; a1+a2 bounded alike)
+[a0] req 45 s13 t2 uncached=3463 ttft=45052ms
+[a0] req 46 s14 t2 uncached=3388 ttft=36946ms
+[a0] req 47 s15 t2 uncached=3084 ttft=4338ms
+[a0] req 48 s0 t3 uncached=3551 ttft=54705ms
+[a0] req 49 s1 t3 uncached=3680 ttft=14139ms
+[a0] req 50 s2 t3 uncached=3180 ttft=14598ms
+[a0] req 51 s3 t3 uncached=3591 ttft=4335ms
+[a0] req 52 s4 t3 uncached=3647 ttft=10516ms
+[a0] req 53 s5 t3 uncached=3627 ttft=8305ms
+[a0] req 54 s6 t3 uncached=3298 ttft=27211ms
+[a0] req 55 s7 t3 uncached=3488 ttft=47871ms
+[a0] req 56 s8 t3 uncached=3702 ttft=16534ms
+[a0] req 57 s9 t3 uncached=3422 ttft=40616ms
+[a0] req 58 s10 t3 uncached=3677 ttft=13786ms
+[a0] req 59 s11 t3 uncached=3323 ttft=29932ms
+[a0] req 60 s12 t3 uncached=3919 ttft=40713ms
+[a0] req 61 s13 t3 uncached=3830 ttft=30733ms
+[a0] req 62 s14 t3 uncached=3741 ttft=20887ms
+[a0] req 63 s15 t3 uncached=3370 ttft=35017ms
+[a0] req 64 s0 t4 uncached=3925 ttft=41339ms
+[a0] req 65 s1 t4 uncached=3982 ttft=47817ms
+[a0] req 66 s2 t4 uncached=3590 ttft=4186ms
+[a0] req 67 s3 t4 uncached=3967 ttft=46098ms
+[a0] req 68 s4 t4 uncached=4064 ttft=56979ms
+[a0] req 69 s5 t4 uncached=4068 ttft=57488ms
+[a0] req 70 s6 t4 uncached=3618 ttft=7318ms
+[a0] req 71 s7 t4 uncached=3852 ttft=33170ms
+[a0] req 72 s8 t4 uncached=4238 ttft=20232ms
+[a0] req 73 s9 t4 uncached=3899 ttft=38430ms
+[a0] req 74 s10 t4 uncached=3912 ttft=39889ms
+[a0] req 75 s11 t4 uncached=3622 ttft=7758ms
+[a0] req 76 s12 t4 uncached=4455 ttft=45226ms
+[a0] req 77 s13 t4 uncached=4096 ttft=4031ms
+[a0] req 78 s14 t4 uncached=4125 ttft=7379ms
+[a0] req 79 s15 t4 uncached=3939 ttft=42965ms
+[a0] req 80 s0 t5 uncached=4330 ttft=30713ms
+[a0] req 81 s1 t5 uncached=4542 ttft=55330ms
+[a0] req 82 s2 t5 uncached=4083 ttft=59139ms
+[a0] req 83 s3 t5 uncached=4480 ttft=48134ms
+[a0] req 84 s6 t5 uncached=3967 ttft=46104ms
+[a0] req 85 s7 t5 uncached=4326 ttft=30280ms
+[a0] req 86 s9 t5 uncached=4217 ttft=17852ms
+[a0] req 87 s10 t5 uncached=4183 ttft=13927ms
+[a0] req 88 s11 t5 uncached=4145 ttft=9598ms
+[a0] req 89 s15 t5 uncached=4462 ttft=45939ms
+[a0] req 90 s6 t6 uncached=4325 ttft=30182ms
+[a0] requests=91 median_uncached=3270 ttft_p50=30713.0ms(sup 46) ttft_p90=49568.6ms(sup 10) decode_med=9.2 decode_agg=9.2tok/s g1_checked=0
+[a0p] req 0 s0 t0 restored=0 uncached=2467 ttft=44238ms
+[a0p] req 1 s1 t0 restored=0 uncached=2461 ttft=43715ms
+[a0p] req 2 s2 t0 restored=0 uncached=2288 ttft=26120ms
+[a0p] req 3 s3 t0 restored=0 uncached=2506 ttft=48268ms
+[a0p] req 4 s4 t0 restored=0 uncached=2304 ttft=27742ms
+[a0p] req 5 s5 t0 restored=0 uncached=2347 ttft=32076ms
+[a0p] req 6 s6 t0 restored=0 uncached=2494 ttft=47121ms
+[a0p] req 7 s7 t0 restored=0 uncached=2441 ttft=41696ms
+[a0p] req 8 s8 t0 restored=0 uncached=2404 ttft=37912ms
+[a0p] req 9 s9 t0 restored=0 uncached=2335 ttft=30910ms
+[a0p] req 10 s10 t0 restored=0 uncached=2548 ttft=52638ms
+[a0p] req 11 s11 t0 restored=0 uncached=2250 ttft=22339ms
+[a0p] req 12 s12 t0 restored=0 uncached=2408 ttft=38383ms
+[a0p] req 13 s13 t0 restored=0 uncached=2454 ttft=43024ms
+[a0p] req 14 s14 t0 restored=0 uncached=2537 ttft=51537ms
+[a0p] req 15 s15 t0 restored=0 uncached=2339 ttft=31358ms
+[a0p] req 16 s0 t1 restored=2546 uncached=441 ttft=46138ms
+[a0p] req 17 s1 t1 restored=2505 uncached=297 ttft=30984ms
+[a0p] req 18 s2 t1 restored=2339 uncached=250 ttft=25771ms
+[a0p] req 19 s3 t1 restored=2601 uncached=271 ttft=28444ms
+[a0p] req 20 s4 t1 restored=2357 uncached=510 ttft=52859ms
+[a0p] req 21 s5 t1 restored=2474 uncached=308 ttft=32065ms
+[a0p] req 22 s6 t1 restored=2561 uncached=214 ttft=22390ms
+[a0p] req 23 s7 t1 restored=2493 uncached=220 ttft=22926ms
+[a0p] req 24 s8 t1 restored=2451 uncached=216 ttft=22411ms
+[a0p] req 25 s9 t1 restored=2388 uncached=191 ttft=19746ms
+[a0p] req 26 s10 t1 restored=2602 uncached=205 ttft=21479ms
+[a0p] req 27 s11 t1 restored=2364 uncached=315 ttft=32548ms
+[a0p] req 28 s12 t1 restored=2507 uncached=503 ttft=52723ms
+[a0p] req 29 s13 t1 restored=2538 uncached=452 ttft=47407ms
+[a0p] req 30 s14 t1 restored=2569 uncached=400 ttft=42020ms
+[a0p] req 31 s15 t1 restored=2401 uncached=389 ttft=40406ms
+[a0p] req 32 s0 t2 restored=3025 uncached=221 ttft=23895ms
+[a0p] req 33 s1 t2 restored=2924 uncached=346 ttft=37116ms
+[a0p] req 34 s2 t2 restored=2648 uncached=167 ttft=17587ms
+[a0p] req 35 s3 t2 restored=2952 uncached=170 ttft=18352ms
+[a0p] req 36 s4 t2 restored=2905 uncached=336 ttft=36038ms
+[a0p] req 37 s5 t2 restored=2839 uncached=424 ttft=45349ms
+[a0p] req 38 s6 t2 restored=2822 uncached=266 ttft=28449ms
+[a0p] req 39 s7 t2 restored=2753 uncached=288 ttft=30585ms
+[a0p] req 40 s8 t2 restored=2730 uncached=474 ttft=50347ms
+[a0p] req 41 s9 t2 restored=2657 uncached=198 ttft=20959ms
+[a0p] req 42 s10 t2 restored=2917 uncached=290 ttft=31170ms
+[a0p] req 43 s11 t2 restored=2798 uncached=212 ttft=22624ms
+[a0p] req 44 s12 t2 restored=3113 uncached=214 ttft=23296ms
+[a0p] req 45 s13 t2 restored=3089 uncached=374 ttft=40621ms
+[a0p] req 46 s14 t2 restored=3045 uncached=343 ttft=37158ms
+[a0p] req 47 s15 t2 restored=2870 uncached=214 ttft=22940ms
+[a0p] req 48 s0 t3 restored=3300 uncached=251 ttft=27589ms
+[a0p] req 49 s1 t3 restored=3394 uncached=286 ttft=31649ms
+[a0p] req 50 s2 t3 restored=2928 uncached=252 ttft=27186ms
+[a0p] req 51 s3 t3 restored=3229 uncached=362 ttft=39738ms
+[a0p] req 52 s4 t3 restored=3276 uncached=371 ttft=40855ms
+[a0p] req 53 s5 t3 restored=3321 uncached=306 ttft=33816ms
+[a0p] req 54 s6 t3 restored=3169 uncached=129 ttft=14284ms
+[a0p] req 55 s7 t3 restored=3120 uncached=368 ttft=40216ms
+[a0p] req 56 s8 t3 restored=3239 uncached=463 ttft=51023ms
+[a0p] req 57 s9 t3 restored=2965 uncached=457 ttft=49497ms
+[a0p] req 58 s10 t3 restored=3325 uncached=352 ttft=38907ms
+[a0p] req 59 s11 t3 restored=3131 uncached=192 ttft=21017ms
+[a0p] req 60 s12 t3 restored=3442 uncached=477 ttft=53695ms
+[a0p] req 61 s13 t3 restored=3583 uncached=247 ttft=28026ms
+[a0p] req 62 s14 t3 restored=3465 uncached=276 ttft=31073ms
+[a0p] req 63 s15 t3 restored=3179 uncached=191 ttft=21118ms
+[a0p] req 64 s0 t4 restored=3585 uncached=340 ttft=38497ms
+[a0p] req 65 s1 t4 restored=3733 uncached=249 ttft=28515ms
+[a0p] req 66 s2 t4 restored=3301 uncached=289 ttft=32218ms
+[a0p] req 67 s3 t4 restored=3679 uncached=288 ttft=32893ms
+[a0p] req 68 s4 t4 restored=3772 uncached=292 ttft=33444ms
+[a0p] req 69 s5 t4 restored=3697 uncached=371 ttft=42334ms
+[a0p] req 70 s6 t4 restored=3420 uncached=198 ttft=22319ms
+[a0p] req 71 s7 t4 restored=3544 uncached=308 ttft=34935ms
+[a0p] req 72 s8 t4 restored=3763 uncached=475 ttft=54657ms
+[a0p] req 73 s9 t4 restored=3493 uncached=406 ttft=45946ms
+[a0p] req 74 s10 t4 restored=3740 uncached=172 ttft=19805ms
+[a0p] req 75 s11 t4 restored=3358 uncached=264 ttft=29655ms
+[a0p] req 76 s12 t4 restored=4040 uncached=415 ttft=48411ms
+[a0p] req 77 s13 t4 restored=3932 uncached=164 ttft=19160ms
+[a0p] req 78 s14 t4 restored=3837 uncached=288 ttft=33198ms
+[a0p] req 79 s15 t4 restored=3476 uncached=463 ttft=52330ms
+[a0p] req 80 s0 t5 restored=4051 uncached=279 ttft=32623ms
+[a0p] req 81 s1 t5 restored=4080 uncached=462 ttft=54107ms
+[a0p] req 82 s2 t5 restored=3683 uncached=400 ttft=45713ms
+[a0p] req 83 s3 t5 restored=4052 uncached=428 ttft=50011ms
+[a0p] req 84 s6 t5 restored=3713 uncached=254 ttft=29158ms
+[a0p] req 85 s7 t5 restored=3927 uncached=399 ttft=46249ms
+[a0p] req 86 s9 t5 restored=3980 uncached=237 ttft=27528ms
+[a0p] req 87 s10 t5 restored=4022 uncached=161 ttft=18851ms
+[a0p] req 88 s11 t5 restored=3682 uncached=463 ttft=52918ms
+[a0p] req 89 s15 t5 restored=4030 uncached=432 ttft=50343ms
+[a0p] req 90 s6 t6 restored=4061 uncached=264 ttft=30825ms
+[a0p] requests=91 median_uncached=340 ttft_p50=32893.4ms(sup 46) ttft_p90=51022.8ms(sup 10) decode_med=9.3 decode_agg=9.2tok/s g1_checked=0
+[a1] req 0 s0 t0 restored=0 uncached=2467 ttft=46073ms
+[a1] req 1 s1 t0 restored=0 uncached=2461 ttft=45953ms
+[a1] req 2 s2 t0 restored=0 uncached=2288 ttft=27951ms
+[a1] req 3 s3 t0 restored=0 uncached=2506 ttft=49784ms
+[a1] req 4 s4 t0 restored=0 uncached=2304 ttft=29813ms
+[a1] req 5 s5 t0 restored=0 uncached=2347 ttft=33604ms
+[a1] req 6 s6 t0 restored=0 uncached=2494 ttft=48815ms
+[a1] req 7 s7 t0 restored=0 uncached=2441 ttft=43474ms
+[a1] req 8 s8 t0 restored=0 uncached=2404 ttft=39885ms
+[a1] req 9 s9 t0 restored=0 uncached=2335 ttft=39389ms
+[a1] req 10 s10 t0 restored=0 uncached=2548 ttft=61080ms
+[a1] req 11 s11 t0 restored=0 uncached=2250 ttft=34010ms
+[a1] req 12 s12 t0 restored=0 uncached=2408 ttft=40654ms
+[a1] req 13 s13 t0 restored=0 uncached=2454 ttft=45360ms
+[a1] req 14 s14 t0 restored=0 uncached=2537 ttft=62194ms
+[a1] req 15 s15 t0 restored=0 uncached=2339 ttft=44969ms
+[a1] req 16 s0 t1 restored=0 uncached=2987 ttft=57086ms
+[a1] req 17 s1 t1 restored=0 uncached=2802 ttft=38919ms
+[a1] req 18 s2 t1 restored=0 uncached=2589 ttft=80880ms
+[a1] req 19 s3 t1 restored=0 uncached=2872 ttft=42999ms
+[a1] req 20 s4 t1 restored=0 uncached=2867 ttft=67173ms
+[a1] req 21 s5 t1 restored=0 uncached=2782 ttft=40005ms
+[a1] req 22 s6 t1 restored=0 uncached=2775 ttft=35512ms
+[a1] req 23 s7 t1 restored=0 uncached=2713 ttft=29744ms
+[a1] req 24 s8 t1 restored=0 uncached=2667 ttft=21638ms
+[a1] req 25 s9 t1 restored=0 uncached=2579 ttft=10782ms
+[a1] req 26 s10 t1 restored=0 uncached=2807 ttft=35006ms
+[a1] req 27 s11 t1 restored=0 uncached=2679 ttft=31550ms
+[a1] req 28 s12 t1 restored=0 uncached=3010 ttft=65689ms
+[a1] req 29 s13 t1 restored=0 uncached=2990 ttft=61702ms
+[a1] req 30 s14 t1 restored=0 uncached=2969 ttft=58417ms
+[a1] req 31 s15 t1 restored=0 uncached=2790 ttft=41261ms
+[a1] req 32 s0 t2 restored=0 uncached=3246 ttft=38939ms
+[a1] req 33 s1 t2 restored=0 uncached=3270 ttft=40088ms
+[a1] req 34 s2 t2 restored=0 uncached=2815 ttft=52214ms
+[a1] req 35 s3 t2 restored=0 uncached=3122 ttft=27101ms
+[a1] req 36 s4 t2 restored=0 uncached=3241 ttft=38224ms
+[a1] req 37 s5 t2 restored=0 uncached=3263 ttft=41193ms
+[a1] req 38 s6 t2 restored=0 uncached=3088 ttft=21408ms
+[a1] req 39 s7 t2 restored=0 uncached=3041 ttft=70733ms
+[a1] req 40 s8 t2 restored=0 uncached=3204 ttft=35773ms
+[a1] req 41 s9 t2 restored=0 uncached=2855 ttft=939451ms
+[a1] req 42 s10 t2 restored=0 uncached=3207 ttft=36509ms
+[a1] req 43 s11 t2 restored=0 uncached=3010 ttft=102490ms
+[a1] req 44 s12 t2 restored=0 uncached=3327 ttft=42925ms
+[a1] req 45 s13 t2 restored=0 uncached=3463 ttft=189420ms
+[a1] req 46 s14 t2 restored=0 uncached=3388 ttft=71907ms
+[a1] req 47 s15 t2 restored=0 uncached=3084 ttft=26268ms
+[a1] req 48 s0 t3 restored=0 uncached=3551 ttft=97283ms
+[a1] req 49 s1 t3 restored=0 uncached=3680 ttft=67436ms
+[a1] req 50 s2 t3 restored=0 uncached=3180 ttft=874213ms
+[a1] req 51 s3 t3 restored=0 uncached=3591 ttft=45559ms
+[a1] req 52 s4 t3 restored=0 uncached=3647 ttft=102395ms
+[a1] req 53 s5 t3 restored=0 uncached=3627 ttft=101971ms
+[a1] req 54 s6 t3 restored=0 uncached=3298 ttft=1064132ms
+[a1] req 55 s7 t3 restored=0 uncached=3488 ttft=72568ms
+[a1] req 56 s8 t3 restored=0 uncached=3702 ttft=62558ms
+[a1] req 57 s9 t3 restored=0 uncached=3422 ttft=2663697ms
+[a1] req 58 s10 t3 restored=0 uncached=3677 ttft=60701ms
+[a1] req 59 s11 t3 restored=0 uncached=3323 ttft=1999849ms
+[a1] req 60 s12 t3 restored=0 uncached=3919 ttft=82967ms
+[a1] req 61 s13 t3 restored=0 uncached=3830 ttft=91686ms
+[a1] req 62 s14 t3 restored=0 uncached=3741 ttft=134851ms
+[a1] req 63 s15 t3 restored=0 uncached=3370 ttft=79576ms
+[a1] req 64 s0 t4 restored=0 uncached=3925 ttft=93866ms
+[a1] req 65 s1 t4 restored=0 uncached=3982 ttft=122612ms
+[a1] req 66 s2 t4 restored=0 uncached=3590 ttft=111601ms
+[a1] req 67 s3 t4 restored=0 uncached=3967 ttft=121876ms
+[a1] req 68 s4 t4 restored=0 uncached=4064 ttft=136903ms
+[a1] req 69 s5 t4 restored=0 uncached=4068 ttft=139196ms
+[a1] req 70 s6 t4 restored=0 uncached=3618 ttft=82531ms
+[a1] req 71 s7 t4 restored=0 uncached=3852 ttft=135043ms
+[a1] req 72 s8 t4 restored=0 uncached=4238 ttft=93413ms
+[a1] req 73 s9 t4 restored=0 uncached=3899 ttft=134034ms
+[a1] req 74 s10 t4 restored=0 uncached=3912 ttft=148530ms
+[a1] req 75 s11 t4 restored=0 uncached=3622 ttft=105876ms
+[a1] req 76 s12 t4 restored=0 uncached=4455 ttft=138287ms
+[a1] req 77 s13 t4 restored=0 uncached=4096 ttft=98349ms
+[a1] req 78 s14 t4 restored=0 uncached=4125 ttft=75510ms
+[a1] req 79 s15 t4 restored=0 uncached=3939 ttft=130729ms
+[a1] req 80 s0 t5 restored=0 uncached=4330 ttft=123263ms
+[a1] req 81 s1 t5 restored=0 uncached=4542 ttft=145891ms
+[a1] req 82 s2 t5 restored=0 uncached=4083 ttft=177225ms
+[a1] req 83 s3 t5 restored=0 uncached=4480 ttft=139284ms
+[a1] req 84 s6 t5 restored=0 uncached=3967 ttft=137772ms
+[a1] req 85 s7 t5 restored=0 uncached=4326 ttft=100050ms
+[a1] req 86 s9 t5 restored=0 uncached=4217 ttft=111679ms
+[a1] req 87 s10 t5 restored=0 uncached=4183 ttft=89179ms
+[a1] req 88 s11 t5 restored=0 uncached=4145 ttft=88091ms
+[a1] req 89 s15 t5 restored=0 uncached=4462 ttft=140684ms
+[a1] req 90 s6 t6 restored=0 uncached=4325 ttft=114090ms
+[a1] requests=91 median_uncached=3270 ttft_p50=67435.9ms(sup 46) ttft_p90=140683.8ms(sup 10) decode_med=8.9 decode_agg=2.9tok/s g1_checked=8
+[a2] req 0 s0 t0 restored=0 uncached=2467 ttft=95876ms
+[a2] req 1 s1 t0 restored=0 uncached=2461 ttft=45502ms
+[a2] req 2 s2 t0 restored=0 uncached=2288 ttft=28611ms
+[a2] req 3 s3 t0 restored=0 uncached=2506 ttft=50583ms
+[a2] req 4 s4 t0 restored=0 uncached=2304 ttft=30469ms
+[a2] req 5 s5 t0 restored=0 uncached=2347 ttft=33405ms
+[a2] req 6 s6 t0 restored=0 uncached=2494 ttft=48626ms
+[a2] req 7 s7 t0 restored=0 uncached=2441 ttft=44187ms
+[a2] req 8 s8 t0 restored=0 uncached=2404 ttft=40318ms
+[a2] req 9 s9 t0 restored=0 uncached=2335 ttft=32336ms
+[a2] req 10 s10 t0 restored=0 uncached=2548 ttft=61536ms
+[a2] req 11 s11 t0 restored=0 uncached=2250 ttft=27663ms
+[a2] req 12 s12 t0 restored=0 uncached=2408 ttft=39967ms
+[a2] req 13 s13 t0 restored=0 uncached=2454 ttft=46068ms
+[a2] req 14 s14 t0 restored=0 uncached=2537 ttft=59978ms
+[a2] req 15 s15 t0 restored=0 uncached=2339 ttft=45585ms
+[a2] req 16 s0 t1 restored=0 uncached=2987 ttft=57536ms
+[a2] req 17 s1 t1 restored=0 uncached=2802 ttft=37225ms
+[a2] req 18 s2 t1 restored=0 uncached=2589 ttft=15417ms
+[a2] req 19 s3 t1 restored=0 uncached=2872 ttft=37418ms
+[a2] req 20 s4 t1 restored=0 uncached=2867 ttft=40891ms
+[a2] req 21 s5 t1 restored=0 uncached=2782 ttft=35994ms
+[a2] req 22 s6 t1 restored=0 uncached=2775 ttft=32511ms
+[a2] req 23 s7 t1 restored=0 uncached=2713 ttft=20579ms
+[a2] req 24 s8 t1 restored=0 uncached=2667 ttft=16687ms
+[a2] req 25 s9 t1 restored=0 uncached=2579 ttft=6642ms
+[a2] req 26 s10 t1 restored=0 uncached=2807 ttft=30547ms
+[a2] req 27 s11 t1 restored=0 uncached=2679 ttft=18488ms
+[a2] req 28 s12 t1 restored=0 uncached=3010 ttft=61929ms
+[a2] req 29 s13 t1 restored=0 uncached=2990 ttft=60158ms
+[a2] req 30 s14 t1 restored=0 uncached=2969 ttft=58552ms
+[a2] req 31 s15 t1 restored=0 uncached=2790 ttft=36742ms
+[a2] req 32 s0 t2 restored=0 uncached=3246 ttft=38081ms
+[a2] req 33 s1 t2 restored=0 uncached=3270 ttft=38753ms
+[a2] req 34 s2 t2 restored=0 uncached=2815 ttft=40820ms
+[a2] req 35 s3 t2 restored=0 uncached=3122 ttft=20645ms
+[a2] req 36 s4 t2 restored=0 uncached=3241 ttft=38779ms
+[a2] req 37 s5 t2 restored=0 uncached=3263 ttft=43346ms
+[a2] req 38 s6 t2 restored=0 uncached=3088 ttft=23210ms
+[a2] req 39 s7 t2 restored=0 uncached=3041 ttft=69691ms
+[a2] req 40 s8 t2 restored=0 uncached=3204 ttft=33952ms
+[a2] req 41 s9 t2 restored=0 uncached=2855 ttft=67465ms
+[a2] req 42 s10 t2 restored=0 uncached=3207 ttft=31296ms
+[a2] req 43 s11 t2 restored=0 uncached=3010 ttft=68262ms
+[a2] req 44 s12 t2 restored=0 uncached=3327 ttft=48357ms
+[a2] req 45 s13 t2 restored=0 uncached=3463 ttft=78804ms
+[a2] req 46 s14 t2 restored=0 uncached=3388 ttft=94673ms
+[a2] req 47 s15 t2 restored=0 uncached=3084 ttft=28159ms
+[a2] req 48 s0 t3 restored=0 uncached=3551 ttft=79358ms
+[a2] req 49 s1 t3 restored=0 uncached=3680 ttft=52803ms
+[a2] req 50 s2 t3 restored=0 uncached=3180 ttft=746988ms
+[a2] req 51 s3 t3 restored=0 uncached=3591 ttft=39435ms
+[a2] req 52 s4 t3 restored=0 uncached=3647 ttft=53379ms
+[a2] req 53 s5 t3 restored=0 uncached=3627 ttft=54932ms
+[a2] req 54 s6 t3 restored=0 uncached=3298 ttft=94366ms
+[a2] req 55 s7 t3 restored=0 uncached=3488 ttft=63785ms
+[a2] req 56 s8 t3 restored=0 uncached=3702 ttft=59441ms
+[a2] req 57 s9 t3 restored=0 uncached=3422 ttft=1086163ms
+[a2] req 58 s10 t3 restored=0 uncached=3677 ttft=55936ms
+[a2] req 59 s11 t3 restored=0 uncached=3323 ttft=72033ms
+[a2] req 60 s12 t3 restored=0 uncached=3919 ttft=72442ms
+[a2] req 61 s13 t3 restored=0 uncached=3830 ttft=143143ms
+[a2] req 62 s14 t3 restored=0 uncached=3741 ttft=83641ms
+[a2] req 63 s15 t3 restored=0 uncached=3370 ttft=2357292ms
+[a2] req 64 s0 t4 restored=0 uncached=3925 ttft=102987ms
+[a2] req 65 s1 t4 restored=0 uncached=3982 ttft=115539ms
+[a2] req 66 s2 t4 restored=0 uncached=3590 ttft=77517ms
+[a2] req 67 s3 t4 restored=0 uncached=3967 ttft=97794ms
+[a2] req 68 s4 t4 restored=0 uncached=4064 ttft=129821ms
+[a2] req 69 s5 t4 restored=0 uncached=4068 ttft=115448ms
+[a2] req 70 s6 t4 restored=0 uncached=3618 ttft=102799ms
+[a2] req 71 s7 t4 restored=0 uncached=3852 ttft=70825ms
+[a2] req 72 s8 t4 restored=0 uncached=4238 ttft=73872ms
+[a2] req 73 s9 t4 restored=0 uncached=3899 ttft=112097ms
+[a2] req 74 s10 t4 restored=0 uncached=3912 ttft=108640ms
+[a2] req 75 s11 t4 restored=0 uncached=3622 ttft=80328ms
+[a2] req 76 s12 t4 restored=0 uncached=4455 ttft=116553ms
+[a2] req 77 s13 t4 restored=0 uncached=4096 ttft=96731ms
+[a2] req 78 s14 t4 restored=0 uncached=4125 ttft=164428ms
+[a2] req 79 s15 t4 restored=0 uncached=3939 ttft=138626ms
+[a2] req 80 s0 t5 restored=0 uncached=4330 ttft=108874ms
+[a2] req 81 s1 t5 restored=0 uncached=4542 ttft=132943ms
+[a2] req 82 s2 t5 restored=0 uncached=4083 ttft=188240ms
+[a2] req 83 s3 t5 restored=0 uncached=4480 ttft=167657ms
+[a2] req 84 s6 t5 restored=0 uncached=3967 ttft=161369ms
+[a2] req 85 s7 t5 restored=0 uncached=4326 ttft=111901ms
+[a2] req 86 s9 t5 restored=0 uncached=4217 ttft=127521ms
+[a2] req 87 s10 t5 restored=0 uncached=4183 ttft=85827ms
+[a2] req 88 s11 t5 restored=0 uncached=4145 ttft=116588ms
+[a2] req 89 s15 t5 restored=0 uncached=4462 ttft=122692ms
+[a2] req 90 s6 t6 restored=0 uncached=4325 ttft=119641ms
+[a2] requests=91 median_uncached=3270 ttft_p50=60158.3ms(sup 46) ttft_p90=132943.5ms(sup 10) decode_med=8.9 decode_agg=3.2tok/s g1_checked=8
+[bars] a1/a0 ratios — uncached=1.000 ttft_p90=2.838 decode=0.960 (N=16)
+[bar 1] a1 uncached ≤ 20% of a0: MISS (ratio 1.000)
+[bar 2] a1 p90 TTFT ≤ 50% of a0: MISS (ratio 2.838)
+[bar 3] a1 decode ≥ 98% of a0: MISS (ratio 0.960)
+[bar 4 attribution] a0p median_uncached=340 vs a1 3270 (a1/a0p 9.618) — the control, never the denominator
+[bar 6] G1 resumed-vs-full bit-identity (a1): PASS on 8 sampled requests (drift aborts the run)
+[bars] a2/a0 ratios — uncached=1.000 ttft_p90=2.682 decode=0.963
+[bar 1] a2 uncached ≤ 20% of a0: MISS (ratio 1.000)
+[bar 2] a2 p90 TTFT ≤ 50% of a0: MISS (ratio 2.682)
+[bar 3] a2 decode ≥ 98% of a0: MISS (ratio 0.963)
+[bar 5] a2 median_uncached ≤ a1 at the same budget: PASS (a1 3270 vs a2 3270)
+[bar 6] G1 resumed-vs-full bit-identity (a2): PASS on 8 sampled requests
+DONE-MARKER rc=0 at 2026-11-20T22:26:02+0700
+total 296
+drwxr-xr-x  21 katopz  staff    672 Nov 20 22:26 .
+drwxr-xr-x   3 katopz  staff     96 Nov 20 10:38 ..
+-rw-r--r--   1 katopz  staff      3 Nov 20 11:49 a0.COMPLETE
+-rw-r--r--   1 katopz  staff     15 Nov 20 11:49 a0.progress.json
+-rw-r--r--   1 katopz  staff  15145 Nov 20 11:49 a0.rows.jsonl
+-rw-r--r--   1 katopz  staff    287 Nov 20 11:49 a0.summary.json
+-rw-r--r--   1 katopz  staff      3 Nov 20 12:56 a0p.COMPLETE
+-rw-r--r--   1 katopz  staff     15 Nov 20 12:56 a0p.progress.json
+-rw-r--r--   1 katopz  staff  15340 Nov 20 12:56 a0p.rows.jsonl
+-rw-r--r--   1 katopz  staff    289 Nov 20 12:56 a0p.summary.json
+-rw-r--r--   1 katopz  staff      3 Nov 20 18:14 a1.COMPLETE
+-rw-r--r--   1 katopz  staff     15 Nov 20 18:14 a1.progress.json
+-rw-r--r--   1 katopz  staff  15097 Nov 20 18:14 a1.rows.jsonl
+-rw-r--r--   1 katopz  staff    287 Nov 20 18:14 a1.summary.json
+-rw-r--r--   1 katopz  staff      3 Nov 20 22:26 a2.COMPLETE
+-rw-r--r--   1 katopz  staff     15 Nov 20 22:26 a2.progress.json
+-rw-r--r--   1 katopz  staff  15151 Nov 20 22:26 a2.rows.jsonl
+-rw-r--r--   1 katopz  staff    290 Nov 20 22:26 a2.summary.json
+-rw-r--r--   1 katopz  staff    501 Nov 20 22:26 bars.json
+-rw-r--r--   1 katopz  staff  26217 Nov 20 22:26 job_20261120T1100_resume.log
+-rw-r--r--   1 katopz  staff    283 Nov 20 10:38 manifest.json

@@ -1,0 +1,12 @@
+{
+  "arm": "a0",
+  "decode_aggregate_tok_s": 9.210671780958824,
+  "decode_median_tok_s": 9.2461694889128,
+  "g1_checked": 0,
+  "median_uncached": 3270.0,
+  "requests": 91,
+  "ttft_p50_ms": 30713.007792,
+  "ttft_p50_support": 46,
+  "ttft_p90_ms": 49568.643125,
+  "ttft_p90_support": 10
+}
