@@ -865,6 +865,14 @@ name = "i508_dump_base"
 path = "src/bin/i508_dump_base.rs"
 required-features = ["anchor_kl"]
 
+# Plan 508 T1 teacher scoring: the fp16 teacher's per-position logits over
+# the student's own greedy generations (the on-policy KD set), with the
+# long-run-law manifest (seeds, blake3 re-pins, per-seq digests).
+[[bin]]
+name = "i508_teacher_logits"
+path = "src/bin/i508_teacher_logits.rs"
+required-features = ["anchor_kl"]
+
 # riir-infer Issue 014 T1 — the activation-diagonal collector bin. The
 # module lives behind #[cfg(feature = "act_diagonal_calibration")]; this
 # row is the reader protection (the green-zero law): a default build
