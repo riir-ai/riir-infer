@@ -155,6 +155,7 @@ fn site_map_is_closed_over_the_league_set() {
             tokens_captured: 1,
             chunk: 1,
             state_per_chunk: "fresh",
+            window: "head",
         })
         .expect("finish");
     assert!(
@@ -162,9 +163,48 @@ fn site_map_is_closed_over_the_league_set() {
         "the (layer, site) file name"
     );
     assert!(dir.join("ledger.json").exists(), "the ledger lands");
+    let ledger = std::fs::read_to_string(dir.join("ledger.json")).expect("ledger read");
+    assert!(
+        ledger.contains("\"window\": \"head\""),
+        "the ledger carries the window identity (the calibration-integrity law)"
+    );
     assert!(
         !dir.join("blk000_mlp_down_in.cq3cap").exists(),
         "untouched sinks write nothing (lazy)"
     );
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The calibration-integrity law (issue 1186, 2026-11-22): two corpora
+/// sharing their head (v2 = v1 + a tail continuation) collapse to ONE
+/// arm under a head-window budget — the window selection must slice
+/// DISTINCT token ranges, and the ledger must carry which window ran.
+/// This is the class that produced byte-identical b1/b2 artifacts
+/// (blake3 64322cd5 twice) and the one-byte-different opponent
+/// imatrices; caught from artifacts post-hoc, pinned here pre-T3.
+#[test]
+fn same_prefix_corpora_distinct_windows_slice_differently() {
+    use riir_infer_gpu::qwen38_cq3_capture::window_slice;
+    // A 64-token corpus; v2 shares the first 32 tokens (the head) and
+    // continues differently (the tail).
+    let total = 64usize;
+    let budget = 32usize;
+    let (h0, h1) = window_slice(total, budget, "head").expect("head");
+    let (t0, t1) = window_slice(total, budget, "tail").expect("tail");
+    assert_eq!((h0, h1), (0, 32), "head = the first budget tokens");
+    assert_eq!((t0, t1), (32, 64), "tail = the last budget tokens");
+    assert_ne!(
+        (h0, h1),
+        (t0, t1),
+        "prefix-sharing corpora MUST slice differently under distinct windows"
+    );
+    // The head windows of v1 and v2 are IDENTICAL token ranges (the
+    // collapse v1.0's defect); the tail window reaches v2's continuation.
+    // Refusals: unknown spelling, over-budget window.
+    assert!(window_slice(total, budget, "middle").is_err());
+    assert!(window_slice(total, total + 1, "tail").is_err());
+    assert!(
+        window_slice(total, total + 1, "head").is_ok(),
+        "head clamps by the corpus check upstream; the slice is [0, budget) and the driver's length check refuses short corpora"
+    );
 }

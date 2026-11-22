@@ -250,6 +250,7 @@ impl CaptureSession {
             "tokens_captured": meta.tokens_captured,
             "chunk": meta.chunk,
             "state_per_chunk": meta.state_per_chunk,
+            "window": meta.window,
             "budget_rows_per_file": self.budget_rows_per_file,
             "sites": CAPTURE_SITES,
             "files": summary.iter().map(|(n, r)| serde_json::json!({"name": n, "rows": r})).collect::<Vec<_>>(),
@@ -284,4 +285,29 @@ pub struct CaptureLedgerMeta {
     pub chunk: usize,
     /// "fresh" | "carry" — pinned per run, never implied.
     pub state_per_chunk: &'static str,
+    /// "head" | "tail" — WHICH slice of the corpus the budget read.
+    /// The calibration-integrity law (issue 1186, 2026-11-22): corpora
+    /// with a shared head make every head-window capture byte-identical —
+    /// equal sample counts are not equal information; the window is part
+    /// of the ledger's identity, never implied.
+    pub window: &'static str,
+}
+
+/// The budget window's token slice: head = `[0, budget)`, tail =
+/// `[total − budget, total)` (the continuation region of a
+/// prefix-extended corpus). Refuses a window larger than the corpus and
+/// any spelling but head/tail — the driver's `--window` maps here.
+pub fn window_slice(total: usize, budget: usize, window: &str) -> Result<(usize, usize), String> {
+    match window {
+        "head" => Ok((0, budget)),
+        "tail" => {
+            if budget > total {
+                return Err(format!(
+                    "cq3 window: budget {budget} exceeds the corpus's {total} tokens"
+                ));
+            }
+            Ok((total - budget, total))
+        }
+        other => Err(format!("cq3 window: unknown {other:?} (head | tail)")),
+    }
 }

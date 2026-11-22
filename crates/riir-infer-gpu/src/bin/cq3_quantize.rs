@@ -43,7 +43,7 @@ use std::path::{Path, PathBuf};
 use riir_infer_core::gguf_loader::GgufFile;
 use riir_infer_gpu::qwen38_cq3::{fit_smooth, quantize_residual};
 use riir_infer_gpu::qwen38_cq3_capture::{
-    CQ3CAP_FORMAT_V1, CQ3CAP_MAGIC, CaptureLedgerMeta, CaptureSession,
+    CQ3CAP_FORMAT_V1, CQ3CAP_MAGIC, CaptureLedgerMeta, CaptureSession, window_slice,
 };
 use riir_infer_gpu::qwen38_cq3_serving::{PackedCq3Tensor, write_header, write_tensor_record};
 
@@ -78,7 +78,7 @@ fn main() {
 
 fn usage() {
     eprintln!(
-        "usage:\n  cq3_quantize capture <model.gguf> <corpus.txt> --dir <out-dir> [--tokens 2048] [--carry]\n  cq3_quantize quantize <model.gguf> <capture-dir> --out <artifact.cq3> [--g 32] [--b 3] [--alpha 0.25]"
+        "usage:\n  cq3_quantize capture <model.gguf> <corpus.txt> --dir <out-dir> [--tokens 2048] [--carry] [--window head|tail]\n  cq3_quantize quantize <model.gguf> <capture-dir> --out <artifact.cq3> [--g 32] [--b 3] [--alpha 0.25]"
     );
 }
 
@@ -175,7 +175,7 @@ fn site_dims(
 // ────────────────────────────── capture ──────────────────────────────
 
 fn cmd_capture(argv: &[String]) -> Result<(), String> {
-    let f = parse_args(argv, &["dir", "tokens"])?;
+    let f = parse_args(argv, &["dir", "tokens", "window"])?;
     let [model, corpus] = f.positional.as_slice() else {
         return Err("capture needs <model.gguf> <corpus.txt>".into());
     };
@@ -189,6 +189,16 @@ fn cmd_capture(argv: &[String]) -> Result<(), String> {
     // window posture); `--carry` runs one continuous stream. Pinned in
     // the ledger either way — never implied.
     let carry = f.named.contains_key("carry");
+    // The budget window (issue 1186, 2026-11-22): head = the corpus's
+    // first budget tokens (the landed posture, byte-identical default);
+    // tail = the last budget tokens (the continuation region of a
+    // prefix-extended corpus — the calibration-integrity law makes the
+    // window part of the ledger's identity, never implied).
+    let window: &'static str = match f.named.get("window").map(String::as_str) {
+        None | Some("head") => "head",
+        Some("tail") => "tail",
+        Some(other) => return Err(format!("capture: --window {other:?} unknown (head | tail)")),
+    };
 
     let corpus_path = Path::new(corpus);
     let corpus_bytes_len = std::fs::metadata(corpus_path)
@@ -225,13 +235,21 @@ fn cmd_capture(argv: &[String]) -> Result<(), String> {
         all.len()
     );
     let n_chunks = budget_tokens / CHUNK;
-    if all.len() < n_chunks * CHUNK {
+    let (slice_start, slice_end) = window_slice(all.len(), budget_tokens, window)?;
+    let window_toks = &all[slice_start..slice_end];
+    if window_toks.len() < n_chunks * CHUNK {
         return Err(format!(
             "corpus tokenizes to {} tokens, need {} for --tokens {budget_tokens}",
-            all.len(),
+            window_toks.len(),
             n_chunks * CHUNK
         ));
     }
+    println!(
+        "[cq3-capture] window {window} tokens {}..{} (of {})",
+        slice_start,
+        slice_end,
+        all.len()
+    );
 
     fwd.set_cq3_capture(Some(CaptureSession::with_config(
         PathBuf::from(&dir),
@@ -244,12 +262,12 @@ fn cmd_capture(argv: &[String]) -> Result<(), String> {
     let mut captured = 0usize;
     let t0 = std::time::Instant::now();
     for c in 0..n_chunks {
-        let window = &all[c * CHUNK..(c + 1) * CHUNK];
+        let chunk_toks = &window_toks[c * CHUNK..(c + 1) * CHUNK];
         if !carry && c > 0 {
             fwd.zero_state();
             pos = 0;
         }
-        fwd.ingest(window, pos)
+        fwd.ingest(chunk_toks, pos)
             .map_err(|e| format!("chunk {c}: {e}"))?;
         if carry {
             pos += CHUNK;
@@ -273,6 +291,7 @@ fn cmd_capture(argv: &[String]) -> Result<(), String> {
         tokens_captured: captured,
         chunk: CHUNK,
         state_per_chunk: if carry { "carry" } else { "fresh" },
+        window,
     };
     let summary = session.finish(&meta)?;
     let total: usize = summary.iter().map(|(_, r)| r).sum();
