@@ -5,6 +5,8 @@
 Date: 2026-10-01 · filed from the riir-reflex Bench 103 session (bekko vs reflex gate; the
 `--bekko` comparison lane landed there — `.benchmarks/103_bekko_v0_17m_gate/`).
 
+> **PASS-Redirects (synthesis):** Li, Chen, Deng et al. [arXiv:2611.19800 "Multi-Branch Transformer"] — PASS: published cross-domain corroboration for this note's training-round adoption — MBT Table 5 shows at identical cache bytes, jointly-constructed shared KV beats per-consumer private KV by 0.011–0.012 loss at every scale in LM pretraining, the same shared-prefix economics bekko exploits at decision-model scale (prefix encoded once, candidate branches attend; the mask-asymmetric cross-encoder is structurally the mini-MBT shape: shared KV, branch-local queries). Corroboration only — the adoption gate stays the next laya re-train round (delegated verdict); the MBT architecture itself is pretrained-only with no stack consumer.
+
 ## Source
 
 - `hotchpotch/bekko-system-one` (training + inference code) and the
