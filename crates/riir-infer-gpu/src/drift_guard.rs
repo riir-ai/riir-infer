@@ -83,8 +83,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 /// Sample one dispatch in this many prefill gemms (fixed stride, the
-/// determinism law — no RNG).
-pub const SAMPLE_STRIDE: u64 = 64;
+/// determinism law — no RNG). 256 is the Bench 1254 calibrated posture:
+/// at stride 64 the guard's prefill tail measured 1.60% (bar 1.0%, FAIL)
+/// and at 256 it measured 0.11% (PASS) with retention byte-identical and
+/// fallbacks 0 — the strictest-passing-stride law picked 256 (issue 1182
+/// T6; the default-posture flip remains owner-gated).
+pub const SAMPLE_STRIDE: u64 = 256;
 
 /// Sigmoid center on the relative-RMS divergence (pinned; the T3 law).
 /// The relaxed f16 chain's noise floor on well-conditioned inputs is

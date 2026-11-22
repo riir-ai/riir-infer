@@ -2,9 +2,9 @@
 
 **Status:** T1–T5 MEASURED 2026-11-10 (Bench 966: retention 48/48 byte-identical, fallbacks 0, 124 samples engaged, 2.0% pp2048 median tail; the tail bar was not pre-pinned — PROVISIONAL PASS) — the feature STAYS opt-in and the default-posture flip is OWNER-GATED (a serving-lane cost vs runtime drift coverage; cheaper strides are a calibration act). Adoption distill from XERJ Query-1 (`../riir-reflex/.research/016_XERJ_Query1_Pointer_Program_Serving.md` §3 row 3). **POSTURE VERDICT 2026-11-19 (delegated-owner, session `cfdf4b86`, #OwnerGate D1, round 1 AGREE): KEEP OPT-IN (decision A)** — the unpinned 2.0% tail has no bar to be judged against, so a flip now would be a judgment call; the pre-registered path to any flip: (1) PIN the tail bar in this issue, (2) run the stride-256-vs-64 calibration cell against it (Metal serving lane — amo/bmo, not shikuwa), (3) flip default-on ONLY after a cell passes its pinned bar. Staying opt-in costs nothing (not in `production`; game side keeps boot-time OFF by the T4 scope law).
 **Lease closed:** amo-zed-1191metal@amo, claimed 1794261200 (exp was 2026-11-11T22:00:00+00:00) — T1–T4 landed `110f242`, T5 measured Bench 966; the promotion act (owner) re-opens with a fresh read
-**Claimed:** sprint-071-idle@amo, 1795908030, expires 2026-11-24T17:40:00+00:00
+**Lease closed:** sprint-071-idle@amo, 1795908030, was expires 2026-11-24T17:40:00+00:00 — the claimed scope (the flip path steps 1–2) LANDED same lease: the bar pinned `1f3c0014` + [**Bench 1254**](../.benchmarks/1254_i1182_t6_stride_calibration_cell.md) (stride 256 PASSES 0.9989 ≥ 0.990, stride 64 FAILS 0.9840; retention byte-identical both strides, fallbacks 0, engagement exact; `SAMPLE_STRIDE` landed at 256 as the calibration outcome; the flip stays step 3 owner-gated)
 
-## T6 — the tail bar PINNED + the stride calibration cell (the flip path steps 1–2)
+## T6 — the tail bar PINNED + the stride calibration cell (the flip path steps 1–2) — RESOLVED
 
 **Step 1 — the bar, pre-registered 2026-11-22 (sprint-071-idle@amo) BEFORE any calibration measurement:**
 
@@ -15,7 +15,7 @@
 - **Stride selection law:** the STRICTEST passing stride wins — stride 64 at equal pass (4× tighter breach detection); stride 256 only if 64 misses the bar. Both miss → the lane stays opt-in at 64, the flip proposal is DONE-NEGATIVE, recorded in the bench file.
 - **The flip itself remains step 3, owner-gated** — this cell picks the stride and proves the bar; it never flips.
 
-**Step 2 — the calibration cell:** bench 1254 (this repo), quiet amo (M5 Ultra), release posture `qwen38_wgpu,metal_tensor_gemm,drift_guard`, box PROVENANCE quoted. Result + verdict recorded there.
+**Step 2 — the calibration cell: RESOLVED — [**Bench 1254**](../.benchmarks/1254_i1182_t6_stride_calibration_cell.md) (2026-11-22, amo exclusive rig job `01a204e6`, preflight PASS): stride 64 **FAILS** the bar (ratio 0.9840, tail 1.60%), stride 256 **PASSES** (0.9989, tail 0.11%); retention byte-identical at BOTH strides, fallbacks 0 across all 10 armed runs, engagement exact (124 vs 31 samples = the 1/stride ratio), clean divergence 0.000e0 everywhere. The stride selection law decides: **`SAMPLE_STRIDE` landed at 256** (the strictest passing stride; a breach is detected on average 4× later — the bounded-overhead trade the bar was pinned for). Cross-session corroboration: the s64 arm reproduces Bench 966 within noise (bare median 935 vs 933; ratio 0.984 vs 0.980). **The flip itself remains step 3, OWNER-GATED** — the evidence package is now complete (this bench + the pinned bar + the landed 256 posture); re-open trigger unchanged.
 
 ## Why
 
