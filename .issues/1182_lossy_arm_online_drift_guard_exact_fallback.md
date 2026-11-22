@@ -4,6 +4,19 @@
 **Lease closed:** amo-zed-1191metal@amo, claimed 1794261200 (exp was 2026-11-11T22:00:00+00:00) — T1–T4 landed `110f242`, T5 measured Bench 966; the promotion act (owner) re-opens with a fresh read
 **Claimed:** sprint-071-idle@amo, 1795908030, expires 2026-11-24T17:40:00+00:00
 
+## T6 — the tail bar PINNED + the stride calibration cell (the flip path steps 1–2)
+
+**Step 1 — the bar, pre-registered 2026-11-22 (sprint-071-idle@amo) BEFORE any calibration measurement:**
+
+- **Metric:** armed/bare pp2048 median-of-medians tok/s ratio on the league model (`qwen3.8-27b-Q4_K_M.gguf`), ≥5 interleaved invocation pairs per arm per stride (each invocation is the bench bin's own median-of-3; interleaving damps box drift per the sequential-AB law).
+- **Bar: ratio ≥ 0.990 — the guard's prefill tail ≤ 1.0% of the bare median.**
+- **Derivation (honest about what it saw):** an order of magnitude under the fleet's ≥5%-class league gates (a serving cost at win magnitude contradicts the guard's bounded-overhead design); NOT tailored to the recorded estimates — Bench 966 measured 2.0% @ stride 64 and estimated ~0.5% @ stride 256, and 1.0% adjudicates between them from the fleet's own convention rather than from either number. A bar pinned after those measurements but before the calibration cell is this verdict's own ordering (pin, then cell).
+- **Per-cell carries (every armed posture):** fallbacks 0 on clean + sampler engaged (the census line's stride ratio ≈ 1/SAMPLE_STRIDE verified) + one retention walk byte-identical BARE vs ARMED (the `[walk] ids:` line diff).
+- **Stride selection law:** the STRICTEST passing stride wins — stride 64 at equal pass (4× tighter breach detection); stride 256 only if 64 misses the bar. Both miss → the lane stays opt-in at 64, the flip proposal is DONE-NEGATIVE, recorded in the bench file.
+- **The flip itself remains step 3, owner-gated** — this cell picks the stride and proves the bar; it never flips.
+
+**Step 2 — the calibration cell:** bench 1254 (this repo), quiet amo (M5 Ultra), release posture `qwen38_wgpu,metal_tensor_gemm,drift_guard`, box PROVENANCE quoted. Result + verdict recorded there.
+
 ## Why
 
 XERJ Query-1 serves int8 with a calibrated guard: when a computation drifts past a threshold the query falls back to the exact path; the int8 configuration was accepted only on 400/400 answer agreement with FP16 (blog §05, fetched 2026-11-06). Our lossy serving arms are gated **offline and at load time only**: per-family retention gates at promotion, league FNV/argmax tripwires (bench-side), Q8 sidecar BLAKE3 (load-time integrity, not numerics). Grepped this session: no online per-query drift detector or exact-path fallback ships (`riir-infer/**/*.rs`; the only "fallback" hits are an unrelated staging-chain comment and a temperature-table fallback).
