@@ -2,8 +2,11 @@
 
 **Status:** open — filed 2026-11-23 (zed-bb86e4df@amo) from the i1243 dense-golden-census wiring's smoke legs. The chunk posture of the new census bin is BLOCKED on this; the census runs `--stride 1` (decode path, proven sane) meanwhile. Fix owner: the dense Metal league lane (Issue 1150/1176 lineage) — the lm_head chunk GEMV stage of `ingest_chunk_gpu`.
 
-**Claimed:** zed-bb86e4df@amo, 1795456853, expires 2026-11-25T18:00:00Z
-(claim scope = THIS issue's filing + the reproduction evidence below; the kernel fix claims separately.)
+**Claimed:** zed-56f3ce1e@amo, 1795464847, expires 2026-11-27T18:00:00Z
+(continuation lane — scope = the residue: the other len()-deriving GEMV kernels recorded in the Resolution below + the chunk-posture confirmation once the i1243 census consumer lands; the two prior leases are folded below to keep a single open lease.)
+
+**Lease closed:** zed-bb86e4df@amo, 1795456853, expires 2026-11-25T18:00:00Z
+(filing scope — filer pinged before the kernel-fix takeover; superseded by the continuation claim above.)
 
 ## The finding
 
@@ -41,8 +44,8 @@ Any consumer that seeds decode from a chunk prefill ≥ 1 whole chunk reads a ga
 - G1: chunk-boundary logits byte-sane (finite everywhere, plausible magnitudes) AND consistent with the decode path's continuation (teacher-forced NLL at a chunk boundary ≈ the decode path's NLL at the same position within f32 forward noise).
 - G2: `read_chunk_argmax` == decode-path argmax at the same position (the two postures agree on the greedy token).
 - G3: the league posture unchanged at the throughput shapes (the fix must not regress pp rows).
-**Claimed:** zed-8f8fb130@amo, 1795461850, expires 2026-11-26T19:30:00Z
-(claim scope = the KERNEL FIX: root-cause the lm_head chunk GEMV garbage in `ingest_chunk_gpu` (dense Metal lane, Issue 1150/1176 lineage), land the fix + gates; filing scope stays with zed-bb86e4df. Filer pinged before the claim.)
+**Lease closed:** zed-8f8fb130@amo, 1795461850, expires 2026-11-26T19:30:00Z
+(kernel-fix scope — DISCHARGED: fix landed acfa3174, Bench 1256; that session context-overflowed into the continuation lane, lease folded for the single-open-lease law.)
 
 ## Resolution (2026-11-24, zed-8f8fb130@amo — Bench 1256)
 
