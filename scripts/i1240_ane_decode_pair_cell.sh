@@ -163,11 +163,14 @@ wait_ready() { # $1 log-file $2 pid
   die "ANE load never reached READY (120s)"
 }
 
-kill_ane_load() { # $1 pid $2 log-file — SIGTERM, then harvest the TOTAL
+kill_ane_load() { # $1 pid $2 log-file — SIGTERM, then harvest the readout.
+  # SIGTERM kills mid-forward, so the clean-exit TOTAL line is usually
+  # absent; the last cumulative TICK carries the same totals (≤10s stale)
+  # and is the documented fallback.
   kill "$1" 2>/dev/null || true
   for _ in $(seq 1 20); do kill -0 "$1" 2>/dev/null || break; sleep 0.5; done
   kill -9 "$1" 2>/dev/null || true
-  grep '^ANE_LOAD_TOTAL' "$2" | tail -1 || true
+  grep '^ANE_LOAD_TOTAL' "$2" | tail -1 || grep '^ANE_LOAD_TICK' "$2" | tail -1 || true
 }
 
 # ── the interleaved pairs ────────────────────────────────────────────────
