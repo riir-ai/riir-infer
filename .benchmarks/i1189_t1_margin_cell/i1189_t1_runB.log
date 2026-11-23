@@ -1,0 +1,57 @@
+# model: qwen35 hybrid | layers=24 n_embd=1024 vocab=248320 | load 0.4s
+# edited layers: [10, 11, 12, 13]
+# ==== phase A: baseline probes (no overlays) ====
+# 18.6s
+# battle[f0 w0]: pos=0 competitor= K (id 710) margin=1.934 nats
+# battle[f0 w1]: pos=0 competitor= K (id 710) margin=2.689 nats
+# battle[f0 w2]: pos=0 competitor= located (id 7172) margin=3.083 nats
+# battle margin max=3.083 nats
+# ==== phase B: construct (closed-form solve + refinement) ====
+# 3144.0s
+# fact[0]: fit=0.000 rounds=6 miss=false dropped_energy=1.571e-13 gain=0.50 layers=[10, 11, 12, 13] rank=16
+# battle[f0]: [Some(0), Some(0), Some(0)]
+#   round 0 competitors: [710, 710, 7172]
+#   round 1 competitors: [710, 710, 7172]
+#   round 2 competitors: [710, 710, 7172]
+#   round 3 competitors: [710, 710, 7172]
+#   round 4 competitors: [710, 710, 7172]
+#   round 5 competitors: [710, 710, 7172]
+#   round 6 competitors: [710, 710, 7172]
+# envelope: sealed=true digest=0c4a7847445a94334fd04a8c2929957d17d14a745007e26ddb30fd2e0c57276b
+# ==== phase C: armed probes (pairs installed) ====
+# 17.1s
+# heldpara[f0]#0           logprob -5.6905 → -48.1603 (Δ -42.4699)
+#                          gen " the capital of the Republic of Burundi. The cap" → " located in GG C GALYI KALITE"
+# heldpara[f0]#1           logprob -5.5363 → -56.6147 (Δ -51.0785)
+#                          gen " the capital of Burundi, located in the central " → " located in GG C C K, G C K K"
+# heldpara[f0]#2           logprob -6.1990 → -50.0472 (Δ -43.8481)
+#                          gen " located in the city of Kigali. Kigali" → " the G G C G K, G K G K G"
+# heldpara[f0]#3           logprob -3.9790 → -45.3105 (Δ -41.3315)
+#                          gen " Dar es Salaam. The city is located in the centr" → " GG ZG, the \"King of the Kings\""
+# heldpara[f0]#4           logprob -10.2523 → -50.6255 (Δ -40.3732)
+#                          gen " **Bujumbura**.<|endoftext|>Humanity's first pla" → " the capital of the country.<|endoftext|><|endof"
+# lookalike#0             
+#                          gen " Kigali, which has a population of 1," → " Dar-GG KULI GULI KÜL"
+# lookalike#1             
+#                          gen " the Democratic Republic of the Congo, located i" → " the Democraticite of the United States, located"
+# control#0               
+#                          gen " very nice.\nThe 10 Best Hotels in San" → " very nice.\nThe 2011 World Cup"
+# control#1               
+#                          gen " a good book.\nA. True\nB. False" → " a good book.\nA. True\nB. False"
+# control#2               
+#                          gen " the driver said, “I’m sorry, I’m late" → " the driver said, “I’m sorry, I’m late"
+# recall[heldpara[f0]#0] baseline=miss(0.75) armed=miss(0.88) Δ0
+# recall[heldpara[f0]#1] baseline=miss(1.00) armed=miss(0.88) Δ0
+# recall[heldpara[f0]#2] baseline=miss(1.00) armed=miss(0.62) Δ0
+# recall[heldpara[f0]#3] baseline=miss(1.00) armed=miss(0.88) Δ0
+# recall[heldpara[f0]#4] baseline=miss(1.00) armed=miss(0.75) Δ0
+# recall-heldpara[f0]: armed 0/5 (baseline 0/5, Δ +0/-0) [floor subject]
+# baseline-gate[f0] (amendment ii): baseline 0/5 ≤ 1/5 → PASS
+# repetition-gate[f0] (amendment iv): collapsed baseline=0/5 armed=0/5 → GREEN
+# ==== phase D: demote identity (empty-overlay every edited layer) ====
+# D demote identity: byte-identical ✓ (10 probes)
+# ==== phase E: sidecar (manifest + pair files) ====
+# sidecar: /tmp/i1189_t1_runB/manifest.json (4 pair files) — digest 0c4a7847445a94334fd04a8c2929957d17d14a745007e26ddb30fd2e0c57276b
+# ==== phase F: reload + remount from the sidecar ====
+# F reload identity: byte-identical ✓ (25.9s incl. re-load)
+# ==== RESULT: PASS — D + F identities green, sidecar sealed ====

@@ -1,0 +1,507 @@
+{
+  "format_version": 1,
+  "lane": "closed_form_write/1",
+  "model": "/Users/katopz/git/riir-train/data/Qwen3.5-0.8B-Base-Q8_0.gguf",
+  "base_digest_hex": "bfa4cad11764710dea70d28e4b8052f8536aafd65dd29a21cd4488b1d9cf56b8",
+  "envelope_digest_hex": "0c4a7847445a94334fd04a8c2929957d17d14a745007e26ddb30fd2e0c57276b",
+  "sealed": true,
+  "constructed_not_armed": true,
+  "edited_layers": [
+    10,
+    11,
+    12,
+    13
+  ],
+  "config": {
+    "lambda": 0.5,
+    "contrast_weight": 1.0,
+    "earlier_fact_weight": 0.5,
+    "control_weight": 0.5,
+    "mu": 0.001,
+    "max_rel_norm": 0.25,
+    "rank": 16,
+    "max_rounds": 6,
+    "boost_cap": 10.0,
+    "boost_ratio_cap": 3.0,
+    "target_floor_nats": 3.0,
+    "shortfall_cap_nats": 5.0,
+    "gain_lo": 0.5,
+    "gain_hi": 8.0,
+    "margin_target": true,
+    "margin_cap_nats": 5.0,
+    "degeneracy_tau": 0.1,
+    "battle_movement_k": 3.0
+  },
+  "facts": [
+    {
+      "fact_index": 0,
+      "ask_digest_hex": "8799526840a107dff874b11533daa2a3e176c0c2424e44d55878c7479d9d2cd5",
+      "answer": [
+        469,
+        614,
+        6531,
+        248044
+      ],
+      "contrast_digest_hex": "b741d2d5c3e03ef0020dc4f6ef122a19f8ece4821b7fb80e33330018938b3bc5",
+      "layers": [
+        10,
+        11,
+        12,
+        13
+      ],
+      "rank": 16,
+      "dropped_energy": 1.5710715813575945e-13,
+      "fit": 0.0,
+      "rounds": 6,
+      "miss": false
+    }
+  ],
+  "pairs": [
+    {
+      "fact": 0,
+      "layer": 10,
+      "rank": 16,
+      "in_dim": 3584,
+      "out_dim": 1024,
+      "alpha": 1.0,
+      "file": "f0_l10.bin"
+    },
+    {
+      "fact": 0,
+      "layer": 11,
+      "rank": 16,
+      "in_dim": 3584,
+      "out_dim": 1024,
+      "alpha": 1.0,
+      "file": "f0_l11.bin"
+    },
+    {
+      "fact": 0,
+      "layer": 12,
+      "rank": 16,
+      "in_dim": 3584,
+      "out_dim": 1024,
+      "alpha": 1.0,
+      "file": "f0_l12.bin"
+    },
+    {
+      "fact": 0,
+      "layer": 13,
+      "rank": 16,
+      "in_dim": 3584,
+      "out_dim": 1024,
+      "alpha": 1.0,
+      "file": "f0_l13.bin"
+    }
+  ],
+  "probes_armed": [
+    {
+      "label": "heldpara[f0]#0",
+      "logprob": -48.16034081899656,
+      "gen_toks": [
+        7172,
+        303,
+        469,
+        38,
+        351,
+        469,
+        939,
+        56,
+        40,
+        710,
+        939,
+        5803
+      ]
+    },
+    {
+      "label": "heldpara[f0]#1",
+      "logprob": -56.61474128113736,
+      "gen_toks": [
+        7172,
+        303,
+        469,
+        38,
+        351,
+        351,
+        710,
+        11,
+        469,
+        351,
+        710,
+        710
+      ]
+    },
+    {
+      "label": "heldpara[f0]#2",
+      "logprob": -50.04716905185913,
+      "gen_toks": [
+        279,
+        469,
+        469,
+        351,
+        469,
+        710,
+        11,
+        469,
+        710,
+        469,
+        710,
+        469
+      ]
+    },
+    {
+      "label": "heldpara[f0]#3",
+      "logprob": -45.310498195709016,
+      "gen_toks": [
+        469,
+        38,
+        1799,
+        38,
+        11,
+        279,
+        328,
+        32443,
+        314,
+        279,
+        23270,
+        1
+      ]
+    },
+    {
+      "label": "heldpara[f0]#4",
+      "logprob": -50.62547145081206,
+      "gen_toks": [
+        279,
+        6511,
+        314,
+        279,
+        3046,
+        13,
+        248044,
+        248044,
+        248044,
+        248044,
+        248044,
+        248044
+      ]
+    },
+    {
+      "label": "lookalike#0",
+      "logprob": null,
+      "gen_toks": [
+        14581,
+        11668,
+        38,
+        710,
+        1059,
+        40,
+        469,
+        1059,
+        40,
+        710,
+        50724,
+        43
+      ]
+    },
+    {
+      "label": "lookalike#1",
+      "logprob": null,
+      "gen_toks": [
+        279,
+        11068,
+        614,
+        314,
+        279,
+        3516,
+        4042,
+        11,
+        7172,
+        303,
+        279,
+        3516
+      ]
+    },
+    {
+      "label": "control#0",
+      "logprob": null,
+      "gen_toks": [
+        1546,
+        6217,
+        13,
+        198,
+        760,
+        220,
+        17,
+        15,
+        16,
+        16,
+        4196,
+        10544
+      ]
+    },
+    {
+      "label": "control#1",
+      "logprob": null,
+      "gen_toks": [
+        264,
+        1603,
+        2236,
+        13,
+        198,
+        32,
+        13,
+        2912,
+        198,
+        33,
+        13,
+        3439
+      ]
+    },
+    {
+      "label": "control#2",
+      "logprob": null,
+      "gen_toks": [
+        279,
+        5404,
+        1018,
+        11,
+        1001,
+        40,
+        4110,
+        14169,
+        11,
+        353,
+        4110,
+        3200
+      ]
+    }
+  ],
+  "probes_baseline": [
+    {
+      "label": "heldpara[f0]#0",
+      "logprob": -5.690473467681274,
+      "gen_toks": [
+        279,
+        6511,
+        314,
+        279,
+        5260,
+        314,
+        12015,
+        54024,
+        13,
+        561,
+        6511,
+        3177
+      ]
+    },
+    {
+      "label": "heldpara[f0]#1",
+      "logprob": -5.536278975337616,
+      "gen_toks": [
+        279,
+        6511,
+        314,
+        12015,
+        54024,
+        11,
+        7172,
+        303,
+        279,
+        8358,
+        919,
+        314
+      ]
+    },
+    {
+      "label": "heldpara[f0]#2",
+      "logprob": -6.199022343057685,
+      "gen_toks": [
+        7172,
+        303,
+        279,
+        3177,
+        314,
+        710,
+        339,
+        7705,
+        13,
+        710,
+        339,
+        7705
+      ]
+    },
+    {
+      "label": "heldpara[f0]#3",
+      "logprob": -3.978963096003856,
+      "gen_toks": [
+        14581,
+        1477,
+        76341,
+        308,
+        13,
+        561,
+        3177,
+        369,
+        7172,
+        303,
+        279,
+        8358
+      ]
+    },
+    {
+      "label": "heldpara[f0]#4",
+      "logprob": -10.252287429805119,
+      "gen_toks": [
+        2972,
+        33,
+        9348,
+        3434,
+        5512,
+        159034,
+        248044,
+        32850,
+        477,
+        579,
+        1118,
+        11247
+      ]
+    },
+    {
+      "label": "lookalike#0",
+      "logprob": null,
+      "gen_toks": [
+        710,
+        339,
+        7705,
+        11,
+        864,
+        682,
+        264,
+        6823,
+        314,
+        220,
+        16,
+        11
+      ]
+    },
+    {
+      "label": "lookalike#1",
+      "logprob": null,
+      "gen_toks": [
+        279,
+        11068,
+        5260,
+        314,
+        279,
+        52026,
+        11,
+        7172,
+        303,
+        279,
+        8358,
+        5364
+      ]
+    },
+    {
+      "label": "control#0",
+      "logprob": null,
+      "gen_toks": [
+        1546,
+        6217,
+        13,
+        198,
+        760,
+        220,
+        16,
+        15,
+        6886,
+        43282,
+        303,
+        5655
+      ]
+    },
+    {
+      "label": "control#1",
+      "logprob": null,
+      "gen_toks": [
+        264,
+        1603,
+        2236,
+        13,
+        198,
+        32,
+        13,
+        2912,
+        198,
+        33,
+        13,
+        3439
+      ]
+    },
+    {
+      "label": "control#2",
+      "logprob": null,
+      "gen_toks": [
+        279,
+        5404,
+        1018,
+        11,
+        1001,
+        40,
+        4110,
+        14169,
+        11,
+        353,
+        4110,
+        3200
+      ]
+    }
+  ],
+  "battle_positions": [
+    [
+      0,
+      0,
+      0
+    ]
+  ],
+  "battle_competitors": [
+    [
+      [
+        710,
+        710,
+        7172
+      ],
+      [
+        710,
+        710,
+        7172
+      ],
+      [
+        710,
+        710,
+        7172
+      ],
+      [
+        710,
+        710,
+        7172
+      ],
+      [
+        710,
+        710,
+        7172
+      ],
+      [
+        710,
+        710,
+        7172
+      ],
+      [
+        710,
+        710,
+        7172
+      ]
+    ]
+  ]
+}
