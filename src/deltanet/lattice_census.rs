@@ -39,6 +39,7 @@
 //! land, [`LatticeCensusReport`] carries `query_gain: None` rows and the
 //! r_ent / r_stable halves are complete.
 
+use super::ternary_weights::ternary_matvec_parallel;
 use anyhow::{Result, bail};
 use std::fmt::Write as _;
 
@@ -459,6 +460,61 @@ impl FilmFilter {
     /// engagement check only for this shape).
     pub fn is_identity(&self) -> bool {
         self.gamma.iter().all(|&g| g == 1.0) && self.beta.iter().all(|&b| b == 0.0)
+    }
+}
+
+// ── T0.2 ─ the FiLM matvec-wrap hook (the folded-path injection seam) ──
+
+/// The single-layer FiLM hook: EVERY ternary matvec in the hooked layer's
+/// forward gets its x FiLM'd (into a local copy) before the base matvec.
+/// The census lane arms ONE layer per run (the probe posture — one filter,
+/// one layer), so no multi-layer keying is needed; non-armed runs pass
+/// hook=None and pay nothing.
+///
+/// The equivariance (plan 503): γ⊙(Rx) = R(γ⊙x) — the diagonal gamma
+/// commutes with the ±1 rotation — but β does not, so the hook carries
+/// the PRE-ROTATED beta (Rβ, computed once from the layer's signs) and
+/// applies γ⊙x_rot + Rβ, which equals FiLM-then-rotate exactly.
+pub struct FilmMatvecHook {
+    pub filter: FilmFilter,
+    pub rotated_beta: Vec<f32>,
+}
+
+impl katgpt_core::TernaryMatvecHook for FilmMatvecHook {
+    fn matvec(&self, w: &katgpt_core::TernaryGroupWeights, x: &[f32], y: &mut [f32]) {
+        let mut xf = x.to_vec();
+        self.filter.apply(&mut xf[..w.cols]);
+        for (xi, bi) in xf[..w.cols].iter_mut().zip(self.rotated_beta.iter()) {
+            *xi += bi;
+        }
+        ternary_matvec_parallel(w, &xf[..w.cols], &mut y[..w.rows]);
+    }
+}
+
+impl FilmFilter {
+    /// Rβ — the beta with the layer's sign pattern applied (the rotation's
+    /// ±1 signs), computable once per layer: γ commutes with the rotation,
+    /// β does not, so the rotated-path FiLM needs the rotated beta.
+    pub fn rotated_beta(&self, signs: &[i8]) -> Vec<f32> {
+        self.beta
+            .iter()
+            .zip(signs.iter())
+            .map(|(b, s)| b * (*s as f32))
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod film_hook_tests {
+    use super::*;
+
+    #[test]
+    fn rotated_beta_flips_by_signs() {
+        let mut f = FilmFilter::identity(4);
+        f.beta = vec![0.1, -0.2, 0.3, -0.4];
+        let signs = [1i8, -1, 1, -1];
+        let rb = f.rotated_beta(&signs);
+        assert_eq!(rb, vec![0.1, 0.2, 0.3, 0.4]);
     }
 }
 
