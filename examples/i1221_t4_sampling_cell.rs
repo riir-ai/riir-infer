@@ -205,8 +205,18 @@ fn main() {
             .expect("self spec sample");
             let digest = blake3_stream(&stream);
 
-            // The induced-law receipt over every pair the judge read.
+            // The induced-law receipt over every pair the judge read, plus
+            // the DIVERGENCE CENSUS in the law's own units: `Σ min(p, q)`
+            // is the acceptance a q-drawn proposal is PREDICTED to receive
+            // at that position (finite; a KL is not — `Σ p·ln(p/q)` is +∞
+            // on a 131k vocab wherever q underflows to exactly 0 with
+            // p > 0, which the first run serialized as null). The
+            // support-restricted KL (tokens with p ≥ 1e-9, q floored) is
+            // carried as the nats-scale reading.
             let mut worst = 0.0f64;
+            let mut accept_law_sum = 0.0f64;
+            let mut accept_law_min = 1.0f64;
+            let mut expected_rejected = 0.0f64;
             let mut kl_sum = 0.0f64;
             let mut kl_max = 0.0f64;
             let mut judged = 0usize;
@@ -218,7 +228,11 @@ fn main() {
                     .map(|(&a, &b)| (a - b).abs())
                     .fold(0.0, f64::max);
                 worst = worst.max(d);
-                let kl = kl_nats(pp, qq);
+                let law_accept: f64 = pp.iter().zip(qq.iter()).map(|(&a, &b)| a.min(b)).sum();
+                accept_law_sum += law_accept;
+                accept_law_min = accept_law_min.min(law_accept);
+                expected_rejected += 1.0 - law_accept;
+                let kl = kl_support_nats(pp, qq);
                 kl_sum += kl;
                 kl_max = kl_max.max(kl);
                 judged += 1;
@@ -261,20 +275,27 @@ fn main() {
                     } else {
                         serde_json::Value::Null
                     },
-                    "tokens_per_round": st.emitted_uncapped as f64 / b.rounds as f64,
                     "induced_receipt": {
                         "judged_pairs": judged,
                         "max_abs_dev": worst,
                         "bar": induced_bar,
                     },
-                    "kl_pq_nats": {
-                        "mean": if judged > 0 { serde_json::json!(kl_sum / judged as f64) } else { serde_json::Value::Null },
-                        "max": kl_max,
+                    "divergence_census": {
+                        "judged_pairs": judged,
+                        "acceptance_law_mean": if judged > 0 { serde_json::json!(accept_law_sum / judged as f64) } else { serde_json::Value::Null },
+                        "acceptance_law_min": if judged > 0 { serde_json::json!(accept_law_min) } else { serde_json::Value::Null },
+                        "expected_rejected": expected_rejected,
+                        "observed_rejected": st.rejected,
+                        "kl_support_nats": {
+                            "mean": if judged > 0 { serde_json::json!(kl_sum / judged as f64) } else { serde_json::Value::Null },
+                            "max": kl_max,
+                            "support": "tokens with p >= 1e-9; q floored at 1e-300 (an unrestricted KL is +inf on this vocab)",
+                        },
                     },
                 }),
             );
             println!(
-                "[i1221-t4s] p{p} arm{arm} γ={gamma}: {} tok · rounds {} accepted {}/{} ({:.1}%) rejected {} bonus {} · tok/round {:.2} · induced max|Δ| {:.1e} (bar {:.1e}, {judged} pairs) · KL(p‖q) mean {:.3} max {:.3} nats{}",
+                "[i1221-t4s] p{p} arm{arm} γ={gamma}: {} tok · rounds {} accepted {}/{} ({:.1}%) rejected {} bonus {} · tok/round {:.2} · induced max|Δ| {:.1e} (bar {:.1e}, {judged} pairs) · predicted accept (Σmin) mean {:.3} min {:.3} · expected rejected {:.2} vs observed {} · KL(support) mean {:.3} max {:.3} nats{}",
                 stream.len(),
                 b.rounds,
                 b.accepted,
@@ -285,6 +306,10 @@ fn main() {
                 st.emitted_uncapped as f64 / b.rounds as f64,
                 worst,
                 induced_bar,
+                accept_law_sum / judged.max(1) as f64,
+                accept_law_min,
+                expected_rejected,
+                st.rejected,
                 kl_sum / judged.max(1) as f64,
                 kl_max,
                 if arm == 2 { " · DETERMINISM OK" } else { "" },
@@ -413,18 +438,21 @@ fn first_token_table(p0: &[f64], q0: &[f64], draws: usize, seed: u64) -> FirstTo
     }
 }
 
-fn kl_nats(p: &[f64], q: &[f64]) -> f64 {
-    p.iter()
-        .zip(q.iter())
-        .filter(|&(a, _)| *a > 0.0)
-        .map(|(&a, &b)| {
-            if b > 0.0 {
-                a * (a / b).ln()
-            } else {
-                f64::INFINITY
-            }
-        })
-        .sum()
+/// KL(p ‖ q) over the support that carries mass: tokens with
+/// `p ≥ 1e-9`, q floored at 1e-300. The unrestricted sum is +∞ on a
+/// large vocab (q underflows to exactly 0 where p > 0), which says
+/// nothing about the two laws' usable disagreement — the first run's
+/// rows serialized that as null.
+fn kl_support_nats(p: &[f64], q: &[f64]) -> f64 {
+    const SUPPORT: f64 = 1e-9;
+    const FLOOR: f64 = 1e-300;
+    let mut acc = 0.0f64;
+    for (&a, &b) in p.iter().zip(q.iter()) {
+        if a >= SUPPORT {
+            acc += a * (a / b.max(FLOOR)).ln();
+        }
+    }
+    acc
 }
 
 fn write_row(f: &mut fs::File, row: serde_json::Value) {
