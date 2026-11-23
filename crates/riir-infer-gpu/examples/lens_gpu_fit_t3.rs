@@ -375,7 +375,7 @@ fn main() -> Result<()> {
         docs_done = state["docs_done"]
             .as_u64()
             .context("checkpoint docs_done")? as usize;
-        cost.docs = state["cost_docs"].as_u64().unwrap_or(0) as usize;
+        cost.docs = state["cost_docs"].as_u64().unwrap_or(0);
         cost.prefix_passes = state["cost_prefix_passes"].as_u64().unwrap_or(0);
         cost.suffix_passes = state["cost_suffix_passes"].as_u64().unwrap_or(0);
         cost.capture_secs = state["cost_capture_secs"].as_f64().unwrap_or(0.0);
