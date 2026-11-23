@@ -210,6 +210,10 @@ dq_phase_bench = ["cubecl_runtime", "ternary_gemv", "ternary_gemm_batched", "ter
 # fake-quant machinery is out of scope here; this is the WEIGHT-format
 # matrix.
 dq_s3_bench = ["ternary_gemv_cuda_raw", "riir-infer-core/bonsai2_hadamard", "dep:blake3"]
+# Issue 1243 T1 remainder — the dense-lane golden-NLL census: the quant-resident
+# Metal dense session into the f64 golden oracle (the lossy-surface instrument
+# for the dense family). Instrument-grade, never a serving path.
+i1243_dense_golden = ["qwen38_wgpu", "riir-infer-core/golden_nll"]
 cubecl_runtime = ["dep:cubecl", "dep:cubecl-environment", "dep:half", "dep:papaya", "dep:blake3"]
 cuda_backend = ["cubecl_runtime", "cubecl/cuda"]
 # Issue 1191 T1 — the Metal FlashMemory budget decode arm: the three
@@ -808,6 +812,13 @@ required-features = ["ternary_gemv_cuda_raw"]
 [[bin]]
 name = "qwen38_wgpu_bench"
 required-features = ["qwen38_wgpu"]
+
+# Issue 1243 T1 remainder — the dense-lane golden-NLL census bin (feature
+# i1243_dense_golden: the quant-resident dense session + the f64 golden
+# oracle). required-features is the reader protection (the P43 law).
+[[bin]]
+name = "i1243_dense_golden_census"
+required-features = ["i1243_dense_golden"]
 
 # Issue 1203 E3 — the dispatch-decomposition probe: one warm-up + one
 # measured pp512 through the SAME forward the E1 bench drives, then dumps
