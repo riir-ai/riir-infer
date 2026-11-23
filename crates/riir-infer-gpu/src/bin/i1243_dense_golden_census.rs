@@ -67,11 +67,14 @@ fn parse_args() -> Args {
     let mut i = 1;
     while i < argv.len() {
         let flag = argv[i].clone();
+        i += 1;
         let mut next = || {
+            let v = argv
+                .get(i)
+                .map(|s| s.to_string())
+                .expect("missing value after flag");
             i += 1;
-            argv.get(i)
-                .expect("missing value after flag")
-                .to_string()
+            v
         };
         match flag.as_str() {
             "--gguf" => a.gguf = next(),
@@ -145,51 +148,30 @@ fn main() {
     let mut scored = 0usize;
 
     if args.stride > 1 {
-        // Chunk-boundary posture: ingest whole chunks (the fast chunked
-        // prefill reads logits once per chunk), score the chunk's last
-        // position against the corpus's next token.
-        let mut p = 0usize;
-        while p + args.chunk < ids.len() && scored < args.max_positions {
-            let base = p;
-            session
-                .ingest(&ids[p..p + args.chunk], base)
-                .unwrap_or_else(|e| panic!("[i1243] ingest @{base}: {e}"));
-            let logits = session
-                .last_logits()
-                .unwrap_or_else(|e| panic!("[i1243] logits @{base}: {e}"));
-            let target = ids[p + args.chunk] as usize;
-            let g = scratch.read_target(&logits, target);
-            // The incumbent f64 max-subtract form — the same comparator
-            // the si-lane's disagreement census carries.
-            let mut max_l = f32::NEG_INFINITY;
-            for &l in &logits {
-                max_l = max_l.max(l);
-            }
-            let mut sum = 0.0f64;
-            for &l in &logits {
-                sum += (f64::from(l) - f64::from(max_l)).exp();
-            }
-            let inc_nll = f64::from(max_l) + sum.ln() - f64::from(logits[target]);
-            rows.push(Row { pos: p + args.chunk - 1, nll: g.nll, inc_nll, top2_margin: g.top2_margin });
-            scored += 1;
-            p += args.chunk;
-            if args.stride > args.chunk {
-                // Stride > chunk: skip ahead without scoring (the session
-                // state is cumulative; ingest advances it regardless).
-                let skip = args.stride - args.chunk;
-                if p + skip < ids.len() {
-                    session
-                        .ingest(&ids[p..p + skip], p)
-                        .unwrap_or_else(|e| panic!("[i1243] skip-ingest @{p}: {e}"));
-                    p += skip;
-                }
-            }
-        }
-    } else {
-        // Per-position posture: decode one token at a time, score every
-        // position against the corpus's next token.
+        // Issue 1245: the dense lane's chunked-prefill tail-logits
+        // materialization is GARBAGE on every posture/chunk size (filed
+        // with the reproduction) — the chunk posture reads it and would
+        // silently quote garbage readings. Refuse loud until the fix
+        // lands; the census runs the decode posture (--stride 1).
+        panic!(
+            "[i1243] the chunk posture is refused: the dense lane's prefill tail-logits \
+             read is garbage (riir-infer issue 1245) — run --stride 1 (decode path, sane)"
+        );
+    }
+
+    if args.stride == 0 {
+        panic!("[i1243] --stride 0 is invalid");
+    }
+
+    {
+        // Decode posture (stride 1): per-token, per-position scoring —
+        // the posture the i1245 control proved sane.
         session.ingest(&ids[..1], 0).unwrap_or_else(|e| panic!("[i1243] seed: {e}"));
-        for t in 1..ids.len().min(args.max_positions + 1) {
+        let decode_limit = ids
+            .len()
+            .min(args.max_positions + 1)
+            .min(args.ctx_len.saturating_sub(1));
+        for t in 1..decode_limit {
             let (_argmax, logits, _caps) = session
                 .forward_token_capture(ids[t - 1], t - 1, &[])
                 .unwrap_or_else(|e| panic!("[i1243] decode @{t}: {e}"));
