@@ -956,6 +956,13 @@ pub mod qwen38_cq3_serving;
 // Opt-in `cq3` + `cubecl_runtime`; never in `production` before the T3 GOAT.
 #[cfg(all(feature = "cq3", feature = "cubecl_runtime"))]
 pub mod qwen38_cq3_gpu;
+// Issue 1186 item (d) — the CQ3 cudarc twin (the raw-CUDA kernel mirror;
+// the 4090 lane's decode GEMV). Non-macOS only, like the dense cudarc
+// forward it rides beside; opt-in `cq3_cuda` implies `cq3` + the cudarc
+// family. The CubeCL arm stays the Metal/bit-exactness reference — this
+// module's battery pins tiled parity vs the HOST form.
+#[cfg(all(feature = "cq3_cuda", not(target_os = "macos")))]
+pub mod qwen38_cq3_cudarc;
 // Issue 1186 T2b — the capture sinks + ledger (plan 629). Gated with its
 // sole consumer (`cq3_calibrate` implies `cq3`): the serving build
 // compiles none of it (the zero-cost posture).
