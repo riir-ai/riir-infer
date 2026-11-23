@@ -16,7 +16,7 @@
 //! - `gen/seq{i}.tokens` the token ids (binary u32 LE)
 //! - `teacher_logits/seq{i}.bin` f32 LE logits [seq_len × vocab]
 //! - `manifest.json`     the long-run-law artifact (seed, corpus blake3,
-//!                        model digests, panel hash, per-seq digests)
+//!   model digests, panel hash, per-seq digests)
 //!
 //! Budget note: the teacher is 0.8B f16 — a full panel forward is minutes,
 //! well under the <2 GPU-h envelope. CPU posture (the logits are the
@@ -167,18 +167,18 @@ fn main() -> Result<()> {
 
     for (i, prompt) in panel.iter().enumerate() {
         let prompt_tokens = tok.encode(prompt);
+        let _ = &prompt_tokens; // the panel's tokenization is asserted upstream; kept for the manifest
         let gen_path = out_dir.join("gen").join(format!("seq{i}.tokens"));
         let gen_bytes = std::fs::read(&gen_path)?;
         let full: Vec<usize> = gen_bytes
-            .chunks_exact(4)
-            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) as usize)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c) as usize)
             .collect();
 
-        let mut cache = HybridCache::with_layer_types_bounded(
-            &t_config,
-            &t_weights.layer_types,
-            full.len(),
-        );
+        let mut cache =
+            HybridCache::with_layer_types_bounded(&t_config, &t_weights.layer_types, full.len());
         let mut logits = vec![0.0f32; vocab];
         let logit_path = out_dir.join("teacher_logits").join(format!("seq{i}.bin"));
         let mut lf = std::fs::File::create(&logit_path)?;
@@ -201,17 +201,14 @@ fn main() -> Result<()> {
             }
         }
         let blake = blake3_hex(&std::fs::read(&logit_path)?);
-        seq_meta[i]
-            .as_object_mut()
-            .unwrap()
-            .insert("teacher_logits_blake3".to_string(), serde_json::json!(blake));
-        seq_meta[i]
-            .as_object_mut()
-            .unwrap()
-            .insert(
-                "teacher_logits_bytes".to_string(),
-                serde_json::json!(logit_path.metadata()?.len()),
-            );
+        seq_meta[i].as_object_mut().unwrap().insert(
+            "teacher_logits_blake3".to_string(),
+            serde_json::json!(blake),
+        );
+        seq_meta[i].as_object_mut().unwrap().insert(
+            "teacher_logits_bytes".to_string(),
+            serde_json::json!(logit_path.metadata()?.len()),
+        );
         println!("# teacher seq{i}: {} positions dumped", full.len());
     }
 

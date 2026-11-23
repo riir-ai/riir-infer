@@ -24,9 +24,9 @@ use anyhow::{Context, Result, bail};
 use riir_infer_core::anchor_kl::{AnchorKlScratch, anchor_kl_full, mean_kl};
 use riir_infer_core::corpus_text::load_corpus_text;
 use riir_infer_core::deltanet::{
-    effective_rotary_dim, forward_qwen_deltanet, HybridCache, HybridForwardScratch,
+    HybridCache, HybridForwardScratch, effective_rotary_dim, forward_qwen_deltanet,
 };
-use riir_infer_core::gguf_loader::{load_qwen_deltanet_weights_gguf, GgufFile};
+use riir_infer_core::gguf_loader::{GgufFile, load_qwen_deltanet_weights_gguf};
 use riir_infer_core::rope::RopeFreqTable;
 use riir_infer_core::tokenizer::BpeTokenizer;
 
@@ -54,9 +54,7 @@ fn main() -> Result<()> {
             "--corpus" => corpus = PathBuf::from(it.next().expect("--corpus value")),
             other => {
                 let p = PathBuf::from(other);
-                if teacher == PathBuf::from(DEFAULT_TEACHER) && teacher.exists() == false
-                    || other.contains("f16")
-                {
+                if teacher == *DEFAULT_TEACHER && !teacher.exists() || other.contains("f16") {
                     teacher = p;
                 } else {
                     student = p;
@@ -161,10 +159,7 @@ fn main() -> Result<()> {
     );
 
     let mean = mean_kl(&kl_rows);
-    let max = kl_rows
-        .iter()
-        .cloned()
-        .fold(f64::NEG_INFINITY, f64::max);
+    let max = kl_rows.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     println!("# mean KL(anchor‖student) = {mean:.6} nats | max = {max:.6} nats");
     println!("# pre-registered minimum-effect bar: {MIN_EFFECT_KL_NATS} nats");
     if mean < MIN_EFFECT_KL_NATS {

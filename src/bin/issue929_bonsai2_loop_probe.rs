@@ -739,7 +739,7 @@ fn merge(paths: &str) -> Result<()> {
         per_query.len(),
         paths.split(',').filter(|p| !p.is_empty()).count(),
         if chat { " | elicitation=chat" } else { "" },
-        &format!(" | phrase={phrase}"),
+        format_args!(" | phrase={phrase}"),
     );
     println!("# score cells are point/lb95 (stratified bootstrap, {bootstrap_iters} iters)");
     report_grid(&rows, &splits, bootstrap_iters as usize);

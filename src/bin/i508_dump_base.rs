@@ -162,12 +162,14 @@ fn main() -> Result<()> {
         let (rows, row_len) = (1usize, total);
         let mut flat = Vec::with_capacity(rows * row_len);
         for r in 0..rows {
-            let row = file.dequant_tensor_row(&info.name, r, row_len).with_context(|| {
-                format!(
-                    "dequant {} ({:?}, type {:?}) row {r}/{rows} row_len {row_len}",
-                    info.name, dims, info.ggml_type
-                )
-            })?;
+            let row = file
+                .dequant_tensor_row(&info.name, r, row_len)
+                .with_context(|| {
+                    format!(
+                        "dequant {} ({:?}, type {:?}) row {r}/{rows} row_len {row_len}",
+                        info.name, dims, info.ggml_type
+                    )
+                })?;
             flat.extend_from_slice(&row);
         }
         let expected = rows * row_len;
@@ -182,7 +184,7 @@ fn main() -> Result<()> {
         let bytes: Vec<u8> = flat.iter().flat_map(|v| v.to_le_bytes()).collect();
         out_tensors.insert(hf, (shape, bytes));
         dumped += 1;
-        if dumped % 50 == 0 {
+        if dumped.is_multiple_of(50) {
             println!("# dumped {dumped}/{}", infos.len());
         }
     }
