@@ -3,6 +3,7 @@
 **Status:** open — poc task
 
 **Claimed:** zed-4090-house@4090, 1795228200, expires 2026-11-22T12:30:00+00:00
+**Housekeeping 2026-11-23 (zed-bb86e4df@amo, boss sweep): EXPIRED UNDISCHARGED — routed, not re-claimed.** Scope is box-routed to the 4090 (T1 skeleton "on this box", T2 cell `--needs cuda`); no 4090-side landing since the 11-21 claim (holder session gone from the live list). Re-claimable by a 4090 lane only — check for uncollected 4090 artifacts first, else re-queue via `agent-mail rig run 4090 --needs cuda --est` per the issue's own T2 shape. amo holds no claim.
 
 Scope: T1 skeleton implementation on this box (RAM free post-sweep; compile-gated in-session), T2's census cell routes to its own `agent-mail rig run 4090 --needs cuda --est` window after T1's fixture gates green; the m3-side (katgpt-rs-93@amo, the filing lane) keeps Research 033/034 + the Fermion arc. (Claim reshaped 2026-11-21 out of the Status line — the Issue-1226 blind class: embedded claims parse NONE fleet-wide, data + expiry preserved.)
 
