@@ -1280,6 +1280,11 @@ name = "i1221_t4_self_spec_cell"
 path = "examples/i1221_t4_self_spec_cell.rs"
 required-features = ["dory"]
 
+[[example]]
+name = "i1221_t4_sampling_cell"
+path = "examples/i1221_t4_sampling_cell.rs"
+required-features = ["dory"]
+
 [[test]]
 name = "i1221_t3a_spectra_gates"
 path = "tests/i1221_t3a_spectra_gates.rs"
