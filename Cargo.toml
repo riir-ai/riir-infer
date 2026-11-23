@@ -1290,6 +1290,11 @@ name = "i1221_t4_self_spec_gates"
 path = "tests/i1221_t4_self_spec_gates.rs"
 required-features = ["dory"]
 
+[[test]]
+name = "i1221_t4_sampling_gates"
+path = "tests/i1221_t4_sampling_gates.rs"
+required-features = ["dory"]
+
 # katgpt-rs Issue 999 T3 — the real-corpus R/S lens fit (offline, compute-bound;
 # never a serving path). Compiled only at the lens posture.
 [[example]]
