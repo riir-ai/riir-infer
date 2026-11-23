@@ -53,13 +53,13 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use katgpt_core::closed_form_weight_write::{
-    FactSpec, FactWriteConfig, FactWriteModel, ProtectSpec, construct,
+    battle_of, construct, FactSpec, FactWriteConfig, FactWriteModel, ProtectSpec,
 };
 use katgpt_core::quant_error_lora::QuantErrorLora;
 use riir_infer_core::closed_form_write::QwenFactWriteModel;
-use riir_infer_core::gguf_loader::{GgufFile, load_qwen_deltanet_weights_gguf};
+use riir_infer_core::gguf_loader::{load_qwen_deltanet_weights_gguf, GgufFile};
 use riir_infer_core::tokenizer::BpeTokenizer;
 
 /// The default Cell A model (box-stable on amo + bmo; `--gguf` overrides).
@@ -94,6 +94,13 @@ struct FactDoc {
     /// reports the gate).
     #[serde(default)]
     heldout_para_asks: Vec<String>,
+    /// Plan-637 recipe-3: authored battle competitor per training ask —
+    /// the surface form whose FIRST token the solve pushes against at the
+    /// battle position (overrides the auto-captured greedy token). Empty
+    /// = auto-capture for every ask; non-empty must carry one entry per
+    /// training ask (validated loud).
+    #[serde(default)]
+    competing_answer: Vec<String>,
 }
 
 /// The inline default: one fact, its contrast family, one held-out wording,
@@ -113,6 +120,7 @@ fn default_facts_doc() -> FactsDoc {
             ],
             heldout_asks: vec!["France's capital city is".into()],
             heldout_para_asks: Vec::new(),
+            competing_answer: Vec::new(),
         }],
         control_asks: vec![
             "The weather this morning was".into(),
@@ -176,6 +184,20 @@ fn train_ask_strings(doc: &FactsDoc, paraphrases: bool) -> Vec<Vec<&str>> {
             }
         })
         .collect()
+}
+
+/// Plan-637: the doc's authored battle competitor per ask — the first
+/// token of each surface form. Empty slice = auto-capture (`None`). Any
+/// surface that encodes to zero tokens is a loud authoring error.
+fn competing_first_tokens(
+    surfaces: &[String],
+    first_of: &mut dyn FnMut(&str) -> Option<u32>,
+) -> Option<Vec<u32>> {
+    if surfaces.is_empty() {
+        return None;
+    }
+    let toks: Option<Vec<u32>> = surfaces.iter().map(|s| first_of(s.as_str())).collect();
+    Some(toks.expect("every competing_answer surface must encode to ≥ 1 token"))
 }
 
 // ── probes ──────────────────────────────────────────────────────────────
@@ -506,7 +528,11 @@ fn print_recall_report(
 }
 
 fn hit_word(h: bool) -> &'static str {
-    if h { "hit" } else { "miss" }
+    if h {
+        "hit"
+    } else {
+        "miss"
+    }
 }
 
 fn delta_word(baseline: bool, armed: bool) -> &'static str {
@@ -535,6 +561,11 @@ struct ConfigEcho {
     shortfall_cap_nats: f64,
     gain_lo: f64,
     gain_hi: f64,
+    /// Plan-637 recipe-3 (additive; flag-off leaves these at defaults).
+    margin_target: bool,
+    margin_cap_nats: f64,
+    degeneracy_tau: f64,
+    battle_movement_k: f64,
 }
 
 impl From<FactWriteConfig> for ConfigEcho {
@@ -554,6 +585,10 @@ impl From<FactWriteConfig> for ConfigEcho {
             shortfall_cap_nats: c.shortfall_cap_nats,
             gain_lo: c.gain_lo,
             gain_hi: c.gain_hi,
+            margin_target: c.margin_target,
+            margin_cap_nats: c.margin_cap_nats,
+            degeneracy_tau: c.degeneracy_tau,
+            battle_movement_k: c.battle_movement_k,
         }
     }
 }
@@ -612,6 +647,14 @@ struct Manifest {
     /// read (older sidecars lack it).
     #[serde(default)]
     probes_baseline: Vec<ProbeEcho>,
+    /// Plan-637 diagnostics: per fact, per ask — the battle position
+    /// (None = the base answers correctly). Empty unless --margin-target.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    battle_positions: Vec<Vec<Option<usize>>>,
+    /// Plan-637 diagnostics: per fact, per solve round, per ask — the
+    /// competitor token id that round pushed against (round 0 = base).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    battle_competitors: Vec<Vec<Vec<u32>>>,
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -677,6 +720,10 @@ struct Args {
     max_new: usize,
     paraphrases: bool,
     phase_a_only: bool,
+    /// Plan-637 recipe-3: differential margin targets at the battle
+    /// position (first divergence of the base greedy continuation from
+    /// the answer). Flag-off keeps every path byte-identical Recipe-1/2.
+    margin_target: bool,
 }
 
 impl Args {
@@ -691,6 +738,7 @@ impl Args {
             max_new: 12,
             paraphrases: false,
             phase_a_only: false,
+            margin_target: false,
         };
         let mut it = std::env::args().skip(1);
         while let Some(flag) = it.next() {
@@ -705,8 +753,9 @@ impl Args {
                 "--max-new" => a.max_new = val()?.parse().context("--max-new parse")?,
                 "--paraphrases" => a.paraphrases = true,
                 "--phase-a-only" => a.phase_a_only = true,
+                "--margin-target" => a.margin_target = true,
                 other => bail!(
-                    "unknown flag {other} (flags: --gguf --out --facts --layers --rank --rounds --max-new --paraphrases --phase-a-only)"
+                    "unknown flag {other} (flags: --gguf --out --facts --layers --rank --rounds --max-new --paraphrases --phase-a-only --margin-target)"
                 ),
             }
         }
@@ -777,16 +826,30 @@ fn main() -> Result<()> {
         .facts
         .iter()
         .zip(train_ask_strings(&doc, args.paraphrases))
-        .map(|(f, asks)| FactSpec {
-            train_asks: asks.iter().map(|s| enc(s)).collect(),
-            answer: {
-                let mut a = enc(&f.answer);
-                a.push(eos);
-                a
-            },
-            contrast_asks: f.contrast_asks.iter().map(|s| enc(s)).collect(),
+        .map(|(f, asks)| {
+            if !f.competing_answer.is_empty() && f.competing_answer.len() != asks.len() {
+                bail!(
+                    "fact {}: competing_answer carries {} entries for {} training ask(s)",
+                    f.answer,
+                    f.competing_answer.len(),
+                    asks.len()
+                );
+            }
+            Ok(FactSpec {
+                train_asks: asks.iter().map(|s| enc(s)).collect(),
+                answer: {
+                    let mut a = enc(&f.answer);
+                    a.push(eos);
+                    a
+                },
+                contrast_asks: f.contrast_asks.iter().map(|s| enc(s)).collect(),
+                competing_first_token: competing_first_tokens(
+                    &f.competing_answer,
+                    &mut |s: &str| enc(s).first().copied(),
+                ),
+            })
         })
-        .collect();
+        .collect::<Result<Vec<FactSpec>>>()?;
     let controls = if doc.control_asks.is_empty() {
         default_facts_doc().control_asks
     } else {
@@ -880,6 +943,7 @@ fn main() -> Result<()> {
         max_rounds: args
             .rounds
             .unwrap_or_else(|| FactWriteConfig::default().max_rounds),
+        margin_target: args.margin_target,
         ..FactWriteConfig::default()
     };
 
@@ -891,6 +955,45 @@ fn main() -> Result<()> {
         read_probes(&mut m, &probes, args.max_new, &tok)
     };
     println!("# {:.1}s", t.elapsed().as_secs_f32());
+
+    // Plan-637 phase-A census: the battle map the margin run pre-registers
+    // from — per ask, the base greedy continuation, the battle position,
+    // the competitor token, and the margin lp(competitor) − lp(answer)
+    // there (the exact logit gap under the answer prefix). The
+    // `# battle margin max=` line is what T1's cap pre-registration
+    // consumes (the ceiling must cover the margin it is aimed at).
+    {
+        let mut m = QwenFactWriteModel::bind(&mut weights, &config, edited.clone());
+        let mut max_margin: Option<f64> = None;
+        for (f, fact) in facts.iter().enumerate() {
+            let stop = *fact.answer.last().expect("answer nonempty");
+            for (w, ask) in fact.train_asks.iter().enumerate() {
+                let cont = m.free_generate(ask, fact.answer.len() + 2, Some(stop));
+                let Some((k, comp)) = battle_of(&fact.answer, &cont) else {
+                    println!("# battle[f{f} w{w}]: none — base answers correctly");
+                    continue;
+                };
+                let pos = ask.len() + k;
+                let mut full = ask.clone();
+                full.extend_from_slice(&fact.answer);
+                let lp_a = m.token_logprob(&full, pos);
+                let mut seq_c = ask.clone();
+                seq_c.extend_from_slice(&fact.answer[..k]);
+                seq_c.push(comp);
+                let lp_c = m.token_logprob(&seq_c, pos);
+                let margin = lp_c - lp_a;
+                max_margin = Some(max_margin.map_or(margin, |mm: f64| mm.max(margin)));
+                println!(
+                    "# battle[f{f} w{w}]: pos={k} competitor={} (id {comp}) margin={margin:.3} nats",
+                    head(&tok.decode(&[comp as usize]), 24)
+                );
+            }
+        }
+        match max_margin {
+            Some(mm) => println!("# battle margin max={mm:.3} nats"),
+            None => println!("# battle margin max=none — no battles (base answers every ask)"),
+        }
+    }
 
     // The phase-A-only instrument (plan-635 T3 amendment): the probe-set
     // selection + re-anchor evidence run — no construct, no sidecar.
@@ -929,6 +1032,15 @@ fn main() -> Result<()> {
             row.layers,
             row.rank
         );
+    }
+    // Plan-637 diagnostics: the battle map + the per-round competitor ids
+    // (round 0 = the base capture; later rounds re-capture at the current
+    // overlay state). Empty under flag-off.
+    for (i, rows) in outcome.battle_positions.iter().enumerate() {
+        println!("# battle[f{i}]: {:?}", rows);
+        for (round, comps) in outcome.battle_competitors[i].iter().enumerate() {
+            println!("#   round {round} competitors: {comps:?}");
+        }
     }
     println!(
         "# envelope: sealed={} digest={}",
@@ -1070,6 +1182,8 @@ fn main() -> Result<()> {
                 gen_toks: r.gen_toks.clone(),
             })
             .collect(),
+        battle_positions: outcome.battle_positions.clone(),
+        battle_competitors: outcome.battle_competitors.clone(),
         pairs: pair_rows,
     };
     let manifest_path = args.out.join("manifest.json");
@@ -1204,11 +1318,9 @@ mod tests {
             .map(|k| format!("{PARAPHRASE_LABEL_PREFIX}{k}"))
             .collect();
         assert_eq!(labels.len(), 5);
-        assert!(
-            labels
-                .iter()
-                .all(|l| l.starts_with(PARAPHRASE_LABEL_PREFIX))
-        );
+        assert!(labels
+            .iter()
+            .all(|l| l.starts_with(PARAPHRASE_LABEL_PREFIX)));
     }
 
     /// T3 amendment (ii): the held-out paraphrase set is HELD-OUT — five
@@ -1317,5 +1429,35 @@ mod tests {
             assert!(!l.starts_with(PARAPHRASE_LABEL_PREFIX));
             assert!(l.starts_with("heldpara[f0]#"));
         }
+    }
+
+    /// Plan-637: the authored competitor maps to the FIRST token of each
+    /// surface; an empty doc field maps to auto-capture (None); a surface
+    /// encoding to zero tokens is the loud authoring error.
+    #[test]
+    fn competing_first_tokens_map_first_token_or_auto() {
+        let surfaces = vec![" Bujumbura".to_string(), " Gitega".to_string()];
+        let mut known = |s: &str| -> Option<u32> {
+            match s {
+                " Bujumbura" => Some(7),
+                " Gitega" => Some(9),
+                _ => None,
+            }
+        };
+        assert_eq!(
+            competing_first_tokens(&surfaces, &mut known),
+            Some(vec![7, 9])
+        );
+        assert_eq!(competing_first_tokens(&[], &mut known), None);
+    }
+
+    /// The loud authoring error: a surface encoding to zero tokens panics
+    /// (never a silent auto-capture fallback).
+    #[test]
+    #[should_panic(expected = "every competing_answer surface must encode to ≥ 1 token")]
+    fn competing_first_tokens_panics_on_empty_encoding() {
+        let surfaces = vec!["???".to_string()];
+        let mut empty = |_: &str| -> Option<u32> { None };
+        let _ = competing_first_tokens(&surfaces, &mut empty);
     }
 }
