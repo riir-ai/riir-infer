@@ -1,0 +1,14 @@
+{
+  "merged": {
+    "mean_kl_nats": 0.08094877351479787,
+    "argmax_retention": 0.8266366957010396,
+    "positions": 3559
+  },
+  "floor": {
+    "mean_kl_nats": 0.07940291767682267,
+    "argmax_retention": 0.8305703849395898,
+    "positions": 3559
+  },
+  "verdict_floor": "FAILS",
+  "modelless_arm": "PENDING (riir-infer 1243's arms, the same panel)"
+}
