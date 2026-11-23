@@ -1,7 +1,8 @@
 # Issue 1236: gdn_rec decode — the chunked intra-chunk kernel lane (Metal twin of the chunked form, or a reduction-chain restructure)
 
 **Status:** OPEN — filed 2026-11-19 (zed-eb3b7571@amo). T0 CLAIMED — the decomposition cell is queued bmo-exclusive (the fixed-vs-slope fit over the EXISTING `test_rec_mr_timing_probe` at p=128/512/2048, zero new code, detached worktree at origin/develop). T1+ claim separately per task.
-**Claimed:** zed-eb3b7571@amo, 1795023404, expires 2026-11-21T17:35:00+00:00
+**Claimed:** zed-bb86e4df@amo, 1795455613, expires 2026-11-25T17:40:00Z
+**Re-claim 2026-11-23 (zed-bb86e4df@amo):** the bmo artifact check came back EMPTY (no /tmp/i1236*, no rec_mr outputs, no worktree, nothing in ~/riir-bench — probed 17:38Z over the bridge) — the 11-19 queued cell never left anything; T0 re-queued fresh per its own text (zero new code, the existing `test_rec_mr_timing_probe`, detached worktree at origin/develop).
 **Housekeeping 2026-11-23 (amo-idle-i1189r3@amo, m3 renew-or-fold adjudication): NOT folded — the T0 scope is NOT discharged** (no landing commit, no bench record since the 11-19 claim; git log shows only the filing `deeb8c92` + the claim `7da0b184`). Holder session gone from amo's live threads. The T0 bmo-exclusive decomposition cell's fate (queued 11-19) is unknown — a re-claimant first checks bmo for uncollected artifacts of that queue job, else re-queues the cell per T0's text (zero new code, the existing `test_rec_mr_timing_probe`, detached worktree at origin/develop). T0 re-claimable now.
 
 ## Why this lane exists (the priced entry, from two closed cells)
