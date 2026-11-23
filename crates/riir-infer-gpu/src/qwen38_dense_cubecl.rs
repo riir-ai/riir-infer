@@ -981,8 +981,10 @@ impl Qwen38WgpuForward {
             // Issue 1182: when the drift guard is armed, install the
             // exact twin (the SAME MSL compiled relaxed=false) beside the
             // serving context — the sampler's reference and the latched
-            // families' fallback path. Declined loudly when the env is
-            // unset (no twin, no cost).
+            // families' fallback path. Default-on since the flip (issue
+            // 1182 step 3, delegated-owner AGREE 2026-11-23); the exact
+            // literal "0" demotes byte-identically. The boot line names
+            // the posture either way (engagement-at-boot disclosure).
             #[cfg(feature = "drift_guard")]
             if crate::drift_guard::drift_guard_armed() {
                 crate::drift_guard::metal::install_exact_mm(
@@ -990,8 +992,13 @@ impl Qwen38WgpuForward {
                     queue.clone(),
                     include_str!("gemm_dense_f16h_metal_tensor.metal"),
                 )?;
+                eprintln!(
+                    "[drift-guard] armed — exact twin installed, SAMPLE_STRIDE={} (demote: \
+                     RIIR_DRIFT_GUARD=0)",
+                    crate::drift_guard::SAMPLE_STRIDE,
+                );
             } else {
-                eprintln!("[drift-guard] RIIR_DRIFT_GUARD unset — exact twin not installed");
+                eprintln!("[drift-guard] demoted by RIIR_DRIFT_GUARD=0 — exact twin not installed");
             }
         }
         #[cfg(not(all(feature = "metal_tensor_gemm", target_os = "macos")))]

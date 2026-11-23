@@ -32,6 +32,16 @@ use riir_infer_gpu::cubecl_runtime::{ActiveRuntime, CubeCLContext};
 use riir_infer_gpu::drift_guard;
 use riir_infer_gpu::gemm_dense_f16_metal_zero_copy::MetalDenseF16ZeroCopyGemm;
 
+/// The `context_pair()` return surface (client + production mm + exact
+/// twin) — factored out for clippy's `type_complexity` (the test compiles
+/// at every posture that carries `drift_guard`, production included since
+/// the 1182 step-3 flip).
+type ContextPair = (
+    ComputeClient<ActiveRuntime>,
+    Arc<MetalDenseF16ZeroCopyGemm>,
+    Arc<MetalDenseF16ZeroCopyGemm>,
+);
+
 /// Deterministic pseudo-random f32 in [-1, 1] (the cells' LCG — no RNG
 /// dependency, replayable).
 fn lcg_f32(state: &mut u64) -> f32 {
@@ -53,14 +63,7 @@ const M: usize = 64; // output rows (vocab-slice proxy)
 const N: usize = 256; // reduction dim (feature proxy)
 const P: usize = 32; // tokens
 
-fn context_pair() -> Result<
-    (
-        ComputeClient<ActiveRuntime>,
-        Arc<MetalDenseF16ZeroCopyGemm>,
-        Arc<MetalDenseF16ZeroCopyGemm>,
-    ),
-    String,
-> {
+fn context_pair() -> Result<ContextPair, String> {
     let ctx = CubeCLContext::new().map_err(|e| format!("gpu context: {e}"))?;
     let (dev, queue) = match (ctx.wgpu_device(), ctx.wgpu_queue()) {
         (Some(d), Some(q)) => (d.clone(), q.clone()),

@@ -87,7 +87,8 @@ use std::sync::{Mutex, OnceLock};
 /// at stride 64 the guard's prefill tail measured 1.60% (bar 1.0%, FAIL)
 /// and at 256 it measured 0.11% (PASS) with retention byte-identical and
 /// fallbacks 0 — the strictest-passing-stride law picked 256 (issue 1182
-/// T6; the default-posture flip remains owner-gated).
+/// T6; the default-posture flip landed 2026-11-23, delegated-owner verdict
+/// AGREE 3/3).
 pub const SAMPLE_STRIDE: u64 = 256;
 
 /// Sigmoid center on the relative-RMS divergence (pinned; the T3 law).
@@ -110,13 +111,26 @@ pub const DIV_EPS: f32 = 1.0e-12;
 /// would sync multi-MB scratch rows).
 pub const MAX_SAMPLE_ELEMS: usize = 4096;
 
-/// `RIIR_DRIFT_GUARD` — PROMOTE-ONLY (the env-switch law): arms only on
-/// the exact literal `1`; unset/anything-else is disarmed. A demote
-/// literal here would be a no-op (the feature is opt-in; there is no
-/// default-on posture to demote — that flip is T5's GOAT call).
+/// The env literal law (issue 1182 step 3, delegated-owner AGREE 2026-11-23):
+/// DEMOTE-ONLY per the env-switch law, the `RIIR_PREFILL_F16B` precedent —
+/// unset (and any value except the exact demote literal) is ARMED; only the
+/// exact literal `"0"` demotes byte-identically to the incumbent. A typo'd
+/// value fails SAFE (the protection stays on); a consumer that already set
+/// `RIIR_DRIFT_GUARD=1` keeps its posture. The pure parser is split out so
+/// the law is unit-testable without a process-global env round-trip.
+fn armed_from(env: Option<&str>) -> bool {
+    env != Some("0")
+}
+
+/// `RIIR_DRIFT_GUARD` — DEMOTE-ONLY (the env-switch law; the flip landed
+/// 2026-11-23, delegated-owner verdict AGREE 3/3, issue 1182 step 3):
+/// unset = armed wherever the seams compile (macOS + `metal_tensor_gemm`,
+/// the dense half-B F16ACT serving posture the Benches 966/1254 evidence
+/// measured); the exact literal `"0"` demotes byte-identically. The feature
+/// joined `production` with the flip.
 pub fn drift_guard_armed() -> bool {
     static ARMED: OnceLock<bool> = OnceLock::new();
-    *ARMED.get_or_init(|| std::env::var("RIIR_DRIFT_GUARD").as_deref() == Ok("1"))
+    *ARMED.get_or_init(|| armed_from(std::env::var("RIIR_DRIFT_GUARD").as_deref().ok()))
 }
 
 /// `RIIR_DRIFT_GUARD_INJECT` — the T2 tripwire posture (debug-only):
@@ -515,9 +529,32 @@ pub mod metal {
         mm_prod.dispatch(client, w, m, n, input, output, p).is_ok()
     }
 
-    /// The seam the prefill `gemm()` F16 arm calls (cfg-gated at the
-    /// call site; WITHOUT the feature the site keeps the incumbent lines
-    /// untouched). Returns `false` = fall through to the incumbent path.
+    /// The seam's arming precondition (issue 1182 step 3, the posture
+    /// split). Where the guard feature is compiled (production carries it
+    /// since the flip) the DEMOTE-ONLY law applies via
+    /// [`drift_guard_armed`] — unset is armed, the exact literal "0"
+    /// demotes. A narrow feature set that compiles this Metal seam
+    /// WITHOUT the feature keeps the pre-flip PROMOTE-ONLY semantics
+    /// (exact "1" arms, unset declines) so its behavior is byte-identical
+    /// to the pre-flip lane — never a consent-free semi-engage (the
+    /// module's loud-zero doctrine; such a build has no exact twin and no
+    /// boot line).
+    fn seam_armed() -> bool {
+        #[cfg(feature = "drift_guard")]
+        {
+            drift_guard_armed()
+        }
+        #[cfg(not(feature = "drift_guard"))]
+        {
+            std::env::var("RIIR_DRIFT_GUARD").as_deref() == Ok("1")
+        }
+    }
+
+    /// The seam the prefill `gemm()` F16 arm calls (the call site rides
+    /// the `metal_tensor_gemm` + macOS cfg, which this module shares).
+    /// Returns `false` = fall through to the incumbent path.
+    /// Arming follows [`seam_armed`]: demote-only where the feature is
+    /// compiled, pre-flip opt-in semantics otherwise.
     pub fn dispatch_prefill(
         client: &ComputeClient<ActiveRuntime>,
         w: &Handle,
@@ -527,7 +564,7 @@ pub mod metal {
         output: &Handle,
         p: usize,
     ) -> bool {
-        if !drift_guard_armed() {
+        if !seam_armed() {
             return false;
         }
         let Some(mm) = crate::gemm_dense_f16_metal_zero_copy::gemm_mm_for_posture() else {
@@ -540,6 +577,23 @@ pub mod metal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Issue 1182 step 3 — the demote-only literal law, unit-pinned (the
+    // OnceLock env read is process-global, so the LAW is tested through
+    // the pure parser, never the env itself).
+    #[test]
+    fn armed_from_literal_law() {
+        assert!(armed_from(None), "unset = armed (the default posture)");
+        assert!(!armed_from(Some("0")), "exact demote literal disarms");
+        assert!(
+            armed_from(Some("1")),
+            "pre-existing promote posture stays armed"
+        );
+        assert!(
+            armed_from(Some("junk")),
+            "a typo'd value fails SAFE (stays armed)"
+        );
+    }
 
     #[test]
     fn sigmoid_is_bounded_and_monotone() {
@@ -638,15 +692,22 @@ mod tests {
     #[test]
     fn fixed_stride_hits_the_expected_dispatches() {
         let g = DriftGuard::new();
-        let hits: Vec<bool> = (0..256).map(|_| g.should_sample()).collect();
+        // Stride-generic: drive enough dispatches to prove two sample
+        // hits (first dispatch + every SAMPLE_STRIDE-th after), whatever
+        // the calibrated stride is. (The Bench 1254 lane landed stride
+        // 256 without re-pinning this test — it indexed [256] into a
+        // len-256 vec and red; the pin now follows the constant.)
+        let n = (SAMPLE_STRIDE as usize * 2 + 2).max(4);
+        let hits: Vec<bool> = (0..n).map(|_| g.should_sample()).collect();
         assert!(hits[0]);
-        assert!(!hits[1]);
+        assert!(!hits[1.min(n - 1)]);
         assert!(hits[SAMPLE_STRIDE as usize]);
-        let expected = 256u64.div_ceil(SAMPLE_STRIDE);
+        assert!(hits[SAMPLE_STRIDE as usize * 2]);
+        let expected = (n as u64).div_ceil(SAMPLE_STRIDE);
         assert_eq!(
             hits.iter().filter(|h| **h).count() as u64,
             expected,
-            "stride {SAMPLE_STRIDE} over 256 dispatches"
+            "stride {SAMPLE_STRIDE} over {n} dispatches"
         );
     }
 
@@ -659,12 +720,13 @@ mod tests {
 
     #[test]
     fn env_law_pins_the_constant_surface() {
-        // The promote-only env law is asserted by the spelling in
-        // `drift_guard_armed` (exact literal "1", no demote literal — an
-        // opt-in feature has no default-on posture to demote). Runtime
-        // env mutation in tests would poison a parallel suite
-        // (env is process-global); this test pins the doc surface.
-        assert_eq!(SAMPLE_STRIDE, 64);
+        // The env law is pinned by `armed_from_literal_law` (the pure
+        // parser): demote-only since the flip — unset is armed, the exact
+        // literal "0" demotes. Runtime env mutation in tests would poison
+        // a parallel suite (env is process-global); this test pins the
+        // constant surface: SAMPLE_STRIDE is the Bench 1254 calibrated
+        // posture (256; stride 64 failed the pinned bar).
+        assert_eq!(SAMPLE_STRIDE, 256);
         const {
             assert!(DIV_CENTER > 0.0);
             assert!(DIV_SCALE > 0.0);

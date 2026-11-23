@@ -156,14 +156,23 @@ production = [
     "metal_tensor_gemm",
     "deltanet_prework_fused",
     "prefill_f16b",
+    "drift_guard",
 ]
 
-# Issue 1182 — the online drift guard + exact-path fallback for the
-# dense-f16 matmul2d arm. OPT-IN (a serving-lane PoC device; promotion is
-# the T5 GOAT call — NEVER a default row until it passes). The pure state
-# machine compiles at every posture; the Metal seam needs the arm it
-# guards. Env `RIIR_DRIFT_GUARD` is PROMOTE-ONLY (exact "1"). Game-side
-# consumers keep this off (issue 1182 T4 scope law).
+# Issue 1182 step 3 — the online drift guard + exact-path fallback for the
+# dense-f16 matmul2d arm PROMOTED into the aggregate 2026-11-23
+# (delegated-owner verdict AGREE 3/3, session 13d1f958: the D1 pre-registered
+# path discharged — the tail bar pinned `1f3c0014`, Bench 1254 passed it at
+# stride 256 (ratio 0.9989 ≥ 0.990, retention byte-identical, fallbacks 0);
+# no dep widening — every implied feature already rides production via
+# ternary_gemv + metal_tensor_gemm). Env `RIIR_DRIFT_GUARD` is DEMOTE-ONLY
+# per the env-switch law (the RIIR_PREFILL_F16B precedent): unset = armed on
+# the macOS dense serving posture (the only posture the seams compile on);
+# the exact literal "0" demotes byte-identically. Game tick paths never
+# reach the serving prefill GEMM (issue 1182 T4, restated under the flip); a
+# game-side SERVING consumer inherits the guard — it protects the same lossy
+# arm it serves — and demotes with the exact literal if it wants the
+# incumbent.
 drift_guard = ["metal_tensor_gemm", "cubecl_runtime", "ternary_gemv"]
 
 # Issue 1225 — the f16-B serving twin (the Bench-1223 G5 lever, the last

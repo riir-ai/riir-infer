@@ -55,6 +55,10 @@ pub const PRODUCTION_RUNGS: &[(&str, bool)] = &[
     // the dist serving lane (`RIIR_PREFILL_F16B=0` demotes), the substrate
     // latch stays opt-in per the lossy-surface scoping law.
     ("prefill_f16b", cfg!(feature = "prefill_f16b")),
+    // Issue 1182 step 3 (delegated-owner AGREE 2026-11-23): the online
+    // drift guard joined the aggregate — it guards the half-B F16ACT arm
+    // above; `RIIR_DRIFT_GUARD=0` (exact literal) demotes byte-identically.
+    ("drift_guard", cfg!(feature = "drift_guard")),
 ];
 
 /// Promoted rungs the current compilation is MISSING. Empty iff the
