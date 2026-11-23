@@ -706,6 +706,315 @@ pub fn verify_artifact(bytes: &[u8]) -> Option<usize> {
     Some(payload.len())
 }
 
+// ── artifact reader + the access-check set operation (T2) ───────────
+
+/// Byte stride of one canonical artifact row (mint and parse agree —
+/// a mismatch either way corrupts every row after the first).
+const ARTIFACT_ROW_STRIDE: usize = 35;
+/// Header size: magic 8 + digest 32 + push_scale f32 4 + abs_floor
+/// f64 8 + band_ratio f64 8 + seed u64 8 + row count u32 4.
+const ARTIFACT_HEADER_LEN: usize = 72;
+
+/// The decoded artifact header — identity + the config the sweep ran
+/// under. Two artifacts are access-check comparable ONLY under the
+/// same config (floors/bands/seed differ ⇒ verdicts are not the same
+/// measurement); the weights digests may (and for base-vs-chat, must)
+/// differ.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CensusArtifactHeader {
+    pub weights_digest: [u8; 32],
+    pub push_scale: f32,
+    pub abs_floor: f64,
+    pub band_ratio: f64,
+    pub seed: u64,
+    pub n_rows: usize,
+}
+
+impl CensusArtifactHeader {
+    /// The comparable-science tuple — everything but the model
+    /// identity. Equality is required before a set operation.
+    fn config_key(&self) -> (u64, u64, u64, u64) {
+        (
+            u64::from(self.push_scale.to_bits()),
+            self.abs_floor.to_bits(),
+            self.band_ratio.to_bits(),
+            self.seed,
+        )
+    }
+}
+
+/// Parse a minted artifact: verify the trailer, decode the header and
+/// every row. Refuses loud on any truncation, unknown verdict byte,
+/// or payload-length mismatch (strict — no trailing junk).
+pub fn parse_artifact(bytes: &[u8]) -> Result<(CensusArtifactHeader, Vec<CensusRow>)> {
+    let payload_len =
+        verify_artifact(bytes).context("census artifact trailer/canonicality check failed")?;
+    let payload = &bytes[..payload_len];
+    let n_rows = u32::from_le_bytes(payload[68..72].try_into().expect("fixed-size slice")) as usize;
+    let expected = ARTIFACT_HEADER_LEN + n_rows * ARTIFACT_ROW_STRIDE;
+    if payload_len != expected {
+        bail!(
+            "census artifact holds {} rows but the payload is {} bytes (expected {}) — truncated or padded",
+            n_rows,
+            payload_len,
+            expected
+        );
+    }
+    let header = CensusArtifactHeader {
+        weights_digest: payload[8..40].try_into().expect("fixed-size slice"),
+        push_scale: f32::from_le_bytes(payload[40..44].try_into().expect("fixed-size slice")),
+        abs_floor: f64::from_le_bytes(payload[44..52].try_into().expect("fixed-size slice")),
+        band_ratio: f64::from_le_bytes(payload[52..60].try_into().expect("fixed-size slice")),
+        seed: u64::from_le_bytes(payload[60..68].try_into().expect("fixed-size slice")),
+        n_rows,
+    };
+    let mut rows = Vec::with_capacity(n_rows);
+    let mut off = ARTIFACT_HEADER_LEN;
+    for i in 0..n_rows {
+        let r = &payload[off..off + ARTIFACT_ROW_STRIDE];
+        let verdict_byte = r[18];
+        let verdict = match verdict_byte {
+            1 => CensusVerdict::SwitchFound,
+            2 => CensusVerdict::NoSwitch,
+            3 => CensusVerdict::Undecided,
+            other => bail!(
+                "census artifact row {i} carries unknown verdict byte {other} — not a minted artifact"
+            ),
+        };
+        rows.push(CensusRow {
+            layer: r[0],
+            column: u32::from_le_bytes(r[1..5].try_into().expect("fixed-size slice")),
+            direction_sign: r[5] as i8,
+            best_dose: f32::from_le_bytes(r[6..10].try_into().expect("fixed-size slice")),
+            effect: f64::from_le_bytes(r[10..18].try_into().expect("fixed-size slice")),
+            verdict,
+            band_mean: f64::from_le_bytes(r[19..27].try_into().expect("fixed-size slice")),
+            band_max: f64::from_le_bytes(r[27..35].try_into().expect("fixed-size slice")),
+        });
+        off += ARTIFACT_ROW_STRIDE;
+    }
+    Ok((header, rows))
+}
+
+/// Which side of an access check a site was found in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccessSide {
+    Base,
+    Chat,
+}
+
+impl std::fmt::Display for AccessSide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AccessSide::Base => write!(f, "base"),
+            AccessSide::Chat => write!(f, "chat"),
+        }
+    }
+}
+
+/// One (layer, column) site's access-check classification.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AccessClass {
+    /// Switched in BOTH models above the noise band — a shared
+    /// sensitive site (the authoring did not move it).
+    Replicated,
+    /// Switched in one model only (above the band) — the other is
+    /// inert at this site. This is the authoring-prior signal.
+    PresentInert { present_in: AccessSide, effect: f64 },
+    /// A classification quant-fragile under the noise band (Bench
+    /// 1252: Q8_0-vs-fp16 KL noise mean 4.81e-4, max 5.2e-3 — the
+    /// census floor 1e-4 sits INSIDE that noise). Carried typed,
+    /// never pooled with the confident classes.
+    NoiseMarginal,
+}
+
+/// One classified site with its coordinates + the effects it carried.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AccessSite {
+    pub layer: u8,
+    pub column: u32,
+    pub class: AccessClass,
+    /// Effect in whichever side(s) held the row (NaN where absent).
+    pub effect_base: f64,
+    pub effect_chat: f64,
+}
+
+/// The access-check report: the set operation over two census
+/// artifacts' switch-sets (rows verdicted `SwitchFound`), typed per
+/// the issue's G1 fixture vocabulary. `Undecided` rows never enter a
+/// set; `NoSwitch` rows are confident negatives on their own side.
+#[derive(Clone, Debug, Default)]
+pub struct AccessCheckReport {
+    pub weights_digest_base: [u8; 32],
+    pub weights_digest_chat: [u8; 32],
+    pub noise_band: f64,
+    /// Switch-set sizes BEFORE band typing.
+    pub switches_base: usize,
+    pub switches_chat: usize,
+    pub replicated: usize,
+    pub present_inert_base: usize,
+    pub present_inert_chat: usize,
+    pub noise_marginal: usize,
+    /// `Undecided`-verdict row counts (absence of evidence — never a
+    /// set member, disclosed here).
+    pub undecided_base: usize,
+    pub undecided_chat: usize,
+    /// Full classification table, sorted by (layer, column).
+    pub sites: Vec<AccessSite>,
+}
+
+impl AccessCheckReport {
+    /// Confident present-inert rows sorted strongest-first (the
+    /// authoring-prior feed for T3/T4).
+    pub fn authoring_prior(&self) -> Vec<&AccessSite> {
+        let mut rows: Vec<&AccessSite> = self
+            .sites
+            .iter()
+            .filter(|s| {
+                matches!(
+                    s.class,
+                    AccessClass::PresentInert { .. } | AccessClass::Replicated
+                )
+            })
+            .collect();
+        rows.sort_by(|a, b| {
+            let ka = a.effect_base.max(a.effect_chat);
+            let kb = b.effect_base.max(b.effect_chat);
+            kb.partial_cmp(&ka).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        rows
+    }
+}
+
+/// The access check: parse-free entry taking the two minted artifacts
+/// (bytes) + the noise band in nats. Refuses loud when the two
+/// artifacts were swept under DIFFERENT configs (floor/band/scale/
+/// seed — the verdicts would not be the same measurement). The two
+/// weights digests are reported, never compared.
+pub fn access_check(
+    base_bytes: &[u8],
+    chat_bytes: &[u8],
+    noise_band: f64,
+) -> Result<AccessCheckReport> {
+    let (h_base, rows_base) = parse_artifact(base_bytes).context("base artifact")?;
+    let (h_chat, rows_chat) = parse_artifact(chat_bytes).context("chat artifact")?;
+    if h_base.config_key() != h_chat.config_key() {
+        bail!(
+            "census artifacts were swept under different configs (base: scale={} floor={:?} band={:?} seed={}; chat: scale={} floor={:?} band={:?} seed={}) — the switch-sets are not comparable",
+            h_base.push_scale,
+            h_base.abs_floor,
+            h_base.band_ratio,
+            h_base.seed,
+            h_chat.push_scale,
+            h_chat.abs_floor,
+            h_chat.band_ratio,
+            h_chat.seed,
+        );
+    }
+    if !(noise_band.is_finite() && noise_band > 0.0) {
+        bail!("noise band must be a positive finite number of nats, got {noise_band}");
+    }
+
+    // Switch-sets keyed by (layer, column); Undecided disclosed, never
+    // a set member. Rows are sorted at mint, so first-wins is the
+    // canonical row if a key somehow repeats.
+    let mut base_map: std::collections::HashMap<(u8, u32), &CensusRow> =
+        std::collections::HashMap::new();
+    let mut chat_map: std::collections::HashMap<(u8, u32), &CensusRow> =
+        std::collections::HashMap::new();
+    let (mut undecided_base, mut undecided_chat) = (0usize, 0usize);
+    let (mut switches_base, mut switches_chat) = (0usize, 0usize);
+    for r in &rows_base {
+        match r.verdict {
+            CensusVerdict::SwitchFound => {
+                switches_base += 1;
+                base_map.entry((r.layer, r.column)).or_insert(r);
+            }
+            CensusVerdict::Undecided => undecided_base += 1,
+            CensusVerdict::NoSwitch => {}
+        }
+    }
+    for r in &rows_chat {
+        match r.verdict {
+            CensusVerdict::SwitchFound => {
+                switches_chat += 1;
+                chat_map.entry((r.layer, r.column)).or_insert(r);
+            }
+            CensusVerdict::Undecided => undecided_chat += 1,
+            CensusVerdict::NoSwitch => {}
+        }
+    }
+
+    // Union walk in canonical (layer, column) order.
+    let mut keys: Vec<(u8, u32)> = base_map.keys().chain(chat_map.keys()).copied().collect();
+    keys.sort_unstable();
+    keys.dedup();
+
+    let mut report = AccessCheckReport {
+        weights_digest_base: h_base.weights_digest,
+        weights_digest_chat: h_chat.weights_digest,
+        noise_band,
+        switches_base,
+        switches_chat,
+        undecided_base,
+        undecided_chat,
+        ..Default::default()
+    };
+
+    for key in keys {
+        let b = base_map.get(&key).copied();
+        let c = chat_map.get(&key).copied();
+        let eb = b.map(|r| r.effect).unwrap_or(f64::NAN);
+        let ec = c.map(|r| r.effect).unwrap_or(f64::NAN);
+        let class = match (b, c) {
+            (Some(b), Some(c)) => {
+                if b.effect >= noise_band && c.effect >= noise_band {
+                    AccessClass::Replicated
+                } else {
+                    AccessClass::NoiseMarginal
+                }
+            }
+            (Some(b), None) => {
+                if b.effect >= noise_band {
+                    AccessClass::PresentInert {
+                        present_in: AccessSide::Base,
+                        effect: b.effect,
+                    }
+                } else {
+                    AccessClass::NoiseMarginal
+                }
+            }
+            (None, Some(c)) => {
+                if c.effect >= noise_band {
+                    AccessClass::PresentInert {
+                        present_in: AccessSide::Chat,
+                        effect: c.effect,
+                    }
+                } else {
+                    AccessClass::NoiseMarginal
+                }
+            }
+            (None, None) => unreachable!("key came from one of the maps"),
+        };
+        match class {
+            AccessClass::Replicated => report.replicated += 1,
+            AccessClass::PresentInert { present_in, .. } => match present_in {
+                AccessSide::Base => report.present_inert_base += 1,
+                AccessSide::Chat => report.present_inert_chat += 1,
+            },
+            AccessClass::NoiseMarginal => report.noise_marginal += 1,
+        }
+        report.sites.push(AccessSite {
+            layer: key.0,
+            column: key.1,
+            class,
+            effect_base: eb,
+            effect_chat: ec,
+        });
+    }
+    Ok(report)
+}
+
 // ── rows ledger + cursor plumbing ────────────────────────────────────
 
 /// One canonical census row, fixed stride.

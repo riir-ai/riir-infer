@@ -527,4 +527,207 @@ mod tests {
         let v = control_verdict(1.0, N_READS, &controls[..4], &cfg.control_params());
         assert!(matches!(v, ControlVerdict::Undecided { .. }));
     }
+
+    // ── the T2 access check: artifact reader + set operation ────────
+
+    use crate::neuron_census::{AccessClass, AccessSide, access_check, parse_artifact};
+
+    /// Hand-minted rows (no model): one row per spec, verdict carried
+    /// explicitly. Mint sorts by (layer, column) at canon time.
+    fn row(layer: u8, column: u32, verdict: CensusVerdict, effect: f64) -> CensusRow {
+        CensusRow {
+            layer,
+            column,
+            direction_sign: 1,
+            best_dose: 1.0,
+            effect,
+            verdict,
+            band_mean: if verdict == CensusVerdict::Undecided {
+                f64::NAN
+            } else {
+                effect / 10.0
+            },
+            band_max: if verdict == CensusVerdict::Undecided {
+                f64::NAN
+            } else {
+                effect / 5.0
+            },
+        }
+    }
+
+    fn mint_rows(digest: &[u8; 32], cfg: &CensusConfig, rows: &[CensusRow]) -> Vec<u8> {
+        let mut sweep = CensusSweep::default();
+        sweep.rows = rows.to_vec();
+        mint_artifact(&sweep, digest, cfg)
+    }
+
+    /// The issue's G1 fixture vocabulary, on synthetic artifacts: a
+    /// site switched in BOTH models classifies replicated; a site
+    /// switched in one only classifies present-inert on that side;
+    /// mint→parse round-trips every field bit-exactly.
+    #[test]
+    fn access_check_classifies_replicated_and_present_inert() {
+        let cfg = CensusConfig::default();
+        let band = 1e-3f64;
+        // K1 replicated; K2 base-only; K3 chat-only; K4 no-switch in
+        // both (never enters a set); K5 undecided in base (disclosed,
+        // never a member).
+        let base = mint_rows(
+            &[1u8; 32],
+            &cfg,
+            &[
+                row(3, 10, CensusVerdict::SwitchFound, 5.0),
+                row(3, 20, CensusVerdict::SwitchFound, 2.0),
+                row(3, 40, CensusVerdict::NoSwitch, 0.0001),
+                row(3, 50, CensusVerdict::Undecided, f64::NAN),
+            ],
+        );
+        let chat = mint_rows(
+            &[2u8; 32],
+            &cfg,
+            &[
+                row(3, 10, CensusVerdict::SwitchFound, 4.0),
+                row(3, 30, CensusVerdict::SwitchFound, 3.0),
+                row(3, 40, CensusVerdict::NoSwitch, 0.0002),
+            ],
+        );
+        let rep = access_check(&base, &chat, band).expect("comparable artifacts");
+        assert_eq!(rep.switches_base, 2);
+        assert_eq!(rep.switches_chat, 2);
+        assert_eq!(rep.undecided_base, 1);
+        assert_eq!(rep.undecided_chat, 0);
+        assert_eq!(rep.replicated, 1);
+        assert_eq!(rep.present_inert_base, 1);
+        assert_eq!(rep.present_inert_chat, 1);
+        assert_eq!(rep.noise_marginal, 0);
+        assert_eq!(rep.sites.len(), 3);
+        // Roundtrip: parse returns the minted rows bit-exactly.
+        let (h, rows) = parse_artifact(&base).expect("parse");
+        assert_eq!(h.weights_digest, [1u8; 32]);
+        assert_eq!(h.n_rows, 4);
+        assert_eq!(h.push_scale, cfg.push_scale);
+        assert_eq!(h.abs_floor.to_bits(), cfg.abs_floor.to_bits());
+        assert_eq!(h.band_ratio.to_bits(), cfg.band_ratio.to_bits());
+        assert_eq!(h.seed, cfg.seed);
+        assert_eq!(rows.len(), 4);
+        let orig = [
+            row(3, 10, CensusVerdict::SwitchFound, 5.0),
+            row(3, 20, CensusVerdict::SwitchFound, 2.0),
+            row(3, 40, CensusVerdict::NoSwitch, 0.0001),
+            row(3, 50, CensusVerdict::Undecided, f64::NAN),
+        ];
+        for (got, want) in rows.iter().zip(orig.iter()) {
+            assert_eq!(got.layer, want.layer);
+            assert_eq!(got.column, want.column);
+            assert_eq!(got.verdict, want.verdict);
+            assert_eq!(got.effect.to_bits(), want.effect.to_bits());
+            assert_eq!(got.band_mean.to_bits(), want.band_mean.to_bits());
+        }
+        // The prior feed carries the confident rows strongest-first
+        // (K1's weaker side 4.0 > K3's 3.0 > K2's 2.0).
+        let prior = rep.authoring_prior();
+        assert_eq!(prior.len(), 3);
+        assert_eq!(prior[0].column, 10);
+        assert_eq!(prior[1].column, 30);
+        assert_eq!(prior[2].column, 20);
+    }
+
+    /// The quant-noise law: rows under the band type NoiseMarginal —
+    /// a both-side under-band pair, a one-side under-band singleton,
+    /// a mixed band pair — never pooled with the confident classes.
+    #[test]
+    fn access_check_noise_band_types_marginal_sites() {
+        let cfg = CensusConfig::default();
+        let band = 1e-3f64;
+        let base = mint_rows(
+            &[1u8; 32],
+            &cfg,
+            &[
+                row(7, 1, CensusVerdict::SwitchFound, 0.0004), // both-side under band
+                row(7, 2, CensusVerdict::SwitchFound, 0.0009), // base-only under band
+                row(7, 3, CensusVerdict::SwitchFound, 2.0),    // confident base-only
+            ],
+        );
+        let chat = mint_rows(
+            &[2u8; 32],
+            &cfg,
+            &[
+                row(7, 1, CensusVerdict::SwitchFound, 0.0006),
+                row(7, 4, CensusVerdict::SwitchFound, 0.0008), // chat-only under band
+            ],
+        );
+        let rep = access_check(&base, &chat, band).expect("comparable artifacts");
+        assert_eq!(rep.replicated, 0);
+        assert_eq!(rep.present_inert_base, 1); // only K3
+        assert_eq!(rep.present_inert_chat, 0);
+        assert_eq!(rep.noise_marginal, 3); // K1 both-under, K2 base-under, K4 chat-under
+        // Exact class spot-checks.
+        let k1 = rep.sites.iter().find(|s| s.column == 1).unwrap();
+        assert_eq!(k1.class, AccessClass::NoiseMarginal);
+        let k3 = rep.sites.iter().find(|s| s.column == 3).unwrap();
+        assert_eq!(
+            k3.class,
+            AccessClass::PresentInert {
+                present_in: AccessSide::Base,
+                effect: 2.0
+            }
+        );
+        let k2 = rep.sites.iter().find(|s| s.column == 2).unwrap();
+        assert_eq!(k2.class, AccessClass::NoiseMarginal);
+        // Band edge: exactly-at-band is confident (>= band).
+        let base_edge = mint_rows(
+            &[1u8; 32],
+            &cfg,
+            &[row(7, 9, CensusVerdict::SwitchFound, band)],
+        );
+        let chat_edge = mint_rows(&[2u8; 32], &cfg, &[]);
+        let rep_edge = access_check(&base_edge, &chat_edge, band).unwrap();
+        assert_eq!(rep_edge.present_inert_base, 1);
+    }
+
+    /// Refusals: config mismatch (floor/band/scale/seed differ) bails
+    /// loud; a flipped byte fails the trailer; a truncated artifact
+    /// fails; an unknown verdict byte bails in row decode.
+    #[test]
+    fn access_check_refuses_config_mismatch_and_tampered_bytes() {
+        let cfg = CensusConfig::default();
+        let mut cfg2 = cfg.clone();
+        cfg2.abs_floor = 1e-4; // different floor ⇒ not the same measurement
+        let a = mint_rows(
+            &[1u8; 32],
+            &cfg,
+            &[row(1, 1, CensusVerdict::SwitchFound, 1.0)],
+        );
+        let b = mint_rows(
+            &[2u8; 32],
+            &cfg2,
+            &[row(1, 1, CensusVerdict::SwitchFound, 1.0)],
+        );
+        assert!(
+            access_check(&a, &b, 1e-3).is_err(),
+            "config mismatch must refuse"
+        );
+
+        let mut tampered = a.clone();
+        let mid = tampered.len() / 2;
+        tampered[mid] ^= 0xff;
+        assert!(
+            parse_artifact(&tampered).is_err(),
+            "trailer must catch tampering"
+        );
+
+        let truncated = &a[..a.len() - 40];
+        assert!(parse_artifact(truncated).is_err(), "truncation must refuse");
+
+        // Same rows under the SAME config are comparable even though
+        // the weights digests differ (base-vs-chat is the point).
+        let b_same_cfg = mint_rows(
+            &[2u8; 32],
+            &cfg,
+            &[row(1, 1, CensusVerdict::SwitchFound, 1.0)],
+        );
+        let rep = access_check(&a, &b_same_cfg, 1e-3).expect("same-config artifacts comparable");
+        assert_eq!(rep.replicated, 1);
+        assert_ne!(rep.weights_digest_base, rep.weights_digest_chat);
+    }
 }

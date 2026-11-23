@@ -20,9 +20,15 @@
 //!
 //! Reader protection: `required-features = ["neuron_census"]` — a
 //! default build never compiles this bin (the green-zero law).
+//!
+//! `--access-check <base> <chat> [--noise-band X]` — the T2 access
+//! check over two minted artifacts (replicated / present-inert /
+//! noise-marginal; band default 1e-3 nats, the Bench-1252 caveat).
 
+use anyhow::Context as _;
 use riir_infer_core::neuron_census::{
-    CensusConfig, CensusCursor, CensusVerdict, mint_artifact, run_sweep_par, verify_artifact,
+    AccessClass, CensusConfig, CensusCursor, CensusVerdict, access_check, mint_artifact,
+    run_sweep_par, verify_artifact,
 };
 use riir_infer_core::neuron_census_gguf::{CensusShared, mechanics_check};
 use std::time::Instant;
@@ -31,6 +37,8 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let mut self_test = false;
     let mut mechanics = false;
+    let mut access_files: Option<(String, String)> = None;
+    let mut noise_band: Option<f64> = None;
     let mut model: Option<String> = None;
     let mut out_dir: Option<String> = None;
     let mut layers_spec: Option<String> = None;
@@ -45,6 +53,14 @@ fn main() {
         match arg.as_str() {
             "--self-test" => self_test = true,
             "--mechanics-check" => mechanics = true,
+            "--access-check" => {
+                let (Some(a), Some(b)) = (args.next(), args.next()) else {
+                    eprintln!("neuron-census: --access-check needs two artifact paths");
+                    std::process::exit(2);
+                };
+                access_files = Some((a, b));
+            }
+            "--noise-band" => noise_band = args.next().and_then(|v| v.parse().ok()),
             "--model" => model = args.next(),
             "--out" => out_dir = args.next(),
             "--layers" => layers_spec = args.next(),
@@ -72,6 +88,18 @@ fn main() {
 
     if self_test {
         run_self_test();
+        return;
+    }
+
+    if let Some((base_path, chat_path)) = access_files {
+        if let Err(e) = run_access_check(
+            std::path::Path::new(&base_path),
+            std::path::Path::new(&chat_path),
+            noise_band,
+        ) {
+            eprintln!("neuron-census access-check FAIL: {e:#}");
+            std::process::exit(1);
+        }
         return;
     }
 
@@ -111,6 +139,71 @@ fn main() {
 
     print_help();
     std::process::exit(2);
+}
+
+/// The T2 access check: two minted artifacts in, the base-vs-chat
+/// switch-set set operation out (report-only, stdout). Default band
+/// 1e-3 nats — the issue-recorded quant-fragility caveat (Bench
+/// 1252's Q8_0-vs-fp16 mean KL 4.81e-4; effects under the band are
+/// typed NoiseMarginal, never pooled with the confident counts).
+fn run_access_check(
+    base_path: &std::path::Path,
+    chat_path: &std::path::Path,
+    noise_band: Option<f64>,
+) -> anyhow::Result<()> {
+    let band = noise_band.unwrap_or(1e-3);
+    let base_bytes = std::fs::read(base_path)
+        .with_context(|| format!("base artifact {}", base_path.display()))?;
+    let chat_bytes = std::fs::read(chat_path)
+        .with_context(|| format!("chat artifact {}", chat_path.display()))?;
+    let rep = access_check(&base_bytes, &chat_bytes, band)?;
+    let hex = |d: &[u8; 32]| {
+        d.iter()
+            .take(8)
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    println!(
+        "[access-check] base {} ({}, switches {}) · chat {} ({}, switches {}) · band {band:.1e} nats",
+        base_path.display(),
+        hex(&rep.weights_digest_base),
+        rep.switches_base,
+        chat_path.display(),
+        hex(&rep.weights_digest_chat),
+        rep.switches_chat,
+    );
+    println!(
+        "[access-check] replicated {} · present-inert base {} · present-inert chat {} · \
+         noise-marginal {} · undecided base {} chat {}",
+        rep.replicated,
+        rep.present_inert_base,
+        rep.present_inert_chat,
+        rep.noise_marginal,
+        rep.undecided_base,
+        rep.undecided_chat,
+    );
+    println!(
+        "[access-check] top-15 by max-side effect (layer:column class base_effect chat_effect):"
+    );
+    for s in rep.authoring_prior().into_iter().take(15) {
+        let cls = match s.class {
+            AccessClass::Replicated => "REPL".to_string(),
+            AccessClass::PresentInert { present_in, .. } => format!("INERT({present_in})"),
+            AccessClass::NoiseMarginal => "MARG".to_string(),
+        };
+        println!(
+            "  L{:<2}:{:<5} {:>11} base {:.3e} chat {:.3e}",
+            s.layer, s.column, cls, s.effect_base, s.effect_chat,
+        );
+    }
+    if rep.noise_marginal > 0 {
+        println!(
+            "[access-check] note: {} site(s) under the {band:.1e} band are quant-fragile \
+             (Bench 1252: Q8_0-vs-fp16 KL mean 4.81e-4) — never pooled with the confident counts",
+            rep.noise_marginal
+        );
+    }
+    Ok(())
 }
 
 /// Parse `--layers "0-8,16-23"` (inclusive ranges, comma-separated) —
@@ -341,6 +434,9 @@ fn print_help() {
          \n\
          USAGE:\n\
          \x20 neuron-census --self-test                        run the G1 + parallel/serial fixture gates\n\
+         \x20 neuron-census --access-check <base> <chat>       the base-vs-chat switch-set set operation\n\
+         \x20        [--noise-band X]                          (replicated / present-inert / noise-marginal;\n\
+         \x20                                                  band default 1e-3 nats — Bench 1252 caveat)\n\
          \x20 neuron-census --mechanics-check --model <gguf>   the protocol gate on a real checkpoint\n\
          \x20        [--probe \"text\"] ...                      (band ≡ full bits, identity KL ≡ 0, dose\n\
          \x20                                                  monotone, digest canary)\n\
