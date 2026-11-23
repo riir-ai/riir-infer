@@ -47,9 +47,18 @@ use cubecl::server::Handle;
     cube(launch_unchecked, fast_math = FastMath::AllowContraction.into())
 )]
 #[cfg_attr(not(feature = "gemv_fma_contract"), cube(launch_unchecked))]
-fn gemv_plane_f32(weight: &[f32], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_plane_f32(weight: &[f32], input: &[f32], output: &mut [f32], params: &[f32]) {
+    // Issue 1245: `n`/`m` ride the LAUNCHER dims via params, never
+    // `input.len()`/`output.len()`. A kernel-visible slice length is the
+    // BINDING's backing slice size (the launcher registers it in the
+    // metadata; the `BufferArg::from_raw_parts` length does not constrain
+    // it — the Issue-639 fact, one layer down). The chunk tail binds
+    // `tmp_b` ([chunk × e]) and `logits_b` ([vocab]) views with per-row
+    // offsets: deriving from `.len()` made every launch read the WHOLE
+    // scratch and write past its row window — garbage chunk-boundary
+    // logits, nondeterministic per allocation layout.
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
 
     // Each plane handles one output row.
     // row = global_thread_index / plane_size
@@ -439,9 +448,12 @@ fn gemv_token_grid_plane_f32(weight: &[f32], input: &[f32], output: &mut [f32], 
     cube(launch_unchecked, fast_math = FastMath::AllowContraction.into())
 )]
 #[cfg_attr(not(feature = "gemv_fma_contract"), cube(launch_unchecked))]
-fn gemv_tile_f32(weight: &[f32], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_tile_f32(weight: &[f32], input: &[f32], output: &mut [f32], params: &[f32]) {
+    // Issue 1245: dims via params — the same slice-length trap as the plane
+    // kernel for oversized views (the binding's backing slice size is what
+    // `.len()` reports, never the from_raw_parts length).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
 
     // Each thread handles one output row.
     let row = ABSOLUTE_POS as u32;
@@ -753,6 +765,14 @@ impl GemvCubeCL {
         let rows_per_wg = wg_size / plane_size; // 8
         let num_wg = (m as u32).div_ceil(rows_per_wg).max(1);
 
+        // Issue 1245: the dims ride a params buffer — a kernel-visible slice
+        // length is the binding's backing slice size, never the
+        // `from_raw_parts` length, so the chunk tail's offset views of the
+        // big [chunk × e] scratch and [vocab] logits mis-bounded every
+        // launch (the garbage-tail-logits root cause).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         // SAFETY: Caller guarantees correct buffer sizes.
         unsafe {
             gemv_plane_f32::launch_unchecked::<R>(
@@ -762,6 +782,7 @@ impl GemvCubeCL {
                 BufferArg::from_raw_parts(weight_handle, m * n),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
     }
@@ -789,6 +810,11 @@ impl GemvCubeCL {
         let wg_size = 256u32;
         let num_wg = (m as u32).div_ceil(wg_size).max(1);
 
+        // Issue 1245: dims via params (same slice-length trap as the plane
+        // kernel for oversized views).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         // SAFETY: Caller guarantees correct buffer sizes.
         unsafe {
             gemv_tile_f32::launch_unchecked::<R>(
@@ -798,6 +824,7 @@ impl GemvCubeCL {
                 BufferArg::from_raw_parts(weight_handle, m * n),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
     }
@@ -831,6 +858,10 @@ impl GemvCubeCL {
         let rows_per_wg = wg_size / plane_size;
         let num_wg = (m as u32).div_ceil(rows_per_wg).max(1);
 
+        // Issue 1245: dims via params (same slice-length trap as launch_plane).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         // SAFETY: Caller guarantees correct buffer sizes.
         unsafe {
             gemv_plane_f32::launch_unchecked::<R>(
@@ -840,6 +871,7 @@ impl GemvCubeCL {
                 BufferArg::from_raw_parts(weight_handle, m * n),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
     }

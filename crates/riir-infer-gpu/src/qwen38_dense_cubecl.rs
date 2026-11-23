@@ -2434,6 +2434,43 @@ impl Qwen38WgpuForward {
         Ok(())
     }
 
+    /// Doc-hidden debug readback (the lens-lane debug-harness convention;
+    /// issue 1245 bisect): read `tmp_b[0..tmp_elems]` — the chunk tail's
+    /// normed-last-row scratch — and optionally `x_b` row `x_row` (the
+    /// final residual row the tail norm reads). Pure read-back, no launch,
+    /// no posture change.
+    #[doc(hidden)]
+    pub fn debug_read_scratch(
+        &self,
+        tmp_elems: usize,
+        x_row: Option<usize>,
+    ) -> Result<(Vec<f32>, Option<Vec<f32>>), String> {
+        let mut tmp = self
+            .client
+            .read_one(self.tmp_b.clone())
+            .map(|b| bytemuck::cast_slice(&b).to_vec())
+            .map_err(|e| format!("tmp_b read: {e:?}"))?;
+        tmp.truncate(tmp_elems);
+        let xrow = match x_row {
+            Some(r) => {
+                let e = self.config.n_embd;
+                let xb = self
+                    .client
+                    .read_one(self.x_b.clone())
+                    .map(|b| bytemuck::cast_slice(&b).to_vec())
+                    .map_err(|e| format!("x_b read: {e:?}"))?;
+                let start = r * e;
+                Some(
+                    xb.get(start..start + e)
+                        .ok_or_else(|| format!("row {r} out of x_b ({} rows)", xb.len() / e))?
+                        .to_vec(),
+                )
+            }
+            None => None,
+        };
+        Ok((tmp, xrow))
+    }
+
     /// Greedy argmax over the chunk path's logits (after `ingest_chunk_gpu`).
     fn read_chunk_argmax(&self) -> u32 {
         let logits = self.read_logits(&self.logits_b);

@@ -492,6 +492,12 @@ cq3 = ["dep:half", "katgpt-core/meld", "dep:blake3"]
 # read-backs (the unarmed constructor is unreachable — env gates it and the
 # driver is feature-gated), so serving builds compile the taps to nothing.
 cq3_calibrate = ["cq3", "qwen38_wgpu", "dep:blake3"]
+# Issue 1186 item (d) — the CQ3 cudarc twin: the raw-CUDA kernel mirror of
+# the CubeCL serving arm (qwen38_cq3_cudarc.rs), the 4090 lane's decode
+# GEMV for the T3 league cell. Implies the CUDA toolchain family; the
+# whole module is cfg(not(target_os = "macos")) so macOS compiles it out
+# (the platform-gated typecheck lane is its compile gate).
+cq3_cuda = ["cq3", "ternary_gemv_cuda_raw"]
 # Plan 630 / Issue 1201 T1 — the FlashStates cell's deterministic trace
 # generator (device-free; the digest half rides blake3). Opt-in feature
 # so the default serving tree carries zero extra deps; the [[test]] row
@@ -819,6 +825,12 @@ required-features = ["qwen38_wgpu"]
 [[bin]]
 name = "i1243_dense_golden_census"
 required-features = ["i1243_dense_golden"]
+
+# Issue 1245 bisect — the tail-logits arm isolation example (the league-env
+# demote flags + the doc-hidden scratch readbacks; the debug-harness lane).
+[[example]]
+name = "i1245_tail_bisect"
+required-features = ["qwen38_wgpu"]
 
 # Issue 1203 E3 — the dispatch-decomposition probe: one warm-up + one
 # measured pp512 through the SAME forward the E1 bench drives, then dumps
@@ -1241,3 +1253,10 @@ required-features = ["cq3_calibrate"]
 [[bin]]
 name = "i701_cell"
 required-features = ["qwen38_wgpu"]
+
+# Issue 1186 item (d) — the CQ3 cudarc twin's G1 battery (4090-gated; skips
+# LOUD without a CUDA device). Whole-file #![cfg(cq3_cuda, not(macos))] +
+# this row = the reader-protection pair (the R1 pattern).
+[[test]]
+name = "qwen38_cq3_cudarc_g1"
+required-features = ["cq3_cuda"]

@@ -41,3 +41,37 @@ Any consumer that seeds decode from a chunk prefill ≥ 1 whole chunk reads a ga
 - G1: chunk-boundary logits byte-sane (finite everywhere, plausible magnitudes) AND consistent with the decode path's continuation (teacher-forced NLL at a chunk boundary ≈ the decode path's NLL at the same position within f32 forward noise).
 - G2: `read_chunk_argmax` == decode-path argmax at the same position (the two postures agree on the greedy token).
 - G3: the league posture unchanged at the throughput shapes (the fix must not regress pp rows).
+**Claimed:** zed-8f8fb130@amo, 1795461850, expires 2026-11-26T19:30:00Z
+(claim scope = the KERNEL FIX: root-cause the lm_head chunk GEMV garbage in `ingest_chunk_gpu` (dense Metal lane, Issue 1150/1176 lineage), land the fix + gates; filing scope stays with zed-bb86e4df. Filer pinged before the claim.)
+
+## Resolution (2026-11-24, zed-8f8fb130@amo — Bench 1256)
+
+ROOT CAUSE — the plane/tiled f32 GEMV kernels (`gemv_plane_f32`/`gemv_tile_f32` in
+`gemv_cubecl.rs`) derived `n`/`m` from `input.len()`/`output.len()`. A kernel-visible
+slice length is the BINDING's backing slice size (the launcher registers it in the
+metadata; the `BufferArg::from_raw_parts` length does not constrain it — the Issue-639
+fact one layer down). The chunk tail binds `tmp_b` ([chunk × e]) and `logits_b`
+([vocab]) views with per-row offsets → every launch read the WHOLE scratch and wrote
+past its row window → garbage rows whose indices move per run (pool-layout dependent)
++ silent OOB writes into adjacent pool slices. Decode was never affected (exact-size
+handles, disjoint path). Neither the tensor-attention arm nor any other league arm was
+involved — the filer's "every posture" repro runs all carried the league env defaults
+(demote-only arms ON) and the control never entered the broken stage.
+
+FIX — both kernels take `n`/`m` from a 2-f32 params buffer (the Issue-697/698 pattern);
+`launch`/`launch_plane`/`launch_plane_wg`/`launch_tiled` pass it. Kernel dot loops
+untouched → decode bit-identical.
+
+GATES — G1 PASS (chunk-tail logits 0 non-finite, [-11.14, 20.26], deterministic across
+all four bisect arms; stage miniature exact vs CPU ref, bitwise deterministic); the
+G2 argmax-agreement row rides the i1243 chunk-posture unblock (its consumer of record);
+G3 not re-measured — kernel bodies byte-identical, the pp cell re-read lands with i1243.
+Lib 410 passed / 0 failed; gdn_chunked_route_g1 3/3; fused_norm_gating_g1 3/3.
+Instruments landed: `examples/i1245_tail_bisect.rs`, `tests/i1245_tail_gemv_units.rs`,
+`tests/i1245_tail_stage_units.rs`, and the doc-hidden `debug_read_scratch` reader.
+Record: `.benchmarks/1256_i1245_tail_logits_root_cause_fix.md`.
+
+RESIDUE (follow-up, no oversized-view caller today): the other len()-deriving GEMV
+kernels (`gemv_q4k_cubecl` ×4, `gemv_f16_cubecl`, `gemv_geglu_*`, the
+`gemv_plane_f32_pair*` pair kernels) carry the same trap for any future caller that
+binds oversized views; q6k already takes params.
