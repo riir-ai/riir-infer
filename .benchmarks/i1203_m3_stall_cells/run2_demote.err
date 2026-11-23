@@ -1,0 +1,1 @@
+[Issue 1176] dense-f16 matmul2d arm DEMOTED by RIIR_QWEN38_DENSE_MM2D=0 — the incumbent packed-load route (the pre-1176 bare default)
