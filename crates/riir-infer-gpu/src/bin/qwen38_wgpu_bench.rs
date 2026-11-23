@@ -593,7 +593,10 @@ fn run_decode_ablate_matrix(
     );
 
     // Warm-up: one full decode run — first-dispatch costs pay outside any
-    // cell (skipping never introduces a new kernel).
+    // cell (skipping never introduces a new kernel). The start line makes a
+    // mid-warm-up death diagnosable (the i1203 silent-death site; stdout is
+    // line-buffered, so the last line names the stage that never returned).
+    println!("[decode-ablate-matrix] warm-up start: ingest {seed} tokens + {steps} decode steps");
     fwd.zero_state();
     fwd.ingest(&toks, 0)
         .unwrap_or_else(|e| panic!("ingest: {e}"));
@@ -759,9 +762,11 @@ fn run_decode_ablate_cell(
     rows: &mut Vec<(&'static str, f64)>,
 ) {
     let seed = toks.len();
+    println!("[decode-ablate {name}] cell start ({pairs} pairs x {steps} steps)");
     let mut deltas: Vec<f64> = Vec::new();
     for pair in 0..pairs {
         // Base arm — the incumbent launch set under the current box state.
+        println!("[decode-ablate {name}] pair {pair} base arm start");
         fwd.zero_state();
         fwd.set_ablate(None);
         fwd.ingest(toks, 0)
@@ -794,6 +799,7 @@ fn run_decode_ablate_cell(
 
         // Ablated arm — the decode cell skips only d_* classes; the ingest
         // (prefill sites) runs its full launch set either way.
+        println!("[decode-ablate {name}] pair {pair} ablated arm start");
         fwd.zero_state();
         fwd.set_ablate(ablated.clone());
         fwd.ingest(toks, 0)
