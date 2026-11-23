@@ -89,8 +89,12 @@ pub struct CensusLayer {
 
 /// The model the census sweeps. Implementations own their forwards and
 /// scratch; the runner never allocates per candidate (the capture loop
-/// is read → push → read over the model's reused buffers).
-pub trait CensusModel {
+/// is read → push → read over the model's reused buffers). `Send` so
+/// the parallel driver can move one session per worker thread (the
+/// adapter's push must be weight-neutral for that to be sound — the
+/// qwen35 adapter's activation-scale push is; a weight-mutating
+/// implementation is only sound under `run_sweep`'s serial driver).
+pub trait CensusModel: Send {
     /// Identity of the swept artifact (weights digest) — the cursor and
     /// the artifact bind it.
     fn model_digest(&self) -> [u8; 32];
@@ -338,43 +342,21 @@ pub fn run_sweep(
 ) -> Result<CensusSweep> {
     let layers: Vec<CensusLayer> = model.layers().to_vec();
     let digest_hex = hex(&model.model_digest());
-    let mut sweep = CensusSweep::default();
-    let mut cursor = CensusCursor {
-        layer_index: 0,
-        next_column: 0,
-    };
-
-    let mut cursor_path: Option<std::path::PathBuf> = None;
-    let mut rows_path: Option<std::path::PathBuf> = None;
-    if let Some(dir) = state_dir {
-        std::fs::create_dir_all(dir)
-            .with_context(|| format!("census state dir {}", dir.display()))?;
-        let p = dir.join("cursor");
-        let r = dir.join("rows.bin");
-        if resume && p.exists() {
-            let text = std::fs::read_to_string(&p)
-                .with_context(|| format!("reading cursor {}", p.display()))?;
-            cursor = parse_cursor(&text, &digest_hex)
-                .with_context(|| format!("cursor {} is stale or malformed", p.display()))?;
-            let keep = global_done(&cursor, &layers);
-            let prior =
-                load_rows(&r, keep).with_context(|| format!("rows ledger {}", r.display()))?;
-            if prior.len() != keep {
-                bail!(
-                    "rows ledger holds {} rows but the cursor commits {} — state is inconsistent",
-                    prior.len(),
-                    keep
-                );
-            }
-            sweep.rows = prior;
-        } else {
-            write_cursor(&p, &cursor, &digest_hex)?;
-            std::fs::write(&r, b"")
-                .with_context(|| format!("truncating rows ledger {}", r.display()))?;
+    let (mut sweep, mut cursor, cursor_path, rows_path) = match state_dir {
+        Some(dir) => {
+            let (s, c, cp, rp) = open_census_state(dir, &digest_hex, &layers, resume, None)?;
+            (s, c, Some(cp), Some(rp))
         }
-        cursor_path = Some(p);
-        rows_path = Some(r);
-    }
+        None => (
+            CensusSweep::default(),
+            CensusCursor {
+                layer_index: 0,
+                next_column: 0,
+            },
+            None,
+            None,
+        ),
+    };
 
     let mut draw = ControlDraw::new(layers.first().map_or(0, |l| l.neurons));
     for (li, layer) in layers.iter().enumerate().skip(cursor.layer_index) {
@@ -388,7 +370,12 @@ pub fn run_sweep(
         };
         for column in start..layer.neurons {
             let column = column as u32;
-            let ids = draw.draw(cfg, li, column);
+            // The seed folds the REAL layer id, not the table position —
+            // identical here (an unfiltered table's ids are its positions)
+            // and posture-invariant under a `--layers` filter (the parallel
+            // driver's filtered tables would otherwise draw different
+            // controls for the same candidate).
+            let ids = draw.draw(cfg, usize::from(layer.layer), column);
             sweep.adjudicate_candidate(
                 model,
                 Candidate {
@@ -417,13 +404,260 @@ pub fn run_sweep(
 }
 
 /// Global completed-candidate count at a cursor (whole layers before
-/// it plus its in-layer column position).
-fn global_done(cursor: &CensusCursor, layers: &[CensusLayer]) -> usize {
+/// it plus its in-layer column position), under the driver's per-layer
+/// candidate `limit` (a limited posture's widths are the layer widths
+/// clamped to it; `None` = the full table).
+fn global_done(cursor: &CensusCursor, layers: &[CensusLayer], limit: Option<usize>) -> usize {
     let mut n = 0usize;
     for layer in layers.iter().take(cursor.layer_index) {
-        n += layer.neurons;
+        n += limited_width(layer.neurons, limit);
     }
-    n + cursor.next_column
+    let cur_w = layers
+        .get(cursor.layer_index)
+        .map_or(0, |l| limited_width(l.neurons, limit));
+    n + cursor.next_column.min(cur_w)
+}
+
+/// A layer's sweep width under the per-layer candidate limit.
+fn limited_width(neurons: usize, limit: Option<usize>) -> usize {
+    match limit {
+        Some(l) => neurons.min(l),
+        None => neurons,
+    }
+}
+
+/// The flattened candidate position → `(table layer index, column)`.
+/// `lw` is the per-layer limited widths; a position past the table is
+/// unreachable by construction (the callers pull `g < total`).
+fn locate_candidate(g: usize, lw: &[usize]) -> (usize, usize) {
+    let mut rest = g;
+    for (li, &w) in lw.iter().enumerate() {
+        if rest < w {
+            return (li, rest);
+        }
+        rest -= w;
+    }
+    unreachable!(
+        "candidate position {g} past the flattened table (total {})",
+        lw.iter().sum::<usize>()
+    );
+}
+
+/// Open (or resume) a census state dir — the ONE home of the durable
+/// protocol both drivers share: the atomic cursor plus the canonical
+/// rows ledger. The cursor rename is the commit point; on resume, rows
+/// beyond the cursor are discarded (a kill mid-append may leave a
+/// partial tail) and a mismatching cursor refuses loud. A fresh dir is
+/// initialized (cursor written, ledger truncated) whether or not
+/// `resume` was asked — `resume` with no cursor present is a fresh run.
+fn open_census_state(
+    dir: &std::path::Path,
+    digest_hex: &str,
+    layers: &[CensusLayer],
+    resume: bool,
+    limit: Option<usize>,
+) -> Result<(
+    CensusSweep,
+    CensusCursor,
+    std::path::PathBuf,
+    std::path::PathBuf,
+)> {
+    std::fs::create_dir_all(dir).with_context(|| format!("census state dir {}", dir.display()))?;
+    let p = dir.join("cursor");
+    let r = dir.join("rows.bin");
+    let mut sweep = CensusSweep::default();
+    let mut cursor = CensusCursor {
+        layer_index: 0,
+        next_column: 0,
+    };
+    if resume && p.exists() {
+        let text = std::fs::read_to_string(&p)
+            .with_context(|| format!("reading cursor {}", p.display()))?;
+        cursor = parse_cursor(&text, digest_hex)
+            .with_context(|| format!("cursor {} is stale or malformed", p.display()))?;
+        let keep = global_done(&cursor, layers, limit);
+        let prior = load_rows(&r, keep).with_context(|| format!("rows ledger {}", r.display()))?;
+        if prior.len() != keep {
+            bail!(
+                "rows ledger holds {} rows but the cursor commits {} — state is inconsistent",
+                prior.len(),
+                keep
+            );
+        }
+        sweep.rows = prior;
+    } else {
+        write_cursor(&p, &cursor, digest_hex)?;
+        std::fs::write(&r, b"")
+            .with_context(|| format!("truncating rows ledger {}", r.display()))?;
+    }
+    Ok((sweep, cursor, p, r))
+}
+
+/// The parallel census sweep driver — the serial [`run_sweep`]'s row
+/// semantics on many cores. Workers pull CHUNKS of consecutive
+/// candidates from the serial order (the flatten of the model's layer
+/// table, column-major within a layer) and adjudicate them on their own
+/// [`CensusModel`] session; rows stream back per candidate and the main
+/// thread commits ONLY the in-order prefix — ledger append, cursor
+/// advance, `progress` — so the durable state and the kill/resume
+/// semantics are byte-identical to the serial sweep's (a resume
+/// continues at the committed cursor; in-flight candidates are simply
+/// re-run). Determinism: the control draw is a pure function of
+/// (seed, layer id, column) and the adjudication folds are sequential
+/// per candidate — the parallel rows equal the serial rows bit-for-bit
+/// (pinned by the fixture's par/serial twin gates).
+///
+/// `models` supplies one session per worker (the caller builds them —
+/// typically cheap handles over shared weights); `limit` caps every
+/// layer's candidates (the smoke posture; a limited run is never
+/// resumed — the cursor under a different limit refuses loud via the
+/// keep check).
+pub fn run_sweep_par(
+    models: Vec<Box<dyn CensusModel>>,
+    chunk: usize,
+    cfg: &CensusConfig,
+    state_dir: &std::path::Path,
+    resume: bool,
+    limit: Option<usize>,
+    progress: &mut dyn FnMut(usize, usize, CensusCursor),
+) -> Result<CensusSweep> {
+    if models.is_empty() {
+        bail!("run_sweep_par needs at least one worker session");
+    }
+    if chunk == 0 {
+        bail!("chunk must be >= 1");
+    }
+    let layers: Vec<CensusLayer> = models[0].layers().to_vec();
+    let digest_hex = hex(&models[0].model_digest());
+    let lw: Vec<usize> = layers
+        .iter()
+        .map(|l| limited_width(l.neurons, limit))
+        .collect();
+    let total: usize = lw.iter().sum();
+    let (mut sweep, mut cursor, cursor_path, rows_path) =
+        open_census_state(state_dir, &digest_hex, &layers, resume, limit)?;
+    let mut committed = global_done(&cursor, &layers, limit);
+    if committed >= total {
+        return Ok(sweep);
+    }
+
+    let next = std::sync::atomic::AtomicUsize::new(committed);
+    let abort = std::sync::atomic::AtomicBool::new(false);
+    let (tx, rx) = std::sync::mpsc::channel::<(usize, Result<CensusRow, anyhow::Error>)>();
+    let mut first_err: Option<(usize, anyhow::Error)> = None;
+    let mut io_err: Option<anyhow::Error> = None;
+    let mut pending: std::collections::BTreeMap<usize, CensusRow> = Default::default();
+
+    std::thread::scope(|scope| {
+        let lw = &lw;
+        let layers = &layers;
+        let total = &total;
+        let cfg = &cfg;
+        for mut model in models {
+            let tx = tx.clone();
+            let next = &next;
+            let abort = &abort;
+            scope.spawn(move || {
+                let mut draw = ControlDraw::new(0);
+                let mut scratch = CensusSweep::default();
+                loop {
+                    if abort.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    let start = next.fetch_add(chunk, std::sync::atomic::Ordering::Relaxed);
+                    if start >= *total {
+                        break;
+                    }
+                    let end = (start + chunk).min(*total);
+                    for g in start..end {
+                        let (li, col) = locate_candidate(g, lw);
+                        let layer = &layers[li];
+                        if draw.pool.len() != layer.neurons {
+                            draw = ControlDraw::new(layer.neurons);
+                        }
+                        let ids = draw.draw(cfg, usize::from(layer.layer), col as u32);
+                        let r = scratch.adjudicate_candidate(
+                            model.as_mut(),
+                            Candidate {
+                                layer_index: li,
+                                layer,
+                                column: col as u32,
+                                control_ids: &ids,
+                            },
+                            MIN_READS,
+                            cfg,
+                            &mut |m, li, c, f, read| m.push_observable(li, c, f, read),
+                        );
+                        let row = scratch.rows.pop();
+                        debug_assert!(
+                            r.is_ok() || row.is_none(),
+                            "a failed adjudication must not leave a row"
+                        );
+                        let _ = tx.send((
+                            g,
+                            r.map(|_| row.expect("a passed adjudication pushed exactly one row")),
+                        ));
+                    }
+                }
+            });
+        }
+        drop(tx); // the workers hold the clones; recv ends when they all finish
+        while committed < *total && first_err.is_none() {
+            let (g, r) = match rx.recv() {
+                Ok(x) => x,
+                Err(_) => break, // every sender gone (workers finished)
+            };
+            match r {
+                Ok(row) => {
+                    pending.insert(g, row);
+                }
+                Err(e) => {
+                    first_err = Some((g, e));
+                    abort.store(true, std::sync::atomic::Ordering::Relaxed);
+                    break;
+                }
+            }
+            // Commit the in-order prefix the new row may have completed.
+            // A durable-state IO failure is stored, not `?`-returned (the
+            // scope closure returns ()); the run aborts and the caller
+            // refuses after the workers join — the committed prefix is
+            // exactly the ledger, so the run is resumable.
+            while io_err.is_none()
+                && let Some(row) = pending.remove(&committed)
+            {
+                let (li, col) = locate_candidate(committed, lw);
+                cursor = CensusCursor {
+                    layer_index: li,
+                    next_column: col + 1,
+                };
+                if let Err(e) = append_row(&rows_path, &row)
+                    .and_then(|()| write_cursor(&cursor_path, &cursor, &digest_hex))
+                {
+                    io_err = Some(e);
+                    abort.store(true, std::sync::atomic::Ordering::Relaxed);
+                    break;
+                }
+                sweep.rows.push(row);
+                committed += 1;
+                progress(li, layers[li].neurons, cursor);
+            }
+            if io_err.is_some() {
+                break;
+            }
+        }
+    });
+
+    if let Some(e) = io_err {
+        bail!("census durable state failed at {committed} committed candidates: {e}");
+    }
+    if let Some((g, e)) = first_err {
+        let (li, col) = locate_candidate(g, &lw);
+        bail!(
+            "candidate {g} (layer {} column {col}) failed: {e}",
+            layers[li].layer
+        );
+    }
+    Ok(sweep)
 }
 
 /// Canonical artifact: header + rows sorted by (layer, column) + BLAKE3

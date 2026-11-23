@@ -346,7 +346,7 @@ pub use delta_roll::{ConditioningRefusal, GdnStateJournal, MIN_PRODUCT_EPS_DEFAU
 pub use forward::{
     DeltaNetState, HybridCache, HybridForwardScratch, PrefillContext, effective_rotary_dim,
     forward_qwen_deltanet, generate_greedy_qwen_deltanet, prefill_qwen_deltanet,
-    prefill_qwen_deltanet_into,
+    prefill_qwen_deltanet_into, prefill_qwen_deltanet_range_into,
 };
 #[cfg(feature = "kv_eviction")]
 pub use forward::{

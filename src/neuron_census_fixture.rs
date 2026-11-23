@@ -295,6 +295,106 @@ pub fn g1_receipt(cfg: &CensusConfig) -> Result<G1Receipt, String> {
     })
 }
 
+/// The parallel/serial twin receipt — the `run_sweep_par` driver's
+/// gates on the same fixture model: rows equal the serial sweep
+/// bit-for-bit, a chunked kill/resume lands the identical artifact.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ParReceipt {
+    pub rows: usize,
+    pub resume_identical: bool,
+    pub workers: usize,
+    pub chunk: usize,
+}
+
+/// Run the parallel driver over fresh fixture models and pin it against
+/// the serial sweep: same rows (bit-exact), same artifact, and a
+/// mid-sweep kill + resume that converges to the uninterrupted bytes.
+pub fn par_receipt(cfg: &CensusConfig) -> Result<ParReceipt, String> {
+    use crate::neuron_census::run_sweep_par;
+
+    const WORKERS: usize = 4;
+    const CHUNK: usize = 3;
+
+    let mut serial_model = ToyCensusModel::new(ToyMlp::new(FIXTURE_SEED));
+    let serial = run_sweep(&mut serial_model, cfg, None, false, &mut |_, _, _| {})
+        .map_err(|e| e.to_string())?;
+    let serial_artifact = mint_artifact(&serial, &serial_model.model_digest(), cfg);
+
+    let dir = std::env::temp_dir().join(format!("neuron_census_par_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let models: Vec<Box<dyn CensusModel>> = (0..WORKERS)
+        .map(|_| Box::new(ToyCensusModel::new(ToyMlp::new(FIXTURE_SEED))) as Box<dyn CensusModel>)
+        .collect();
+    let par = run_sweep_par(models, CHUNK, cfg, &dir, false, None, &mut |_, _, _| {})
+        .map_err(|e| e.to_string())?;
+    if par.rows != serial.rows {
+        return Err(format!(
+            "parallel rows diverged from serial ({} vs {} rows, first diff at {:?})",
+            par.rows.len(),
+            serial.rows.len(),
+            par.rows
+                .iter()
+                .zip(serial.rows.iter())
+                .position(|(a, b)| a != b),
+        ));
+    }
+    let par_artifact = mint_artifact(&par, &serial_model.model_digest(), cfg);
+    if par_artifact != serial_artifact {
+        return Err("parallel artifact diverged from serial".to_string());
+    }
+
+    // Chunked kill + resume: kill after ~half the candidates (the
+    // progress hook fires on the committer thread — this main thread —
+    // so a panic here unwinds through the scope and joins the workers),
+    // then resume to the identical artifact.
+    let kdir =
+        std::env::temp_dir().join(format!("neuron_census_par_resume_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&kdir);
+    let kill_at = serial.rows.len() / 2;
+    let done = std::cell::Cell::new(0usize);
+    let models: Vec<Box<dyn CensusModel>> = (0..WORKERS)
+        .map(|_| Box::new(ToyCensusModel::new(ToyMlp::new(FIXTURE_SEED))) as Box<dyn CensusModel>)
+        .collect();
+    // Silence the expected kill's panic print (the receipt, not a
+    // failure log — the hook is restored before returning).
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let killed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = run_sweep_par(models, CHUNK, cfg, &kdir, false, None, &mut |_, _, _| {
+            let d = done.get() + 1;
+            done.set(d);
+            if d == kill_at {
+                panic!("simulated kill mid-parallel-sweep");
+            }
+        });
+    }));
+    std::panic::set_hook(prev_hook);
+    if killed.is_err() {
+        // Expected — the kill fired. The committed prefix is the ledger.
+    } else {
+        return Err("the simulated parallel kill must fire".to_string());
+    }
+    let models: Vec<Box<dyn CensusModel>> = (0..WORKERS)
+        .map(|_| Box::new(ToyCensusModel::new(ToyMlp::new(FIXTURE_SEED))) as Box<dyn CensusModel>)
+        .collect();
+    let resumed = run_sweep_par(models, CHUNK, cfg, &kdir, true, None, &mut |_, _, _| {})
+        .map_err(|e| e.to_string())?;
+    let resumed_artifact = mint_artifact(&resumed, &serial_model.model_digest(), cfg);
+    let identical = resumed_artifact == serial_artifact;
+    if !identical {
+        return Err("parallel resume artifact diverged from the uninterrupted sweep".to_string());
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&kdir);
+    Ok(ParReceipt {
+        rows: serial.rows.len(),
+        resume_identical: identical,
+        workers: WORKERS,
+        chunk: CHUNK,
+    })
+}
+
 // ── the cfg(test) battery ────────────────────────────────────────────
 
 #[cfg(test)]

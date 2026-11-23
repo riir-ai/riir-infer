@@ -150,6 +150,26 @@ impl HybridCache {
             s.fill(0.0);
         }
     }
+
+    /// Zero ONLY the DeltaNet recurrent + conv states for `range` — the
+    /// layer-band prefill's per-pass reset (Issue 1241: the census lane's
+    /// band cache keeps the prefix layers' state pristine while every
+    /// candidate re-runs the suffix from a fresh recurrence). Attention
+    /// KV slots are deliberately untouched: the prefill branch overwrites
+    /// positions `..seq_len` before any read, and causal attention never
+    /// reads beyond the pass's own rows — stale slots past the pass
+    /// length are unreachable (the band≡full bit-identity gate on the
+    /// real checkpoint is the proof this holds).
+    pub fn reset_deltanet_range(&mut self, range: std::ops::Range<usize>) {
+        for l in range {
+            if let Some(s) = self.deltanet_state.recurrent_states.get_mut(l) {
+                s.fill(0.0);
+            }
+            if let Some(s) = self.deltanet_state.conv_states.get_mut(l) {
+                s.fill(0.0);
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1957,6 +1977,21 @@ pub struct PrefillContext {
     /// [`HybridForwardScratch`]).
     #[cfg(feature = "closed_form_write")]
     pub closed_form_rank_scratch: Vec<f32>,
+    /// Issue 1241 census: the activation-scale push — `(layer, column, f)`
+    /// scales the SwiGLU activation `column` of `layer` before the
+    /// down-projection (the `batched_mlp` hook). Mathematically the
+    /// down_proj column-scale edit WITHOUT touching the weights: the
+    /// census session arms it per push and the weights stay bit-stable,
+    /// which is what lets parallel census sweeps share one weights
+    /// `Arc` read-only. NOT bit-identical to a literal weight-column
+    /// scale — `f·act` rounds once before the matvec vs the scaled
+    /// weight rounding inside it (last-ulp difference, disclosed on the
+    /// lane; the band/full posture gate compares THIS mechanism to
+    /// itself, so the band cache's bit-identity claim is unaffected).
+    /// `None` in every serving path; a default build compiles the field
+    /// and its fold arm out entirely.
+    #[cfg(feature = "neuron_census")]
+    pub census_column_scale: Option<(usize, u32, f32)>,
 }
 
 impl PrefillContext {
@@ -2022,6 +2057,8 @@ impl PrefillContext {
             closed_form_overlays: None,
             #[cfg(feature = "closed_form_write")]
             closed_form_rank_scratch: vec![0.0; config.mlp_hidden.min(config.n_embd)],
+            #[cfg(feature = "neuron_census")]
+            census_column_scale: None,
         }
     }
 }
@@ -2092,6 +2129,21 @@ fn batched_mlp(
         &prefill_ctx.mlp_gate[..seq_len * mlp],
         &prefill_ctx.mlp_up[..seq_len * mlp],
     );
+    // 5b. Issue 1241 census: the activation-scale push (the ctx-gated
+    //     `(layer, column, f)` tuple) — fires at the pushed layer only,
+    //     scaling the activation column the down matmat is about to
+    //     consume. Gated with `neuron_census` so a default build
+    //     compiles the block out (the cfg-row-implication class: with
+    //     the field compiled out the tuple read vanishes too).
+    #[cfg(feature = "neuron_census")]
+    if let Some((cl, cc, cf)) = prefill_ctx.census_column_scale
+        && cl == layer_idx
+    {
+        let buf = &mut prefill_ctx.mlp_hidden_buf[..seq_len * mlp];
+        for p in 0..seq_len {
+            buf[p * mlp + cc as usize] *= cf;
+        }
+    }
     // 6. Batched down_proj: hidden = down_proj @ mlp_hidden_buf. ONE GEMM.
     //    Overwrites the normalized hidden — no longer needed after gate/up.
     layer.down_proj.matmat(
