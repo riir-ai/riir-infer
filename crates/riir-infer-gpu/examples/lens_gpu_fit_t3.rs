@@ -17,10 +17,19 @@
 //!   --gguf ../riir-train/data/Qwen3.5-0.8B-Base-Q8_0.gguf \
 //!   --corpus-dir ../riir-reflex/.raw/datasets/ag_news \
 //!   --docs 1000 --t 128 --dim-batch 128 \
-//!   [--k-threads 16] [--out .lens_gpu_fit_t3] [--box-state "..."]
+//!   [--k-threads 16] [--out .lens_gpu_fit_t3] [--box-state "..."] [--no-resume]
 //! ```
 //!
 //! `--r-dirs 0` (the default) = the full basis — the point of this lane.
+//!
+//! Checkpoint/resume (the compute law: >20 min runs resume, never
+//! restart): after every doc the accumulators flush to
+//! `<out>/gen_{a,b}/` + an atomic `LATEST` pointer, so a kill or cancel
+//! loses at most one doc. A re-run over the SAME corpus/shape loads the
+//! checkpoint and continues with the identical accumulation order
+//! (bit-identical to an uninterrupted run); a mismatch refuses LOUD
+//! (pass `--no-resume` to start fresh). Born of the 2026-11-18
+//! deciding-run cancel that lost 3 completed docs (issue 1223).
 
 use anyhow::{Context, Result, bail};
 use riir_infer_core::gguf_loader::{GgufFile, load_qwen_deltanet_weights_gguf};
@@ -51,6 +60,7 @@ struct Args {
     seed_lo: usize,
     out: PathBuf,
     box_state: String,
+    no_resume: bool,
 }
 
 impl Args {
@@ -67,6 +77,7 @@ impl Args {
             seed_lo: 16,
             out: PathBuf::from(".lens_gpu_fit_t3"),
             box_state: String::new(),
+            no_resume: false,
         };
         let mut it = std::env::args().skip(1);
         while let Some(arg) = it.next() {
@@ -82,6 +93,7 @@ impl Args {
                 "--seed-lo" => a.seed_lo = it.next().context("--seed-lo value")?.parse()?,
                 "--out" => a.out = PathBuf::from(it.next().context("--out value")?),
                 "--box-state" => a.box_state = it.next().context("--box-state value")?,
+                "--no-resume" => a.no_resume = true,
                 other => bail!("unknown arg {other} (see the module docs)"),
             }
         }
@@ -156,6 +168,73 @@ fn write_f32_rows(path: &Path, rows: &[Vec<f32>]) -> Result<u64> {
         }
     }
     Ok(bytes)
+}
+
+/// Per-doc checkpoint: two alternating generation directories + an atomic
+/// `LATEST` pointer. A crash mid-flush leaves `LATEST` naming the previous
+/// COMPLETE generation — the pointer only flips after every file of the
+/// new generation is on disk.
+fn flush_partial(
+    dir: &Path,
+    generation: &str,
+    state: &serde_json::Value,
+    accs: &[(&str, &[Vec<f64>])],
+) -> Result<()> {
+    let gdir = dir.join(generation);
+    std::fs::create_dir_all(&gdir)?;
+    for (name, rows) in accs {
+        let tmp = gdir.join(format!("{name}.bin.tmp"));
+        {
+            let mut f =
+                std::fs::File::create(&tmp).with_context(|| format!("create {}", tmp.display()))?;
+            for r in *rows {
+                for v in r {
+                    f.write_all(&v.to_le_bytes())?;
+                }
+            }
+            f.sync_all().ok();
+        }
+        std::fs::rename(&tmp, gdir.join(format!("{name}.bin")))?;
+    }
+    let stmp = gdir.join("state.json.tmp");
+    std::fs::write(&stmp, serde_json::to_string(state)?)?;
+    std::fs::rename(&stmp, gdir.join("state.json"))?;
+    let ltmp = dir.join("LATEST.tmp");
+    std::fs::write(&ltmp, generation)?;
+    std::fs::rename(&ltmp, dir.join("LATEST"))?;
+    Ok(())
+}
+
+/// Load the checkpoint generation `LATEST` names. `None` when no
+/// checkpoint exists; a PRESENT-but-unreadable checkpoint is a hard error
+/// (the operator decides — never a silent fresh start of a multi-hour run).
+fn load_partial(dir: &Path) -> Result<Option<(serde_json::Value, Vec<Vec<f64>>)>> {
+    let latest = dir.join("LATEST");
+    if !latest.exists() {
+        return Ok(None);
+    }
+    let generation = std::fs::read_to_string(&latest)?.trim().to_string();
+    anyhow::ensure!(
+        !generation.is_empty(),
+        "empty LATEST pointer in {}",
+        dir.display()
+    );
+    let gdir = dir.join(&generation);
+    let state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(gdir.join("state.json"))?)
+            .with_context(|| format!("corrupt checkpoint state in {}", gdir.display()))?;
+    let mut accs = Vec::new();
+    for name in ["k_even", "j_even", "k_odd", "j_odd"] {
+        let bytes = std::fs::read(gdir.join(format!("{name}.bin")))
+            .with_context(|| format!("checkpoint bin {name} unreadable in {}", gdir.display()))?;
+        accs.push(
+            bytes
+                .chunks_exact(8)
+                .map(|c| f64::from_le_bytes(c.try_into().expect("8 bytes")))
+                .collect::<Vec<f64>>(),
+        );
+    }
+    Ok(Some((state, accs)))
 }
 
 fn main() -> Result<()> {
@@ -263,7 +342,61 @@ fn main() -> Result<()> {
     let mut cap = StackCapture::new(&geo);
     let mut gpu_stack = None;
 
-    for (di, tokens) in docs.iter().enumerate() {
+    // ── resume (the compute law: >20 min runs resume, never restart) ──
+    let mut docs_done = 0usize;
+    let mut gen_toggle = false;
+    if args.no_resume {
+        println!("# resume: disabled (--no-resume) — starting fresh");
+    } else if let Some((state, accs)) = load_partial(&args.out)? {
+        let matches = state["corpus_digest"].as_str() == Some(digest.as_str())
+            && state["docs"].as_u64() == Some(args.docs as u64)
+            && state["t"].as_u64() == Some(args.t as u64)
+            && state["seed_lo"].as_u64() == Some(args.seed_lo as u64)
+            && state["seed_hi"].as_u64() == Some(seed_hi as u64)
+            && state["dim_batch"].as_u64() == Some(dim_batch as u64)
+            && state["points"].as_u64() == Some(points.len() as u64)
+            && state["d"].as_u64() == Some(d as u64);
+        let expect = points.len() * d * d;
+        let bins_ok = accs.iter().all(|a| a.len() == expect);
+        if !matches || !bins_ok {
+            bail!(
+                "checkpoint in {} does not match this run (digest/docs/t/seed/dim_batch/points/d or bin lengths) — pass --no-resume to start fresh",
+                args.out.display()
+            );
+        }
+        let get =
+            |i: usize| -> Vec<Vec<f64>> { accs[i].chunks(d * d).map(|c| c.to_vec()).collect() };
+        k_even = get(0);
+        j_even = get(1);
+        k_odd = get(2);
+        j_odd = get(3);
+        n_even = state["n_even"].as_u64().context("checkpoint n_even")?;
+        n_odd = state["n_odd"].as_u64().context("checkpoint n_odd")?;
+        docs_done = state["docs_done"]
+            .as_u64()
+            .context("checkpoint docs_done")? as usize;
+        cost.docs = state["cost_docs"].as_u64().unwrap_or(0) as usize;
+        cost.prefix_passes = state["cost_prefix_passes"].as_u64().unwrap_or(0);
+        cost.suffix_passes = state["cost_suffix_passes"].as_u64().unwrap_or(0);
+        cost.capture_secs = state["cost_capture_secs"].as_f64().unwrap_or(0.0);
+        cost.sweep_secs = state["cost_sweep_secs"].as_f64().unwrap_or(0.0);
+        gen_toggle = docs_done % 2 == 1;
+        println!(
+            "# resume: docs_done={} n_even={} n_odd={} from {} — skipping the first {} docs (bit-identical accumulation order)",
+            docs_done,
+            n_even,
+            n_odd,
+            args.out.display(),
+            docs_done
+        );
+    } else {
+        println!(
+            "# resume: no checkpoint in {} — starting fresh",
+            args.out.display()
+        );
+    }
+
+    for (di, tokens) in docs.iter().enumerate().skip(docs_done) {
         let tc = Instant::now();
         stack_forward(tokens, &w, &mut cap);
         cost.capture_secs += tc.elapsed().as_secs_f64();
@@ -400,6 +533,47 @@ fn main() -> Result<()> {
             el / (di + 1) as f64,
             sweep_wall,
             el / (di + 1) as f64 * (args.docs - di - 1) as f64 / 3600.0
+        );
+
+        // Per-doc checkpoint — the alternating-generation flip is
+        // crash-safe: LATEST always names a complete generation.
+        gen_toggle = !gen_toggle;
+        let generation = if gen_toggle { "gen_b" } else { "gen_a" };
+        let state = json!({
+            "format": "lens_gpu_fit_t3_partial_v1",
+            "corpus_digest": digest,
+            "docs": args.docs,
+            "t": args.t,
+            "seed_lo": args.seed_lo,
+            "seed_hi": seed_hi,
+            "dim_batch": dim_batch,
+            "points": points.len(),
+            "d": d,
+            "docs_done": di + 1,
+            "n_even": n_even,
+            "n_odd": n_odd,
+            "cost_docs": cost.docs,
+            "cost_prefix_passes": cost.prefix_passes,
+            "cost_suffix_passes": cost.suffix_passes,
+            "cost_capture_secs": cost.capture_secs,
+            "cost_sweep_secs": cost.sweep_secs,
+        });
+        flush_partial(
+            &args.out,
+            generation,
+            &state,
+            &[
+                ("k_even", &k_even),
+                ("j_even", &j_even),
+                ("k_odd", &k_odd),
+                ("j_odd", &j_odd),
+            ],
+        )?;
+        println!(
+            "# checkpoint: docs_done={} → {} in {}",
+            di + 1,
+            generation,
+            args.out.display()
         );
     }
     drop(cap);

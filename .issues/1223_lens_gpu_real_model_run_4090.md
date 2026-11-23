@@ -1,7 +1,8 @@
 # Issue 1223: the lens full-basis REAL-model run — 4090 cell (i1222 follow-up)
 
-**Status:** open — smoke-v3 recorded (Bench 1240) + the deciding run launched (exclusive job; adjudication wake re-aimed 2026-11-20T00:30Z; prior lease zed-ba521963@amo expired 2026-11-18T00:16Z with the smoke unrecorded — taken per the expired-lease law).
-**Claimed:** shikuwa-4090-i1223rec, 1794978699, expires 2026-11-20T11:11:39+00:00
+**Status:** open — smoke-v3 recorded (Bench 1240); the 11-18 deciding-run attempt CANCELLED FALSE-POISON (adjudicated below); the resume lane landed; deciding run RE-FILED 2026-11-23 (see the re-file row).
+**Claimed:** zed-6c3d0611@amo, 1795516800, expires 2026-11-25T04:00:00+00:00
+Prior lease: shikuwa-4090-i1223rec, 1794978699, was expires 2026-11-20T11:11:39+00:00 — lapsed (the holder lane went quiet after the cancel; expired-lease law).
 
 ## What this is
 
@@ -29,12 +30,9 @@ root package; the bare `--features` spelling refused with `error: no feature
 named lens_gpu` + `help: package with the missing feature: riir-infer-gpu`.
 Measured on the 4090 2026-11-16.)
 
-**REQUEUE 2026-11-18 (shikuwa-4090-i1223rec):** f5ea680e CANCELLED at ~99 min —
-POISONED ×163 (the batch-370 landing lane's own gate builds ran inside the
-exclusive window; poison grew ×131 → ×163 through its final verification
+**REQUEUE 2026-11-18 (shikuwa-4090-i1223rec):** f5ea680e CANCELLED at ~99 min — POISONED ×163 (the batch-370 landing lane's own gate builds ran inside the exclusive window; poison grew ×131 → ×163 through its final verification
 runs) with ZERO docs complete (smoke v3 measured 9302.7 s/doc ⇒ doc 1 was
-unfinished — nothing salvageable, and the run's wall numbers were unusable
-for the record). Clean requeue `01a1ee27-d515-7bc0-a120-b75c25bfc76e`
+unfinished — nothing salvageable, and the run's wall numbers were unusable for the record). Clean requeue `01a1ee27-d515-7bc0-a120-b75c25bfc76e`
 (25bfc76e): same wrapper `E:/tmp/i1223/deciding_run.cmd`, Exclusive lane,
 timeout 40 h, notify shikuwa@4090 — started 2026-11-18 ~10:2xZ on a QUIET
 rig (no cargo contenders). Two accidental duplicate queue entries were
@@ -44,6 +42,8 @@ the exit code), and `rig cancel` needs the FULL job UUID (short ids refuse
 silently). The box holds the Plan-337 zero-cargo posture for the run window;
 the next mining batch (plan 310, oldest staged-unclaimed) dispatched to amo.
 Lease unchanged (exp 2026-11-20T11:11Z).
+
+**11-18 CANCEL ADJUDICATED FALSE-POISON 2026-11-23 (zed-6c3d0611@amo, the preserved evidence):** the requeue was cancelled 2026-11-18T21:18Z on zed-d102f326@4090's "POISONED ×956 over 640+ min, fast pre-run failure loop, zero docs done" read — **the preserved rig job log REFUTES the diagnosis**: docs 1–3 COMPLETED healthy (`[1/10] 11000.8s/doc`, `[2/10] 11812.5s/doc avg`, `[3/10] 11895.6s/doc avg, eta 23.1 h`) when the cancel landed mid-doc-4. The misdiagnosis vector: the wrapper `deciding_run.cmd` writes no log of its own, and the diagnoser read the wrapper, not the RIG job log (`rig log 4090 <id>`), which had everything. **~11 h of compute lost — the exact cost the compute law's resumability clause exists to prevent; the example had no checkpoint.** Fix both halves: (1) the resume lane landed this session (per-doc checkpoint `<out>/gen_{a,b}/` + atomic `LATEST` pointer, crash-safe flip, resume validated against corpus-digest/shape identity, loud refusal on mismatch, `--no-resume` escape — bit-identical accumulation order by construction: docs are processed in the same deterministic order and the restored f64 sums continue the same sequence); (2) the re-file runs the cargo command DIRECTLY as the rig argv (no wrapper) so the rig job log IS the full diagnostic surface. The 12ks/doc steady pace re-prices docs=10 at ~33 h (over the ≤30 h wish, inside the 42 h timeout); the sizing record's 9302.7 s/doc was the smoke's number, the deciding run's own pace is the honest one.
 
 **Run (in flight 2026-11-16):** first execution FAILED — `lens_gpu_fit_t3.rs` accumulation indexing OOB at the doc-1 K merge (`len 1048576, index 1048576` = d², point 1 row 0): `target[pi]`/`gpu_sums[pi]` are per-point [d × d] buffers, but both merge sites carried a `pi *` term inside the ROW index (`(pi*d + row)*d`) — correct only for point 0, out of bounds for every point ≥ 1. The J sweep carried the identical defect (would have fired after K). **Found by the first real-model execution** — the fixture/unit gates exercise the kernels, never this example's accumulation loops, and no prior run had `points.len() ≥ 2`. FIXED `7862a8c` (K merge + J sweep; comment pins the layout law).
 
