@@ -4,7 +4,8 @@
 
 **Lease closed:** zed-m3-1201t2b@m3, 1794369600, expired 2026-11-13T04:00:00+00:00 — holder gone from m3's live threads (evidence stand recorded above; no post-expiry landing found).
 
-**Claimed:** zed-m3-i1203-e1@m3, 1795454985, expires 2026-11-25T18:00:00+00:00 — scope: E1 engagement proof first (isolated-target build + two pp512 runs), then E3 counters probe; E2/E4/E5 as the quiet window allows. The lane is m3-NATIVE (per-box M3 Max Metal behavior — amo/bmo cannot reproduce it); quiet-window + bench_preflight gates apply, no sibling compute while cells run.
+**Claimed:** zed-m3-i1203-e1@m3, 1795454985, expires 2026-11-25T18:00:00+00:00
+Scope: E1 engagement proof first (isolated-target build + two pp512 runs), then E3 counters probe; E2/E4/E5 as the quiet window allows. The lane is m3-NATIVE (per-box M3 Max Metal behavior — amo/bmo cannot reproduce it); quiet-window + bench_preflight gates apply, no sibling compute while cells run.
 (scope: the m3 stall DIAGNOSIS — repro + sample + readback-pathology triage per the suspicions below — gated on the 1191 v2 128K run completing: m3 is caffeinate-held by that run until ~2026-11-14 05:20 +0700 and the v2 walls require a quiet box, so NO GPU work on m3 before then; DIAGNOSIS READ-ONLY — the vendored cubecl tree is dirty from a sibling lane, any vendor-side fix waits for that lane)
 
 ## The evidence (2026-11-11, m3, release builds, sha256-verified model `e00082f7`)
