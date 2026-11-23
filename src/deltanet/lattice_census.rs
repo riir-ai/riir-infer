@@ -465,27 +465,80 @@ impl FilmFilter {
 
 // ── T0.2 ─ the FiLM matvec-wrap hook (the folded-path injection seam) ──
 
-/// The single-layer FiLM hook: EVERY ternary matvec in the hooked layer's
-/// forward gets its x FiLM'd (into a local copy) before the base matvec.
-/// The census lane arms ONE layer per run (the probe posture — one filter,
-/// one layer), so no multi-layer keying is needed; non-armed runs pass
-/// hook=None and pay nothing.
+/// The single-layer FiLM hook (the probe posture — ONE GDN layer armed per
+/// run). The forward passes ONE hook to every ternary matvec, so the armed
+/// layer's matvecs are keyed by the RESIDENT-PLANE ADDRESS of its
+/// `in_proj_qkv` / `in_proj_z` (`as_ternary` is buffer-stable — Issue 043);
+/// every other matvec dispatches the incumbent kernel unchanged, so the
+/// census reads the injected layer's downstream state shift and nothing else.
+/// Addresses are stored as `usize` (the trait is Send+Sync; raw pointers are
+/// not — the address-keyed upload-cache pattern is this trait's own
+/// convention). The weights outlive the hook: the census bin holds the
+/// `QwenDeltaNetTernaryWeights` for the whole run.
 ///
 /// The equivariance (plan 503): γ⊙(Rx) = R(γ⊙x) — the diagonal gamma
 /// commutes with the ±1 rotation — but β does not, so the hook carries
 /// the PRE-ROTATED beta (Rβ, computed once from the layer's signs) and
-/// applies γ⊙x_rot + Rβ, which equals FiLM-then-rotate exactly.
+/// applies γ⊙x_rot + Rβ, which equals FiLM-then-rotate exactly. On an
+/// unfolded layer the signs are all `+1`, so Rβ = β and the same form is
+/// the plain FiLM. The plain beta NEVER appears on the armed path — `apply`
+/// (γx + β) would double-add it on a rotated layer.
 pub struct FilmMatvecHook {
     pub filter: FilmFilter,
     pub rotated_beta: Vec<f32>,
+    pub armed_qkv_addr: usize,
+    pub armed_z_addr: usize,
+}
+
+impl FilmMatvecHook {
+    /// Arm ONE GDN layer: `qkv`/`z` are the layer's `in_proj_qkv`/`in_proj_z`
+    /// (ternary or Q2-resident — `as_ternary` answers with the resident
+    /// planes, the same view the forward hands the hook); `signs` is the
+    /// rotation's sign vector for width n_embd (all `+1` when unfolded).
+    /// Refuses loud on a non-ternary armed projection (fail-closed — never a
+    /// silent no-op hook).
+    pub fn arm_layer(
+        filter: FilmFilter,
+        qkv: &super::ternary_weights::ProjWeights,
+        z: &super::ternary_weights::ProjWeights,
+        signs: &[i8],
+    ) -> Self {
+        let rotated_beta = filter.rotated_beta(signs);
+        let qkv_addr = qkv
+            .as_ternary()
+            .expect("armed layer in_proj_qkv must be ternary (T0.2 probe posture)")
+            as *const _ as usize;
+        let z_addr = z
+            .as_ternary()
+            .expect("armed layer in_proj_z must be ternary (T0.2 probe posture)")
+            as *const _ as usize;
+        Self {
+            filter,
+            rotated_beta,
+            armed_qkv_addr: qkv_addr,
+            armed_z_addr: z_addr,
+        }
+    }
 }
 
 impl katgpt_core::TernaryMatvecHook for FilmMatvecHook {
     fn matvec(&self, w: &katgpt_core::TernaryGroupWeights, x: &[f32], y: &mut [f32]) {
+        let addr = w as *const _ as usize;
+        if addr != self.armed_qkv_addr && addr != self.armed_z_addr {
+            // Not an armed projection: the exact incumbent path.
+            ternary_matvec_parallel(w, &x[..w.cols], &mut y[..w.rows]);
+            return;
+        }
+        // Folded-path FiLM exactness: the input here is ALREADY rotated
+        // (x_rot = Rx on the folded layers), so the exact FiLM-then-rotate
+        // form is γ⊙x_rot + Rβ — no plain beta (it would double-add).
         let mut xf = x.to_vec();
-        self.filter.apply(&mut xf[..w.cols]);
-        for (xi, bi) in xf[..w.cols].iter_mut().zip(self.rotated_beta.iter()) {
-            *xi += bi;
+        for ((xi, g), rb) in xf[..w.cols]
+            .iter_mut()
+            .zip(self.filter.gamma.iter())
+            .zip(self.rotated_beta.iter())
+        {
+            *xi = g * *xi + rb;
         }
         ternary_matvec_parallel(w, &xf[..w.cols], &mut y[..w.rows]);
     }
@@ -506,7 +559,15 @@ impl FilmFilter {
 
 #[cfg(test)]
 mod film_hook_tests {
+    use super::super::ternary_weights::ProjWeights;
     use super::*;
+
+    fn group(rows: usize, cols: usize) -> katgpt_core::TernaryGroupWeights {
+        let src: Vec<f32> = (0..rows * cols)
+            .map(|i| if i % 3 == 0 { 0.7 } else { -0.4 })
+            .collect();
+        katgpt_core::TernaryGroupWeights::quantize_from_f32(&src, rows, cols)
+    }
 
     #[test]
     fn rotated_beta_flips_by_signs() {
@@ -515,6 +576,43 @@ mod film_hook_tests {
         let signs = [1i8, -1, 1, -1];
         let rb = f.rotated_beta(&signs);
         assert_eq!(rb, vec![0.1, 0.2, 0.3, 0.4]);
+    }
+
+    #[test]
+    fn armed_matvec_films_and_non_armed_dispatches_incumbent() {
+        let (rows, cols) = (384usize, 256usize);
+        let armed = group(rows, cols);
+        let other = group(rows, cols);
+        let x: Vec<f32> = (0..cols).map(|i| (i % 7) as f32 * 0.25 - 0.75).collect();
+        let mut f = FilmFilter::identity(cols);
+        // Non-identity by hand: γ = 1.05, β = 0.01 — the armed matvec must
+        // DIFFER from the plain kernel; a non-armed one must match it EXACTLY
+        // (the address keying never perturbs bystander matvecs).
+        f.gamma = vec![1.05; cols];
+        f.beta = vec![0.01; cols];
+        let signs = vec![1i8; cols];
+        let qkv = ProjWeights::Ternary(armed);
+        let z = ProjWeights::Ternary(group(rows, cols));
+        let hook = FilmMatvecHook::arm_layer(f, &qkv, &z, &signs);
+
+        let mut y_armed = vec![0.0f32; rows];
+        let mut y_plain = vec![0.0f32; rows];
+        let qkv_w = qkv.as_ternary().unwrap();
+        katgpt_core::TernaryMatvecHook::matvec(&hook, qkv_w, &x, &mut y_armed);
+        ternary_matvec_parallel(qkv_w, &x, &mut y_plain);
+        assert!(
+            y_armed != y_plain,
+            "the armed projection's matvec must move under a non-identity filter"
+        );
+
+        let mut y_bystander = vec![0.0f32; rows];
+        let mut y_bystander_plain = vec![0.0f32; rows];
+        katgpt_core::TernaryMatvecHook::matvec(&hook, &other, &x, &mut y_bystander);
+        ternary_matvec_parallel(&other, &x, &mut y_bystander_plain);
+        assert_eq!(
+            y_bystander, y_bystander_plain,
+            "a non-armed projection must dispatch the incumbent kernel unchanged"
+        );
     }
 }
 

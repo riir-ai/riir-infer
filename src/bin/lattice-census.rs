@@ -35,12 +35,14 @@ use anyhow::{Context, Result, bail};
 use riir_infer_core::corpus_text::load_corpus_text;
 use riir_infer_core::deltanet::effective_rotary_dim;
 use riir_infer_core::deltanet::lattice_census::{
-    FilmFilter, LatticeCensusReport, MAX_CAPTURE_POSITIONS, census_state_snapshot,
+    FilmFilter, FilmMatvecHook, LatticeCensusReport, MAX_CAPTURE_POSITIONS, census_state_snapshot,
+};
+use riir_infer_core::deltanet::{
+    forward_qwen_deltanet_ternary, forward_qwen_deltanet_ternary_with_hook,
 };
 use riir_infer_core::gguf_loader::{GgmlType, GgufFile, load_qwen_deltanet_ternary_weights_gguf};
 use riir_infer_core::rope::RopeFreqTable;
 use riir_infer_core::tokenizer::BpeTokenizer;
-use riir_infer_core::deltanet::forward_qwen_deltanet_ternary;
 use riir_infer_core::types::DeltaNetLayerType;
 
 const DEFAULT_MODEL: &str = "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
@@ -172,13 +174,14 @@ fn main() -> Result<()> {
         t0.elapsed().as_secs_f32()
     );
     if folded {
-        // The FiLM input-proj seam is bypassed on folded layers (the
-        // Issue-980 rotated-QKVZ memoization); the matvec-wrap seam is the
-        // compile-window landing. Disclose loud, never silently no-op.
+        // The folded (rotated-QKVZ) layers bypass the fused input-proj hook by
+        // construction — the T0.2 seam on a folded checkpoint is the
+        // matvec-wrap hook below, keyed on the armed layer's resident qkv/z
+        // planes, with the Rβ equivariance form.
         println!(
-            "# NOTE: folded checkpoint — the T0.2 input-proj FiLM seam does NOT engage \
-             on folded layers; an armed --film-seed run here is expected to read \
-             UNCHANGED (engagement proof will refuse it once wired)"
+            "# NOTE: folded checkpoint — T0.2 arms via the matvec-wrap hook \
+             (γ⊙x_rot + Rβ equivariance form; input-proj fusion is bypassed \
+             on rotated layers by construction)"
         );
     }
 
@@ -186,15 +189,44 @@ fn main() -> Result<()> {
     let d_k = config.deltanet_linear_head_dim;
     let d_v = config.deltanet_linear_head_dim;
 
-    // The FiLM filters (per GDN layer, layer-keyed, deterministic).
-    let films: Option<Vec<FilmFilter>> = args.film_seed.map(|seed| {
-        weights
-            .layer_types
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| **t == DeltaNetLayerType::DeltaNet)
-            .map(|(layer_idx, _)| FilmFilter::fixed_coeff(config.n_embd, layer_idx, seed))
-            .collect()
+    // The FiLM probe posture: arm ONE GDN layer (the first, deterministic) —
+    // the filter keyed on that layer's resident qkv/z plane addresses.
+    let arm_layer_idx = weights
+        .layer_types
+        .iter()
+        .enumerate()
+        .find(|(_, t)| **t == DeltaNetLayerType::DeltaNet)
+        .map(|(i, _)| i)
+        .expect("checkpoint has at least one GDN layer (T0.2 probe posture)");
+    let film_hook = args.film_seed.map(|seed| {
+        let filter = FilmFilter::fixed_coeff(config.n_embd, arm_layer_idx, seed);
+        let signs: Vec<i8> = weights
+            .rotation
+            .as_ref()
+            .and_then(|r| r.signs_for_width(config.n_embd).map(|s| s.to_vec()))
+            .unwrap_or_else(|| vec![1i8; config.n_embd]);
+        let hook = FilmMatvecHook::arm_layer(
+            filter,
+            &weights.layers[arm_layer_idx].in_proj_qkv,
+            &weights.layers[arm_layer_idx].in_proj_z,
+            &signs,
+        );
+        println!(
+            "# film armed: layer {} (first GDN) seed=0x{:x} folded={folded} | γ±{:.3} β±{:.3}",
+            arm_layer_idx,
+            seed,
+            hook.filter
+                .gamma
+                .iter()
+                .map(|g| (g - 1.0).abs())
+                .fold(0.0f32, f32::max),
+            hook.filter
+                .beta
+                .iter()
+                .map(|b| b.abs())
+                .fold(0.0f32, f32::max),
+        );
+        hook
     });
 
     let rope_freq = RopeFreqTable::new(config.rope_theta, effective_rotary_dim(&config));
@@ -208,24 +240,95 @@ fn main() -> Result<()> {
 
     let mut points = Vec::with_capacity(positions.len());
     let t1 = std::time::Instant::now();
+
+    // T0.2 engagement proof (rides the driver): a fresh UNARMED pos-1 forward
+    // vs a fresh ARMED pos-1 forward on the armed layer's state, compared
+    // bit-wise (to_bits — NaN-proof). A non-identity filter that leaves the
+    // armed layer's pos-1 state byte-identical = the seam never engaged →
+    // refuse loud; a fake-shift report is worse than no report.
+    if let Some(hook) = film_hook.as_ref() {
+        let mut c_un = riir_infer_core::deltanet::HybridCache::with_layer_types_bounded(
+            &config,
+            &weights.layer_types,
+            1,
+        );
+        let mut s_un = riir_infer_core::deltanet::HybridForwardScratch::new(&config);
+        let mut l_un = vec![0.0f32; config.vocab_size];
+        forward_qwen_deltanet_ternary(
+            &mut l_un, &weights, &mut c_un, tokens[0], 0, &config, &mut s_un, &rope_freq,
+        );
+        let mut c_ar = riir_infer_core::deltanet::HybridCache::with_layer_types_bounded(
+            &config,
+            &weights.layer_types,
+            1,
+        );
+        let mut s_ar = riir_infer_core::deltanet::HybridForwardScratch::new(&config);
+        let mut l_ar = vec![0.0f32; config.vocab_size];
+        forward_qwen_deltanet_ternary_with_hook(
+            &mut l_ar,
+            &weights,
+            &mut c_ar,
+            tokens[0],
+            0,
+            &config,
+            &mut s_ar,
+            &rope_freq,
+            None,
+            Some(hook),
+            None,
+            None,
+        );
+        let un = &c_un.deltanet_state.recurrent_states[arm_layer_idx];
+        let ar = &c_ar.deltanet_state.recurrent_states[arm_layer_idx];
+        let same = un.len() == ar.len()
+            && un
+                .iter()
+                .zip(ar.iter())
+                .all(|(a, b)| a.to_bits() == b.to_bits());
+        if same {
+            bail!(
+                "T0.2 engagement proof FAILED: armed layer {} pos-1 state byte-identical to \
+                 unarmed — the matvec-wrap seam did not engage (address keying or filter arms)",
+                arm_layer_idx
+            );
+        }
+        println!(
+            "# engagement proof: armed layer {} pos-1 state differs from unarmed (seam engaged)",
+            arm_layer_idx
+        );
+    }
+
     for (i, &token) in tokens.iter().take(args.n).enumerate() {
         let pos = i;
-        // T0.2 injection: the FiLM hook rides the input-proj seam (UNFOLDED
-        // layers only — the folded disclosure above covers the 27B until the
-        // matvec-wrap seam lands). v1 wiring note: the hook plumbing lands
-        // with the compile window; an armed seed on this build records the
-        // unchanged-baseline disclosure instead of a fake shift.
-        let _ = &films; // (hook plumbing lands at the compile window)
-        forward_qwen_deltanet_ternary(
-            &mut logits,
-            &weights,
-            &mut cache,
-            token,
-            pos,
-            &config,
-            &mut scratch,
-            &rope_freq,
-        );
+        // T0.2 injection: the armed run drives the matvec-wrap hook (the
+        // single armed layer's qkv/z FiLM); the unarmed run passes hook=None
+        // and is byte-identical to the incumbent forward.
+        match film_hook.as_ref() {
+            Some(hook) => forward_qwen_deltanet_ternary_with_hook(
+                &mut logits,
+                &weights,
+                &mut cache,
+                token,
+                pos,
+                &config,
+                &mut scratch,
+                &rope_freq,
+                None,
+                Some(hook),
+                None,
+                None,
+            ),
+            None => forward_qwen_deltanet_ternary(
+                &mut logits,
+                &weights,
+                &mut cache,
+                token,
+                pos,
+                &config,
+                &mut scratch,
+                &rope_freq,
+            ),
+        };
         if positions.binary_search(&pos.wrapping_add(1)).is_ok() {
             // Snapshot AFTER position `pos`'s update = the state AT
             // `pos+1` — the capture-point position label.
