@@ -144,6 +144,23 @@ desc_len = []
 # front (required-features row in the same commit — the P30 law).
 weight_audit = []
 
+# Issue 1241 (2026-11-24) — the offline interventional neuron census
+# (the Fermion distill, katgpt-rs Research 684): per-layer chunked
+# dose-grid pushes over the down_proj columns, matched-random control
+# bands via katgpt-pruners mech_attribution (Issue 1237's LANDED
+# scorer primitives — consumed, never forked; `65914d256`), a
+# canonical BLAKE3 artifact + a resumable cursor/rows state dir
+# (compute law: durable state, per-candidate commit, --resume).
+# Offline by construction (G3/G5): serving bins never link it, never a
+# serving-path claim (the lens-lane demotion binds the claim this lane
+# refuses to make). T1 = the runner + the hermetic G1 fixture gates
+# (planted column-scale edit recovered rank-1 at the pre-registered
+# max(floor, 28×band) bar, zero false fires on the 20-random-neuron
+# control arm); the `neuron-census` bin (--self-test = the G1 canary)
+# is the census front (required-features row in the same commit —
+# P30). T2's GGUF cell routes to the 4090 --needs-cuda window.
+neuron_census = ["dep:katgpt-pruners", "katgpt-pruners/mech_attribution"]
+
 # riir-train plan 503 T0.1/T0.2 — the lattice-conditioning geometry census
 # over per-head GDN recurrent states (r_ent / r_stable / query-alignment
 # closed forms; cyclic-Jacobi spectrum in f64, Issue-940 deterministic
@@ -838,6 +855,16 @@ required-features = ["sink_audit"]
 name = "weight-audit"
 path = "src/bin/weight-audit.rs"
 required-features = ["weight_audit"]
+
+# Issue 1241 — the neuron-census front (the Fermion distill):
+# `--self-test` runs the G1 fixture gates in-process (the canary
+# vehicle); `--model` is the T2 cell and refuses loud until the GGUF
+# adapter lands. Reader protection row (the green-zero law): a
+# default build skips the bin loudly.
+[[bin]]
+name = "neuron-census"
+path = "src/bin/neuron-census.rs"
+required-features = ["neuron_census"]
 
 # riir-train plan 503 T0.1 — the lattice-conditioning geometry census CLI:
 # one ternary pass per checkpoint over the first N tokens, per-head GDN

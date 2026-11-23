@@ -1,0 +1,601 @@
+//! Offline interventional neuron census (riir-infer Issue 1241 T1; the
+//! Fermion distill, katgpt-rs Research 684).
+//!
+//! For each MLP layer and candidate neuron (a `down_proj` input column),
+//! the runner pushes the column with a
+//! [`katgpt_core::weight_edit_overlay::EditForm::ColumnScale`]-shaped
+//! dose grid (push × suppress arms, ≥5 doses per direction — the T2
+//! floor), measures the observable delta on held-out reads, adjudicates
+//! against a matched-random control band with
+//! [`katgpt_pruners::mech_attribution::control_verdict`], and mints ONE
+//! canonical BLAKE3-digested artifact.
+//!
+//! Posture (G3/G5): opt-in `neuron_census`, offline by construction —
+//! serving bins never link the module (an unarmed build compiles it to
+//! nothing), never a serving-path claim (the lens-lane demotion,
+//! katgpt-rs `.research/666` §7, binds exactly the claim this lane
+//! refuses to make). Determinism per the katgpt-rs Issue-940 law: f64
+//! sequential folds, SplitMix64 Fisher–Yates control draws from a
+//! pinned per-candidate seed, first-index tie rules.
+//!
+//! T1 scope: the runner + the hermetic G1 fixture gates (planted
+//! closed-form column-scale edit recovered rank-1 against a
+//! pre-registered band bar) + the resumable cursor. The GGUF model
+//! adapter and the real-checkpoint cell are T2 (routes to the 4090
+//! `--needs cuda` window per the issue).
+
+use anyhow::{Context, Result, bail};
+use katgpt_pruners::mech_attribution::census_screen::MIN_CONTROL_UNITS;
+use katgpt_pruners::mech_attribution::{ControlParams, ControlVerdict, control_verdict};
+
+/// Pinned push scale (the amplifier arm). The suppress arm is `1/s`,
+/// so both endpoints ride the fader's exact lerp law
+/// (`EditForm::fader_factor`: dose 1 gives `f = scale` bit-exactly).
+pub const PUSH_SCALE: f32 = 3.0;
+/// Dose ladder per direction — ≥5 points (the issue's `min_doses` floor).
+pub const DOSE_LADDER: [f32; 5] = [0.2, 0.4, 0.6, 0.8, 1.0];
+/// Held-out reads behind every effect number (the `min_reads` floor).
+pub const MIN_READS: usize = 8;
+/// Matched-random controls per candidate (the issue's
+/// `min_control_neurons` floor — also `census_screen::MIN_CONTROL_UNITS`).
+pub const MIN_CONTROLS: usize = MIN_CONTROL_UNITS;
+
+/// Canonical artifact magic ("NEUCEN1") + format version byte.
+pub const ARTIFACT_MAGIC: &[u8; 8] = b"NEUCEN1\x01";
+
+/// Census sweep configuration. [`Default`] pins the pre-registered bars.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CensusConfig {
+    /// Push scale (the suppress arm is its reciprocal).
+    pub push_scale: f32,
+    /// Absolute effect floor (observable units; pre-registered per
+    /// fixture — the G1 bar is `max(abs_floor, band_ratio × band mean)`).
+    pub abs_floor: f64,
+    /// Effect must reach `band_ratio × mean |control|` (Fermion's 40-vs-1.4
+    /// ≈ 28× scale, pre-registered per fixture, never portable).
+    pub band_ratio: f64,
+    /// Control-draw seed base (per-candidate seeds fold the column id).
+    pub seed: u64,
+}
+
+impl Default for CensusConfig {
+    fn default() -> Self {
+        Self {
+            push_scale: PUSH_SCALE,
+            abs_floor: 0.05,
+            band_ratio: 28.0,
+            seed: 0x0001_241C_5E51_C001,
+        }
+    }
+}
+
+impl CensusConfig {
+    /// The control-verdict params this config adjudicates with.
+    #[inline]
+    pub fn control_params(&self) -> ControlParams {
+        let mut p = ControlParams::new(MIN_READS, self.abs_floor, self.band_ratio);
+        p.min_controls = MIN_CONTROLS;
+        p
+    }
+}
+
+/// One census layer: the model's layer id and its neuron count (the
+/// `down_proj` input width — one candidate per column).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CensusLayer {
+    pub layer: u8,
+    pub neurons: usize,
+}
+
+/// The model the census sweeps. Implementations own their forwards and
+/// scratch; the runner never allocates per candidate (the capture loop
+/// is read → push → read over the model's reused buffers).
+pub trait CensusModel {
+    /// Identity of the swept artifact (weights digest) — the cursor and
+    /// the artifact bind it.
+    fn model_digest(&self) -> [u8; 32];
+    /// The sweep's layer table.
+    fn layers(&self) -> &[CensusLayer];
+    /// Base observable for held-out read `read` (a per-sample scalar —
+    /// the answer-token logit, a probe readout; fixture-defined).
+    fn base_observable(&mut self, read: usize) -> f64;
+    /// Push column `column` of `layer_index` with multiplier `f`, then
+    /// measure the same observable. Implementations must leave the base
+    /// weights UNCHANGED between calls (scratch-copy or revert-inside).
+    fn push_observable(&mut self, layer_index: usize, column: u32, f: f32, read: usize) -> f64;
+}
+
+/// Typed census verdict (mirrors `ControlVerdict` minus the band
+/// payload — the band numbers are columns of their own).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum CensusVerdict {
+    SwitchFound = 1,
+    NoSwitch = 2,
+    Undecided = 3,
+}
+
+/// Per-neuron census row — the artifact's payload.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CensusRow {
+    pub layer: u8,
+    pub column: u32,
+    /// Direction sign of the best arm: `+1` push (`f = s·dose`), `-1`
+    /// suppress (`f = dose/s`).
+    pub direction_sign: i8,
+    /// Best dose (the ladder point that produced `effect`).
+    pub best_dose: f32,
+    /// Best |observable delta| over the grid × reads.
+    pub effect: f64,
+    pub verdict: CensusVerdict,
+    pub band_mean: f64,
+    pub band_max: f64,
+}
+
+/// Accumulating census — rows land in sweep order; the artifact
+/// canonicalizes (sorts by (layer, column)) at mint.
+#[derive(Debug, Default)]
+pub struct CensusSweep {
+    pub rows: Vec<CensusRow>,
+}
+
+/// The winning arm's multiplier: push `f = s·dose`, suppress `f = dose/s`
+/// (both endpoints exact at dose 1 by the fader lerp law).
+#[inline]
+fn arm_factor(sign: i8, dose: f32, s: f32) -> f32 {
+    if sign > 0 { s * dose } else { dose / s }
+}
+
+/// The matched-random control push closure: measure one control
+/// column at exactly the candidate's winning multiplier.
+pub type ControlEffectFn<'a> =
+    &'a mut dyn FnMut(&mut dyn CensusModel, usize, u32, f32, usize) -> f64;
+
+/// One census candidate's coordinates: which layer (index + table row),
+/// which column, and its drawn control set. Grouped so the
+/// adjudication takes one context argument, not a ladder of scalars.
+pub struct Candidate<'a> {
+    pub layer_index: usize,
+    pub layer: &'a CensusLayer,
+    pub column: u32,
+    pub control_ids: &'a [usize],
+}
+
+impl CensusSweep {
+    /// Adjudicate one candidate: best arm over the dose grid × reads,
+    /// then the matched-random band at the winner's arm.
+    ///
+    /// `control_ids` are disjoint column ids in the same layer (the
+    /// runner supplies the deterministic draw); `control_effect` must
+    /// measure a control column at EXACTLY the candidate's winning
+    /// multiplier. The CAPTURE loop (base read → push read) allocates
+    /// nothing; the verdict-side scratch (control effects, the draw
+    /// output) is one small Vec each per candidate — T2's G4 cell
+    /// prices whether they move to caller-owned scratch.
+    pub fn adjudicate_candidate(
+        &mut self,
+        model: &mut dyn CensusModel,
+        cand: Candidate<'_>,
+        reads: usize,
+        cfg: &CensusConfig,
+        control_effect: ControlEffectFn<'_>,
+    ) -> Result<()> {
+        let Candidate {
+            layer_index,
+            layer,
+            column,
+            control_ids,
+        } = cand;
+        if reads < MIN_READS {
+            bail!(
+                "reads {reads} below the MIN_READS floor {MIN_READS} — no verdict, never a negative"
+            );
+        }
+        if control_ids.len() < MIN_CONTROLS {
+            bail!(
+                "controls {} below the MIN_CONTROLS floor {MIN_CONTROLS} — no verdict, never a negative",
+                control_ids.len()
+            );
+        }
+        let s = cfg.push_scale;
+        // Best arm over (direction × dose): the arm-dose mean over reads,
+        // sequential f64 fold, strictly-greater updates (first-index ties).
+        let mut best_effect = 0.0f64;
+        let mut best_sign = 1i8;
+        let mut best_dose = 0.0f32;
+        let mut first = true;
+        for sign in [1i8, -1i8] {
+            for &dose in DOSE_LADDER.iter() {
+                let f = arm_factor(sign, dose, s);
+                let mut acc = 0.0f64;
+                for read in 0..reads {
+                    let base = model.base_observable(read);
+                    let pushed = model.push_observable(layer_index, column, f, read);
+                    acc += (pushed - base).abs();
+                }
+                let mean = acc / reads as f64;
+                if first || mean > best_effect {
+                    best_effect = mean;
+                    best_sign = sign;
+                    best_dose = dose;
+                    first = false;
+                }
+            }
+        }
+
+        // Matched-random band at the winner's arm — every control pushed
+        // exactly as hard as the candidate was.
+        let f = arm_factor(best_sign, best_dose, s);
+        let mut control_effects = Vec::with_capacity(control_ids.len());
+        for &cid in control_ids {
+            if cid as u32 == column {
+                bail!("control draw collided with the candidate — the draw is tampered");
+            }
+            let mut acc = 0.0f64;
+            for read in 0..reads {
+                let base = model.base_observable(read);
+                let pushed = control_effect(&mut *model, layer_index, cid as u32, f, read);
+                acc += (pushed - base).abs();
+            }
+            control_effects.push(acc / reads as f64);
+        }
+
+        let verdict = control_verdict(best_effect, reads, &control_effects, &cfg.control_params());
+        let (v, band_mean, band_max) = match verdict {
+            ControlVerdict::SwitchFound { band, .. } => {
+                (CensusVerdict::SwitchFound, band.mean_abs, band.max_abs)
+            }
+            ControlVerdict::NoSwitch { band_measured, .. } => (
+                CensusVerdict::NoSwitch,
+                band_measured.mean_abs,
+                band_measured.max_abs,
+            ),
+            ControlVerdict::Undecided { .. } => (CensusVerdict::Undecided, f64::NAN, f64::NAN),
+        };
+        self.rows.push(CensusRow {
+            layer: layer.layer,
+            column,
+            direction_sign: best_sign,
+            best_dose,
+            effect: best_effect,
+            verdict: v,
+            band_mean,
+            band_max,
+        });
+        Ok(())
+    }
+}
+
+/// Deterministic per-candidate control draw: SplitMix64 seeded with
+/// `seed ^ (layer << 32) ^ column·φ`, Fisher–Yates over the layer's
+/// column pool (the pool scratch is reused across candidates — zero
+/// steady-state allocation), first `MIN_CONTROLS` survivors disjoint
+/// from the candidate.
+pub struct ControlDraw {
+    pool: Vec<usize>,
+}
+
+impl ControlDraw {
+    pub fn new(layer_neurons: usize) -> Self {
+        Self {
+            pool: (0..layer_neurons).collect(),
+        }
+    }
+
+    pub fn draw(&mut self, cfg: &CensusConfig, layer_index: usize, column: u32) -> Vec<usize> {
+        // The draw is a PURE function of (seed, layer_index, column):
+        // the pool scratch is reset to identity before each shuffle, so
+        // a resumed sweep reproduces the uninterrupted run's control
+        // sets bit-identically (draw history must not matter).
+        for (i, p) in self.pool.iter_mut().enumerate() {
+            *p = i;
+        }
+        let mut state = cfg.seed
+            ^ ((layer_index as u64) << 32)
+            ^ (column as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        for i in (1..self.pool.len()).rev() {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            let j = (z ^ (z >> 31)) as usize % (i + 1);
+            self.pool.swap(i, j);
+        }
+        let mut out = Vec::with_capacity(MIN_CONTROLS);
+        for &p in self.pool.iter() {
+            if p as u32 != column {
+                out.push(p);
+                if out.len() == MIN_CONTROLS {
+                    break;
+                }
+            }
+        }
+        out
+    }
+}
+
+/// The sweep cursor — canonical text in the durable state dir
+/// (`v1 <digest-hex> <layer_index> <next_column>`); the model digest
+/// binds it, a mismatched cursor refuses loud.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CensusCursor {
+    pub layer_index: usize,
+    pub next_column: usize,
+}
+
+/// The full sweep, resumable. `state_dir` holds the atomic cursor plus
+/// the canonical rows ledger (`rows.bin`, fixed 35-byte stride, one
+/// appended row per completed candidate): the cursor rename is the
+/// commit point — on load, rows beyond the cursor position are
+/// discarded (a kill mid-append may leave a partial tail; a cursor is
+/// model-bound, a mismatching one refuses loud).
+pub fn run_sweep(
+    model: &mut dyn CensusModel,
+    cfg: &CensusConfig,
+    state_dir: Option<&std::path::Path>,
+    resume: bool,
+    progress: &mut dyn FnMut(usize, usize, CensusCursor),
+) -> Result<CensusSweep> {
+    let layers: Vec<CensusLayer> = model.layers().to_vec();
+    let digest_hex = hex(&model.model_digest());
+    let mut sweep = CensusSweep::default();
+    let mut cursor = CensusCursor {
+        layer_index: 0,
+        next_column: 0,
+    };
+
+    let mut cursor_path: Option<std::path::PathBuf> = None;
+    let mut rows_path: Option<std::path::PathBuf> = None;
+    if let Some(dir) = state_dir {
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("census state dir {}", dir.display()))?;
+        let p = dir.join("cursor");
+        let r = dir.join("rows.bin");
+        if resume && p.exists() {
+            let text = std::fs::read_to_string(&p)
+                .with_context(|| format!("reading cursor {}", p.display()))?;
+            cursor = parse_cursor(&text, &digest_hex)
+                .with_context(|| format!("cursor {} is stale or malformed", p.display()))?;
+            let keep = global_done(&cursor, &layers);
+            let prior =
+                load_rows(&r, keep).with_context(|| format!("rows ledger {}", r.display()))?;
+            if prior.len() != keep {
+                bail!(
+                    "rows ledger holds {} rows but the cursor commits {} — state is inconsistent",
+                    prior.len(),
+                    keep
+                );
+            }
+            sweep.rows = prior;
+        } else {
+            write_cursor(&p, &cursor, &digest_hex)?;
+            std::fs::write(&r, b"")
+                .with_context(|| format!("truncating rows ledger {}", r.display()))?;
+        }
+        cursor_path = Some(p);
+        rows_path = Some(r);
+    }
+
+    let mut draw = ControlDraw::new(layers.first().map_or(0, |l| l.neurons));
+    for (li, layer) in layers.iter().enumerate().skip(cursor.layer_index) {
+        if draw.pool.len() != layer.neurons {
+            draw = ControlDraw::new(layer.neurons);
+        }
+        let start = if li == cursor.layer_index {
+            cursor.next_column
+        } else {
+            0
+        };
+        for column in start..layer.neurons {
+            let column = column as u32;
+            let ids = draw.draw(cfg, li, column);
+            sweep.adjudicate_candidate(
+                model,
+                Candidate {
+                    layer_index: li,
+                    layer,
+                    column,
+                    control_ids: &ids,
+                },
+                MIN_READS,
+                cfg,
+                &mut |m, li, c, f, read| m.push_observable(li, c, f, read),
+            )?;
+            cursor = CensusCursor {
+                layer_index: li,
+                next_column: column as usize + 1,
+            };
+            if let (Some(rp), Some(cp)) = (&rows_path, &cursor_path) {
+                let row = *sweep.rows.last().expect("adjudication just pushed one row");
+                append_row(rp, &row)?;
+                write_cursor(cp, &cursor, &digest_hex)?;
+            }
+            progress(li, layer.neurons, cursor);
+        }
+    }
+    Ok(sweep)
+}
+
+/// Global completed-candidate count at a cursor (whole layers before
+/// it plus its in-layer column position).
+fn global_done(cursor: &CensusCursor, layers: &[CensusLayer]) -> usize {
+    let mut n = 0usize;
+    for layer in layers.iter().take(cursor.layer_index) {
+        n += layer.neurons;
+    }
+    n + cursor.next_column
+}
+
+/// Canonical artifact: header + rows sorted by (layer, column) + BLAKE3
+/// digest trailer. Every float is its bit pattern (little-endian); two
+/// runs on the same model + config are byte-identical.
+pub fn mint_artifact(sweep: &CensusSweep, digest: &[u8; 32], cfg: &CensusConfig) -> Vec<u8> {
+    let mut rows: Vec<&CensusRow> = sweep.rows.iter().collect();
+    rows.sort_by_key(|r| (r.layer, r.column));
+    let mut out = Vec::with_capacity(64 + rows.len() * 56);
+    out.extend_from_slice(ARTIFACT_MAGIC);
+    out.extend_from_slice(digest);
+    out.extend_from_slice(&cfg.push_scale.to_bits().to_le_bytes());
+    out.extend_from_slice(&cfg.abs_floor.to_bits().to_le_bytes());
+    out.extend_from_slice(&cfg.band_ratio.to_bits().to_le_bytes());
+    out.extend_from_slice(&cfg.seed.to_le_bytes());
+    out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+    for r in rows {
+        out.push(r.layer);
+        out.extend_from_slice(&r.column.to_le_bytes());
+        out.push(r.direction_sign as u8);
+        out.extend_from_slice(&r.best_dose.to_bits().to_le_bytes());
+        out.extend_from_slice(&r.effect.to_bits().to_le_bytes());
+        out.push(r.verdict as u8);
+        out.extend_from_slice(&r.band_mean.to_bits().to_le_bytes());
+        out.extend_from_slice(&r.band_max.to_bits().to_le_bytes());
+    }
+    let h = blake3::hash(&out);
+    out.extend_from_slice(h.as_bytes());
+    out
+}
+
+/// Verify an artifact's BLAKE3 trailer (the digest is the LAST 32
+/// bytes; everything before it is the hashed payload). Returns the
+/// payload length, or None on any mismatch/truncation.
+pub fn verify_artifact(bytes: &[u8]) -> Option<usize> {
+    if bytes.len() < 32 + 32 + 8 {
+        return None;
+    }
+    let (payload, trailer) = bytes.split_at(bytes.len() - 32);
+    if blake3::hash(payload).as_bytes() != trailer {
+        return None;
+    }
+    if &payload[0..8] != ARTIFACT_MAGIC {
+        return None;
+    }
+    Some(payload.len())
+}
+
+// ── rows ledger + cursor plumbing ────────────────────────────────────
+
+/// One canonical census row, fixed stride.
+const ROW_STRIDE: usize = 35;
+
+fn encode_row(r: &CensusRow) -> [u8; ROW_STRIDE] {
+    let mut b = [0u8; ROW_STRIDE];
+    b[0] = r.layer;
+    b[1..5].copy_from_slice(&r.column.to_le_bytes());
+    b[5] = r.direction_sign as u8;
+    b[6..10].copy_from_slice(&r.best_dose.to_bits().to_le_bytes());
+    b[10..18].copy_from_slice(&r.effect.to_bits().to_le_bytes());
+    b[18] = r.verdict as u8;
+    b[19..27].copy_from_slice(&r.band_mean.to_bits().to_le_bytes());
+    b[27..35].copy_from_slice(&r.band_max.to_bits().to_le_bytes());
+    b
+}
+
+fn decode_row(b: &[u8]) -> Option<CensusRow> {
+    if b.len() < ROW_STRIDE {
+        return None;
+    }
+    let verdict = match b[18] {
+        1 => CensusVerdict::SwitchFound,
+        2 => CensusVerdict::NoSwitch,
+        3 => CensusVerdict::Undecided,
+        _ => return None,
+    };
+    let sign = match b[5] {
+        255 => -1i8,
+        1 => 1i8,
+        _ => return None,
+    };
+    Some(CensusRow {
+        layer: b[0],
+        column: u32::from_le_bytes(b[1..5].try_into().ok()?),
+        direction_sign: sign,
+        best_dose: f32::from_bits(u32::from_le_bytes(b[6..10].try_into().ok()?)),
+        effect: f64::from_bits(u64::from_le_bytes(b[10..18].try_into().ok()?)),
+        verdict,
+        band_mean: f64::from_bits(u64::from_le_bytes(b[19..27].try_into().ok()?)),
+        band_max: f64::from_bits(u64::from_le_bytes(b[27..35].try_into().ok()?)),
+    })
+}
+
+fn append_row(path: &std::path::Path, row: &CensusRow) -> Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .with_context(|| format!("opening rows ledger {}", path.display()))?;
+    f.write_all(&encode_row(row))
+        .with_context(|| format!("appending row to {}", path.display()))?;
+    Ok(())
+}
+
+fn load_rows(path: &std::path::Path, keep: usize) -> Result<Vec<CensusRow>> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e).with_context(|| format!("reading rows ledger {}", path.display())),
+    };
+    // Floor to the stride — a kill mid-append leaves a partial tail;
+    // the cursor (not the file length) is the commit point.
+    let whole = bytes.len() / ROW_STRIDE;
+    let mut rows = Vec::with_capacity(whole.min(keep));
+    for i in 0..whole.min(keep) {
+        let row = decode_row(&bytes[i * ROW_STRIDE..(i + 1) * ROW_STRIDE])
+            .with_context(|| format!("rows ledger {} row {i} malformed", path.display()))?;
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
+fn write_cursor(path: &std::path::Path, cursor: &CensusCursor, digest_hex: &str) -> Result<()> {
+    // temp-then-rename (atomic; the cursor line is the whole state — a
+    // torn read refuses at parse).
+    let tmp = path.with_extension("tmp");
+    std::fs::write(
+        &tmp,
+        format!(
+            "v1 {} {} {}\n",
+            digest_hex, cursor.layer_index, cursor.next_column
+        ),
+    )
+    .with_context(|| format!("writing cursor {}", tmp.display()))?;
+    std::fs::rename(&tmp, path).with_context(|| format!("renaming cursor {}", path.display()))?;
+    Ok(())
+}
+
+fn parse_cursor(text: &str, digest_hex: &str) -> Result<CensusCursor> {
+    let line = text.trim();
+    let mut it = line.split_whitespace();
+    let v = it.next().unwrap_or("");
+    if v != "v1" {
+        bail!("cursor version {v:?} unsupported");
+    }
+    let d = it.next().unwrap_or("");
+    if d != digest_hex {
+        bail!("cursor model digest {d} != swept digest {digest_hex}");
+    }
+    let li: usize = it
+        .next()
+        .unwrap_or("")
+        .parse()
+        .map_err(|_| anyhow::anyhow!("cursor layer index malformed"))?;
+    let nc: usize = it
+        .next()
+        .unwrap_or("")
+        .parse()
+        .map_err(|_| anyhow::anyhow!("cursor next-column malformed"))?;
+    if it.next().is_some() {
+        bail!("cursor line has trailing fields");
+    }
+    Ok(CensusCursor {
+        layer_index: li,
+        next_column: nc,
+    })
+}
+
+fn hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}

@@ -138,6 +138,25 @@ mod weight_audit_fixture;
 /// anchor_kl bin (the same definitions).
 pub mod gencheck;
 
+/// Offline interventional neuron census (Issue 1241 T1 — the Fermion
+/// distill, katgpt-rs Research 684): per-layer chunked dose-grid pushes
+/// over the down_proj columns, matched-random control bands via
+/// `katgpt_pruners::mech_attribution` (Issue 1237's landed scorer
+/// primitives — consumed, never forked), a canonical BLAKE3 artifact +
+/// a resumable cursor/rows state dir. Opt-in `neuron_census`, offline
+/// by construction (G3/G5): serving bins never link it, never a
+/// serving-path claim (the lens-lane demotion binds the claim this
+/// lane refuses to make). The GGUF cell is T2 (routes to the 4090
+/// `--needs cuda` window per the issue).
+#[cfg(feature = "neuron_census")]
+pub mod neuron_census;
+/// The G1 fixture (planted-edit recovery battery) — feature-gated (not
+/// test-gated) so the `neuron-census` bin's `--self-test` drives the
+/// same source the tests assert; an unarmed build compiles it to
+/// nothing.
+#[cfg(feature = "neuron_census")]
+pub mod neuron_census_fixture;
+
 /// KL-vs-anchor ranked-selection census (Issue 1242 T1 — the QDA distill's
 /// anchor-KL instrument): per-token forward-KL from logits slices, the
 /// top-k-union variant, the trace-set aggregation. OPT-IN under
