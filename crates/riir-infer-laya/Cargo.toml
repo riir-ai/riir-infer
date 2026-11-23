@@ -173,6 +173,13 @@ name = "laya-decision-core-census"
 path = "src/bin/laya_decision_core_census.rs"
 required-features = ["decision_core_census"]
 
+# Issue 1240 — the ANE encode-load arm of the pair cell. macOS-only by
+# nature (Core ML); the target_os half lives in the file's #![cfg] — this
+# row is the reader protection (no compiled-to-nothing green zero).
+[[example]]
+name = "i1240_ane_encode_load"
+required-features = ["laya-riir-ane"]
+
 [[bin]]
 name = "laya-quant4"
 path = "src/bin/laya_quant4.rs"
