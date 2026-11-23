@@ -156,6 +156,14 @@ pub mod neuron_census;
 /// nothing.
 #[cfg(feature = "neuron_census")]
 pub mod neuron_census_fixture;
+/// The GGUF census session (Issue 1241 T2-prep): the
+/// [`Qwen35CensusSession`] adapter (owned weights, column-scale
+/// push/restore protocol over the real checkpoint) + the mechanics
+/// gate the `neuron-census --mechanics-check` posture runs on CPU.
+/// The T2 cell (observable/probe tuning + the full sweep) routes to
+/// the 4090 `--needs cuda` window per the issue.
+#[cfg(feature = "neuron_census")]
+pub mod neuron_census_gguf;
 
 /// KL-vs-anchor ranked-selection census (Issue 1242 T1 — the QDA distill's
 /// anchor-KL instrument): per-token forward-KL from logits slices, the

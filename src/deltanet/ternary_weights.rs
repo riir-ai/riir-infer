@@ -1406,6 +1406,8 @@ impl QwenDeltaNetTernaryWeights {
             lm_head,
             layers,
             layer_types: self.layer_types.clone(),
+            #[cfg(feature = "closed_form_write")]
+            closed_form_overlays: None,
         }
     }
 }
