@@ -3,7 +3,8 @@
 **Status:** OPEN
 
 **Routing note (2026-11-23, zed-m3 housekeeping sweep):** the m3-held lease (`m3-session`, expired 2026-11-22T07:31:47Z) was a mis-claim — this lane's own T0 demands an EXCLUSIVE-QUIET Apple-silicon rig (`agent-mail rig status`; amo/bmo booking), and the pair cell's resident-decode posture is the plan-626 lane on M5 Ultra. The next claimer books a RIG lease (`rig run --exclusive --needs metal`), never an m3 lease; reflex Issue 123's ANE probe is the tripwire every cell here must respect.
-**Claimed:** m3-session, 1795159907, expires 2026-11-22T07:31:47Z
+**Claimed:** zed-b7e21c90@amo, 1795455611, expires 2026-11-25T17:40:11Z
+**Scope:** the T0–T1 pre-build (the pair-cell driver) + the exclusive-rig booking; the m3-session lease above was the routing note's adjudicated mis-claim, superseded by this rig lease.
 
 **Filed:** 2026-11-20, from the owner's hybrid-ANE discussion (Research 392 addendum, same day) + anemll's V8/V8.1/V8.2 hybrid article (X post 2122862729212145674, branch `v8-gpu-ane-prefill`). RESEARCH cell, not a product promotion: does concurrent ANE work cost our Metal decode (the reflex Issue-123 3–45% band), and can ANE serve cache-upkeep batch work as a background core? A NEGATIVE verdict is a valid landing (DONE-NEGATIVE class) — the demote stands, the record is the product.
 
