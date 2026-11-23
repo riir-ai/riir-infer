@@ -44,6 +44,23 @@ G3 runs as an `#[ignore]`d `--release` cell: N is sized for the bar (200,000), n
 
 Window discipline (plan 636): structural, so it may run concurrent-with-light-load — the concurrency is DISCLOSED in the header, and no wall number is quoted. The TIMING rows of Bench 1238 stay parked for a preflight-PASS window; this plan does not un-park them.
 
+## Fixture adjudication (2026-11-23, BEFORE the gated run — the first battery run's findings, recorded not fitted)
+
+The first run of the battery returned three reds, all fixture properties (G5 and G1 were green):
+
+- **The stock synth's target is a POINT MASS at every ladder temperature.** Its first-position logits are `[388181 … 5795502]` (the fixture bakes `output.weight` as `(i+1)·32` coordinates; the arch's logit formula multiplies by `output_scale/σ₀ ≈ 113`). p_max = 1.0000 at T ∈ {1, 2, 4, 8, 16} ⇒ the ladder rule reports **G3 UNDECIDABLE on the stock fixture**. The ladder was NOT widened to make it pass (T = ∞ would trivially qualify — exactly the fit the rule exists to forbid).
+- **G4's reject path is unreachable on the stock fixture** (p ≡ q, the same point mass: every draft is accepted).
+- **G2's pair floor was an arithmetic slip** (the gate caught its own author): judged pairs are `rounds·γ` per run, not `n·γ`; 150 was the correct count.
+
+**The entropy-bearing variant** (test-local, post-load): the stock fixture with `lm_head × 2^-16` — the smallest power of two bringing max|logit| under 100 (5.9…88.4). Measured: p_max = 0.9999 / 0.990 / 0.900 / **0.680** / 0.429 at T = 1 / 2 / 4 / 8 / 16 ⇒ the unchanged ladder rule picks **T = 8**; the control's TV = 1 − 0.680 = 0.32. **KL(p‖q) = 7.8e-4 nats at T = 8** — the loop stays a near-no-op (the landed greedy census's finding, confirmed on a non-saturating head). A divergent attempt (`residual_alpha := 1` on every block) made the two depths numerically IDENTICAL (KL −0.000000 at every T): on these baked weights the recurrence reaches its fixed point within one pass, so no post-load rescale can make the synth depths diverge. Recorded; not used. **Divergent (p, q) through the forward is the real pin's and only the real pin's.**
+
+Consequences (all pinned before the gated run):
+
+- G3 and G4 run on the entropy-bearing variant. G3's statistic (first-token law through the full path, N = 200,000) stands unchanged; its control reads TV ≈ 0.32.
+- **The E2E reject/repair path is exercised by a LONG STREAM** — n = 20,000, γ = 3, T = 8: at the measured ≈ 8e-4 rejects per judged token that is ≈ 16 expected rejects (P(0) ≈ 1e-7), so the assert `rejected ≥ 1` is robust rather than seed-lucky. The long stream carries a **cache-state receipt**: the verify-cache row decoded AFTER the stream is bit-identical to a fresh k_full reference decode of the emitted stream (the repair left exactly the reference's state).
+- **The lazy-verify invariant is a `debug_assert` at every round end** (verify-cache length == the emitted prefix; draft-cache length == the same after its rewind) — live in the debug-profile always-on run, compiled out in release.
+- The divergent-(p, q) E2E identity and the first real reject-path exercise are the real-pin cell's receipts (induced law at bar 1.2e-10; the acceptance census).
+
 ## Tasks
 
 - [ ] T1 — the instrument: `src/dory/self_spec.rs` gains the sampling arm (`self_spec_sample`, the pure step + induced law + the f64 softmax/categorical helpers, the xorshift RNG) behind the existing `dory` feature; greedy arm untouched; module doc carries the law + the lazy-verify cost law.
