@@ -88,3 +88,26 @@ checkpoint (r_ent / r_stable bench 1249, g1 this addendum); T0.2's probe cell
 + verdict stand (measurement curiosity); T0.3's design record stands. The
 unarmed-baseline g1 rerun (completing the BASELINE row's g1 half) is the one
 optional follow-up — the armed-vs-baseline g1 delta reads only after it.
+
+## Addendum 2 (same lease, 2026-11-24T02:5xZ): the unarmed-baseline g1 rerun — the census row is COMPLETE
+
+Unarmed rerun at the query-armed posture (same corpus/window, no `--film-seed`):
+mean r_ent **3.3442** — byte-consistent with the bench-1249 baseline headline
+(the capture is observation-only); digest `4348abfa…` (differs from 1249's
+`255a2395` — the g1 column now populated, exactly the expected delta).
+Census pass 596.0 s (quiet box), load 67.1 s.
+
+**The T0.1 baseline row, complete:** r_ent 3.3442 · r_stable per-layer ·
+**g1 mean 1.1050 / median 0.1947 / max 115.73** over 18,432 heads. Artifact
+`i503_lattice_census_baseline_g1.json`.
+
+**The armed-vs-baseline g1 delta (the pairing this rerun unblocked):** armed
+g1 1.1053/0.1949 — paired delta mean **+0.0002**, median **−0.0000**, max|Δ|
+1.33 on isolated heads; the armed layer 0's own mean delta −0.0019 (~10× the
+fleet mean, still ~1% of the median head's g1). The FiLM injection moves the
+STATE GEOMETRY marginally (bench 1257's 1e-3-class r_ent shifts) but leaves
+QUERY-ALIGNMENT GAIN unmoved at fixed coefficients — the T0.2
+measurement-curiosity verdict is CONFIRMED from the second closed form as
+well. Phase 2 stays not-launched. Cross-run r_ent drift mean −0.0005 / max
+0.109 on isolated heads (the same robustness class; it is what separates the
+armed/baseline digests). 12-test suite green at the run's build (`496e90e`).
