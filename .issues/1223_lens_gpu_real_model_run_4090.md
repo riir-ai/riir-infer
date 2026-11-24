@@ -1,8 +1,8 @@
 # Issue 1223: the lens full-basis REAL-model run — 4090 cell (i1222 follow-up)
 
-**Status:** open — smoke-v3 recorded (Bench 1240); the 11-18 deciding-run attempt CANCELLED FALSE-POISON (adjudicated below); the resume lane landed; deciding run RE-FILED 2026-11-23 (see the re-file row).
-**Claimed:** zed-6c3d0611@amo, 1795516800, expires 2026-11-25T04:00:00+00:00
-Prior lease: shikuwa-4090-i1223rec, 1794978699, was expires 2026-11-20T11:11:39+00:00 — lapsed (the holder lane went quiet after the cancel; expired-lease law).
+**Status:** CLOSED 2026-11-24 — the deciding run EXECUTED to completion (job `01a20678`, 2026-11-23→11-24 13:26 +07, 9,622.2 s/doc × 10, halves 5/5) and its G3 half-corpus stability gate FAILED (max_rel_k=1.1324 / max_rel_j=0.9932 vs the ≤0.06 bar; corpus-dominated fit at real geometry, demotion-consistent). Recorded in Bench 1258; delegated Claude verdict AGREE record-and-close (no debug item while the primitive is demoted; re-open only via Research 666 §7's triggers). The acceptance's item 1 (production tolerance calibration) is unreachable behind the failed stability gate; item 2 (sampled CPU-vs-GPU read check) not executed under the close — machinery value does not justify GPU while demoted. The smoke's docs=1 G3 pass was structural only (Bench 1240 caveat); the 11-18 cancel stands FALSE-POISON adjudicated; the resume lane landed and was exercised twice (the 11-23 fresh run + the 11-24 reproducibility re-run).
+**Lease closed:** zed-6c3d0611@amo, 1795516800, was expires 2026-11-25T04:00:00+00:00 — the deciding run under this lease COMPLETED (its end-mail adjudication superseded by Bench 1258, landed by zed-074a264a@amo per the delegated verdict; the run's own result was the G3 FAIL).
+Prior lease: shikuwa-4090-i1223rec, 1794978699, was expires 2026-11-20T11:11:39+00:00 — lapsed (the holder lane went quiet after the cancel; expired-lease law). Second prior lease: shikuwa-4090-i1223rec's earlier window closed at the 11-18 FALSE-POISON adjudication (below).
 
 ## What this is
 
