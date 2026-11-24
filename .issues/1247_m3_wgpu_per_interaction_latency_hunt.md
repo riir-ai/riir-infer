@@ -1,6 +1,7 @@
 # Issue 1247: the M3-Max wgpu per-driver-interaction latency hunt (the 1203 residue)
 
 **Status:** Open — unclaimed and claimable (no live lease; the claim-lease law applies: append the `**Claimed:**` lease line and push BEFORE working). Spawned by Issue 1203's close (2026-11-24): the m3 stall is DIAGNOSED (per-driver-interaction latency, allocation-size-bucketed) but the ABSOLUTE layer is unexplained and unfixed — this issue owns the hunt and the posture law.
+**Claimed:** zed-m3-i1247@m3, 1795547784, expires 2026-11-26T19:16Z
 
 ## What 1203 established (the record: riir-infer HISTORY.md 2026-11-24 arc; raw logs `.benchmarks/i1203_m3_stall_cells/`)
 
