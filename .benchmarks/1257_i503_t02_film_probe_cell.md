@@ -59,3 +59,32 @@ Phase 2 does not launch on census movement alone."
   record), T0.3 design record (plan doc). Phase 1+ stays unclaimed.
 - Re-open trigger (unchanged from the plan): a Phase-2-class trained-coefficient
   cell with its own accuracy path — never a census row alone.
+
+## Addendum (same lease, 2026-11-24T09:0xZ local): the query-gain capture arm landed — g1 rows real
+
+riir-infer `496e90e`: `LatticeQueryGainCapture` (the `sink_audit_q` mirror) —
+the driver arms the SNAPSHOT positions; two cfg write-sites (ternary layer
+body + dense main body, both `is_linear`) copy the transient `q_normed` into
+the slot for pos+1 right after the GDN layer returns, so G1 pairs the top
+singular vector with the query that produced it. 12 lib tests green (new
+pairing fixture). The census bin arms the capture unconditionally: the report
+flips to `query_armed=true`, `g1=na` rows GONE.
+
+Armed-cell rerun (same seed 0x50E1C5, same posture — the g1 column joins the
+comparison above apples-to-apples): 18,432 rows, ZERO g1=na, all values in
+[0, d_k=128]. **g1 mean 1.105, median 0.195, max 115.8** — heavily
+right-skewed: most heads' states are weakly query-aligned, a minority
+strongly aligned; armed layer 0's own mean 0.741 (same class as the rest).
+14 zero rows (zero queries / exact orthogonality). r_ent/r_stable halves
+byte-consistent with the 1257 run (mean 3.3437 — the capture is
+observation-only, the forward untouched). Digest
+`76ad5c8783dfc0baab63fa2651fa783db1341e263c4fc899bc1e55b70f2725ff` (differs
+from 1257's — the g1 column populated). Census pass 1254.5 s + 157.2 s load
+(this box also carried the gitsync sweep's disk load during the pass).
+Artifact: `i503_lattice_census_t02_film_armed_g1.json` in this directory.
+
+**T0 era residue: NONE.** T0.1's three closed forms are complete on the real
+checkpoint (r_ent / r_stable bench 1249, g1 this addendum); T0.2's probe cell
++ verdict stand (measurement curiosity); T0.3's design record stands. The
+unarmed-baseline g1 rerun (completing the BASELINE row's g1 half) is the one
+optional follow-up — the armed-vs-baseline g1 delta reads only after it.
