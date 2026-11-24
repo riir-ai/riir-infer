@@ -1,6 +1,6 @@
 # Issue 1186 — CQ3 league cell on the qwen3.8 dense lane (Cactus whole-model quant, katgpt-rs issue 987 lead A3)
 
-**Status:** IN PROGRESS — T1/T2a + serving arm (a)–(c) LANDED (`5bddfca6`, `3e327f18`, `154159ef`); calibration-integrity fix COMPLETE (b1 head-2048 + b2' tail-2048 pairs accepted, window field pinned); item (d) the cudarc twin LANDED `6569e4f0` (never typechecked off-macOS). REMAINING: (e) the T3 pre-registration + the 4090 typecheck/G1 of (d) + the T3 4090-exclusive queue (this lease). Bout law applies to the T3 cell: ALONE, box state recorded, engagement proof first.
+**Status:** IN PROGRESS — T1/T2a + serving arm (a)–(c) LANDED (`5bddfca6`, `3e327f18`, `154159ef`); calibration-integrity fix COMPLETE (b1 head-2048 + b2' tail-2048 pairs accepted, window field pinned); item (d) the cudarc twin LANDED `6569e4f0`; item (e) the T3 PRE-REGISTRATION LANDED (this lease, before any run — the section below). REMAINING: the 4090 typecheck/G1 of (d) (queued) → T3-prep runner → the T3 4090-exclusive bout. Bout law applies to the T3 cell: ALONE, box state recorded, engagement proof first.
 **Lease closed:** amo-zed-1186cq3, 1794385650, was expires 2026-11-13T08:27:30+00:00 — holder gone, scope unlanded (T2b opponent half never started; the queued prep job died mid-download 2026-11-09: shard 1 stalled at 5.28/46.5 GB on `curl (92) HTTP/2 stream not closed cleanly`, no imatrix/quant/ledger artifacts — verified on disk 2026-11-16T19:40Z).
 **Lease closed:** amo-i1186t2b@amo, 1794849600, was expires 2026-11-17T20:00:00+00:00 — scope (1)(2) EXECUTED (opponent prep + captures + quantize jobs running; record rows below), serving src/ handed to the zed-5bc1bfe7 lease 2026-11-17T05:3xZ; holder retains orchestration (artifact verification, issue folding) documented in the handover, not a second live line.
 **Lease closed:** zed-5bc1bfe7@amo, 1794868200, was expires 2026-11-19T22:30:00Z — holder gone past expiry; scope (a)-(c) LANDED `154159ef` before it; item (d) the cudarc twin remains open, folded into the new claim's scope below.
@@ -86,6 +86,51 @@ Schedule (serialized behind the F1 walk — the top gate): shard download resume
 **OPPONENT TAIL ACCEPTED (2026-11-22T13:0xZ, job `01a2033e-ad0e` exit 0 — the first attempt `01a2033d-a829` died on `-noflush`, a flag this fork's imatrix does not carry; dropped):** `imatrix_v2tail_n2048.gguf` sha256 `5af58b53…` + `qwen38-Q3_K-cal-v2tail-n2048.gguf` sha256 `a642a7ad…`. **The acceptance criterion holds decisively:** the new imatrix differs from the old `v2_n2048` in 23.6 MB of 27.3 MB (3,599 diff regions spanning the data section) — vs the old pair's ONE metadata byte (the path string). The tail window reads genuinely different data. The "no preceding-layer" log warning is pre-existing (52× in the landed arm-(a) run, 1× here — inherent to this model's attn_output wiring in imatrix, fewer here from the 4-chunk read). The quantize's own informational `5af58b53/a642a7ad` are the ledger rows; the T3 pre-registration cites b2' = ours-tail vs OPPONENT-tail, both calibrated on v2's continuation region.
 
 **OURS TAIL ACCEPTED (2026-11-22T14:4xZ, job `01a2033d-8ba4` exit 0, 6474s quantize):** `Qwen3.8-27B-CQ3-g32-b3-cal-v2tail.cq3` blake3 `ebcb8b4b…` — **the acceptance criterion holds:** ≠ `64322cd5` (the collapse fingerprint), sidecar verifies, and the three ours artifacts now hash to exactly TWO distinct digests (the collapsed v1≡v2 pair stays on disk as record-only; b1 = the v1 head-2048 arm, b2' = the v2tail arm). **CALIBRATION-INTEGRITY FIX COMPLETE — both matched pairs exist:** (b1) ours-head vs opponent-head on v1's prefix [valid as landed], (b2') ours-tail vs opponent-tail on v2's continuation region [both sides accepted this session]. Every future capture's ledger carries the window field; T3 may now be pre-registered. Remaining before the T3 queue: item (d) the cudarc twin (4090-owned).
+
+## T3 pre-registration (2026-11-24T15:0xZ, this lease — pinned BEFORE any run; nothing below is measured yet)
+
+**The cell:** CQ3 never-unpack GEMV (ours, the opt-in serving arm) vs llama.cpp Q3_K (the league's pinned opponent build) on the qwen3.8 dense lane, 4090, ONE exclusive bout window (Bout law: ALONE, PROVENANCE line, walk pins, engagement proof first). BOTH sides run fresh in the bout — no standing league row is quoted as the opponent.
+
+**Quotable arms (the matched-calibration law):** arm (b) ONLY — the n2048 matched pairs, window identity in EVERY ledger row:
+- (b1) head-2048 on v1's prefix: ours the cal-v1 `.cq3` (blake3 `64322cd5…` — at the head window the v1≡v2 identity is the DISCLOSED collapse and is legitimate; a re-capture that does NOT reproduce `64322cd5…` is a loud refuse, never a new arm) vs opponent `qwen38-Q3_K-cal-v1-n2048.gguf` sha256 `65edb9f6…` (its v2 twin `2e87dd3b…` is the same corpus prefix — one row, both digests named in the ledger).
+- (b2') tail-2048 on v2's continuation region: ours `Qwen3.8-27B-CQ3-g32-b3-cal-v2tail.cq3` blake3 `ebcb8b4b…` vs opponent `qwen38-Q3_K-cal-v2tail-n2048.gguf` sha256 `a642a7ad…` (imatrix `5af58b53…`).
+- Arm (a) (the full-corpus asymmetric posture): RECORD-ONLY — never a quotable row, never in the verdict.
+- A row whose ledger lacks ANY of {window field, ours-blake3 + opponent-sha256, engine build hash, PROVENANCE line, engagement-counter values} is UNQUOTABLE by construction.
+
+**bpw disclosure (the cell is NOT bpw-matched, by pre-registered design):** ours g32/b3/α0.25 → b_eff = 3.125 (+ FP16 per-group norms) vs the opponent Q3_K (~3.4-class; its measured bpw is read from the artifact at bout time and recorded in every ledger row). Margins are quoted WITH both bpw figures — the claim class is "faster at fewer bits". A bpw-matched follow-up (fresh ours artifacts at b≈3.3–3.5) is a NAMED follow-up only if this cell warrants it, never assumed.
+
+**Shapes (the league standard for this lane):** prefill pp2048 + pp4096; decode tg128; the league's standing prompt sets at the pinned manifest postures. Walk pins: FNV + argmax digit-exact per shape per arm, pinned AT the bout; the determinism leg = the decode walk re-run once in the same bout, bit-identical (the Issue-940 pick-path fold order is pinned in the kernels).
+
+**Postures:**
+- Decode = the measured surface: the cudarc serving path (item (d) module) with `RIIR_QWEN38_CQ3=<artifact>` armed, the DEFAULT plane (divide-free GEMV) posture; `RIIR_QWEN38_CQ3_TILED` is the correctness arm only, never the measured row.
+- Prefill = posture (i) (the GEMV shape p-times, one batched launch — landed `154159ef`), disclosed-SLOW by design (the paper gives NO CQ prefill path — Research 657 §A3): **prefill rows are RECORD-ONLY, never a promotion input and never the headline.**
+- Engagement proof FIRST (the Issue-1124 T1.5 law): the construction-line counters must print NONZERO CQ3-arm engagement on a REAL load in the measured posture before any cell runs; a zero counter is a loud refuse, not a row.
+
+**Correctness legs (before any timing):**
+1. Job A (queued `01a20e08-708f`, 4090 shared): the FIRST-EVER compile+run of `qwen38_cq3_cudarc_g1` (the module compiles to nothing on mac) — typecheck + full battery green is the gate to queue the bout.
+2. In-bout: the battery re-run ×2 (determinism), and the serving-arm boot load of BOTH matched ours artifacts (verify-then-use blake3 must pass at boot).
+
+**Retention gate (the lossy-surface promotion rule — per-family, conditional retention; never aggregate perplexity alone):**
+- Instrument: the standing golden-NLL lane (`si_zero_shot_ppl --golden-nll`, the Issue-959/1188 posture) on ONE frozen read — pooled incumbent(CQ3)-vs-f64-golden Δ-NLL + the argmax-flip census; `--family-census` names the families; the per-family split rides the 1188 family instruments. Any missing glue (e.g. the census reading the `.cq3` container) is a NAMED T3-prep item landed before the bout, never improvised mid-bout.
+- Pre-registered bars (this lane's own call, pinned now, before the run): pooled Δ-NLL(CQ3 vs golden) ≤ 0.04 nats/token; overall argmax-flip ≤ 2.0%; per-family flip ≤ 5.0% AND ≤ 2× the overall rate.
+- A family breach demotes THAT family (per-family conditional retention — that family keeps f16, the rest stay CQ3); a breach in a core family (attention qkv/o, ffn gate/up/down) fails promotion outright.
+- The opponent's quality leg = llama.cpp's own perplexity delta on the same corpus slice, recorded as DISCLOSURE-CLASS (cross-runtime — never pooled with ours, never a bar).
+
+**Pre-registered verdict rule (pinned before the run):**
+- **G2 (decode — the only promotable axis):** per matched pair, decode tok/s ratio ours/Q3_K ≥ 1.00 at the disclosed-lower bpw → GOAT-eligible; 0.95–1.00 → parity-with-disclosure, record, NO promotion; < 0.95 on BOTH pairs → the falsifier fires, the lane records CLOSED-NEGATIVE (the primitive stays opt-in absent a named re-open trigger — a class change, never a re-tune).
+- **Quality veto:** the retention bars fail on the QUOTABLE arm → promotion refused regardless of speed (a perf gain on a biased answer is not a gain — the house law).
+- **G3 (no regression):** the opt-in feature posture — unarmed builds byte-identical (proven at `154159ef`); the bout adds nothing to default builds.
+- **G4:** the decode hot path stays alloc-free at the measured posture (the counting-allocator leg where the harness supports it; a nonzero steady-state alloc is a loud refuse).
+- Promotion itself stays OWNER-GATED per the standing law even on a full GOAT pass (the lossy-surface class).
+
+**Bout hygiene:** ALONE (exclusive rig job; no concurrent GPU consumer — the GPU-exclusivity law covers the correctness legs), PROVENANCE quoted beside every number, no CPU fallback leg (the GPU-first law), the retention read is the long pole and runs the resumable posture (durable state dir under the rig job dir, never /tmp; per-leg checkpoints; idempotent resume).
+
+**Named T3-prep items (landed BEFORE the bout, in order):**
+
+- [ ] T3-prep (a) — job A green: `qwen38_cq3_cudarc_g1` typecheck+run on the 4090 (queued `01a20e08-708f`, shared; its green is the gate to everything below).
+- [ ] T3-prep (b) — the bout runner script: sync (schtasks route) → engagement-counter proof on a real load → battery ×2 → walk-pin legs → decode cells (both matched pairs) → prefill cells (record-only) → retention read → report + ledger rows (window + digests + build + PROVENANCE + counters). One resumable entry point, state under the rig job dir.
+- [ ] T3-prep (c) — the retention glue IF the family census cannot read the `.cq3` container directly (a named instrument extension, landed + tested before the bout; if unnecessary, record that here).
+- [ ] T3 (the bout) — 4090-EXCLUSIVE rig job, both sides fresh, this pre-registration cited in the job title; verdict per the pinned rule; the record lands as `.benchmarks/<NNN>_i1186_t3_cq3_vs_q3k_league_cell.md` + the issue fold.
 
 ## Constraints
 
