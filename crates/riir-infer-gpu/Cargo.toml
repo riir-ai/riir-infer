@@ -845,6 +845,16 @@ required-features = ["qwen38_wgpu"]
 name = "i1203_counters_probe"
 required-features = ["qwen38_wgpu"]
 
+# Issue 1247 — the m3 per-driver-interaction decomposition probe (create /
+# write / submit / poll cells + the backlog, fence-scan, raw-Metal and
+# pressure cells, public wgpu API + the metal_tensor_gemm `metal` dep for
+# the raw-Metal cell, no model load). macOS-only by the file-level #![cfg]
+# and the feature row is the reader protection (the whole-file cfg + this
+# named row; builds to nothing without the feature or off macOS).
+[[bin]]
+name = "i1247_driver_interaction_probe"
+required-features = ["metal_tensor_gemm"]
+
 # Issue 1177 Item 1 — the CUDA-side walk-parity harness: the SAME fixed
 # greedy-argmax walk as the Metal bench's `[walk] ids:` artifact, driven by
 # the qwen38_dense_cudarc bit-parity oracle. CUDA-only (the module's own
