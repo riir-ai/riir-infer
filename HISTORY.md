@@ -124,6 +124,10 @@ The ten `crates/riir-infer-gpu/examples/*_i1179.rs` probes had NO manifest rows 
 
 # HISTORY.md — riir-infer
 
+## 2026-11-25 — Issue 1248 file removed (the hygiene pass): the f16 bandwidth-transfer census closed LANDED + AGREE with every box checked — records live in git history + the named downstream lanes
+
+The census answered the owner's ask: **NO dtype transfer** — each of ndb / chain / riir-net / seal-escrow fails ≥1 precondition of the f16-B shape ("smaller" already landed in each repo's own currency). Delegated verdict round 1 **AGREE** (session `9b75bcf7`, 2026-11-24); its one correction APPLIED — the ndb dense scorer routes to the EXISTING ndb Plan 338 (`embed_quant`, f16 its unmeasured middle arm), never a parallel re-open trigger. Re-open instruments live downstream: a bytes-dominated serving consumer joins ndb Plan 338's arm table; riir-net stays batching/compression (raw-physical law). Shape-grep vocabulary registered for the re-run trigger. Full text: `git log --follow -- .issues/1248_f16_bandwidth_transfer_census.md`.
+
 Compacted 2026-11-20: every heading kept verbatim, bodies <=2 lines of durable facts; full pre-compaction text in git history (pre-compaction HEAD 5a27ee2). Operational rules live in `AGENTS.md`.
 
 ## 2026-11-10 — Issue 1195 CLOSED RESOLVED: the root manifest's dev-profile debuginfo budget landed (`fb1c1f0`) — line-tables-only + deps debug=false; the A/B measured the daily-loop half; opt-3 dep codegen judged and declined
