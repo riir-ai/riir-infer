@@ -1,0 +1,4 @@
+[Issue 1150] dense-f16 matmul2d arm armed — league DEFAULT (issue 1176; demote: RIIR_QWEN38_DENSE_MM2D=0) (device=0x105547df0, queue=0x105552630, relaxed_precision=true)
+[Issue 1171] tensor-flash prefill attention armed (device=0x105547df0)
+[Issue 1170] dense-f16 half-B matmul2d arm armed (device=0x105547df0, queue=0x105552630, relaxed_precision=true)
+[Issue 1150] Q6_K packed tail armed (~2.1 GB resident, the 10.7 GB f32 dequant skipped; 1e-5 re-association class — never a parity claim)

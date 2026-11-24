@@ -1,0 +1,21 @@
+[probe] loading /Users/kat/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf (ctx 24576, chunk 512) ...
+CubeCL runtime initialized: wgpu<msl>
+[qwen38-wgpu] loaded: 64 layers (48 GDN / 16 attn), vocab 248320, wte host 10.2 GB, lm_head 8 chunks of 32768 rows, ctx 24576, chunk 512
+[probe] loaded in 53.6s
+[probe] prompt: 45 chars -> padded to 512 tokens
+[probe] wall 600.746s (600745777542 ns)
+[probe] LAUNCH        count=   4445  ms=      6.1  wall%=  0.0  per-launch-us=     1.4
+[probe] ENQUEUE_EXEC  count=   4445  ms=     11.5  wall%=  0.0  per-enqueue-us=     2.6
+[probe]   PIPELINE    ms=      3.6
+[probe]   PREPARE     ms=      1.4
+[probe]   REGISTER    ms=      0.3
+[probe] ENQUEUE_WRITE count=   3682  ms=  72709.1  wall%= 12.1
+[probe] FLUSH         count=  18700  ms=  81868.6  wall%= 13.6  submit=4212
+[probe]   REGULATE    count=      9  ms=  81264.9  wall%= 13.5  per-block-us=9029434.6
+[probe]   WRITE_POLL  count=      2  ms=   1410.2  wall%=  0.2  (writes=3682)
+[probe] READ          count=      5  ms=      0.3  wall%=  0.0  per-read-ms=    0.06
+[probe] LAUNCH−ENQUEUE_EXEC (launch machinery above the stream) ms=0.0 wall%=0.0
+[probe] GPU-paced share (REGULATE+WRITE_POLL+READ) ms=82675.4 wall%=13.8
+[probe] [gemv-engagement] dense dispatches Δ+1984 over the measured pass
+[probe] verdict input: encode-bound wall%=0.0 vs GPU-paced wall%=13.8 — ENCODE-bound = dispatch-serialization class (b), GPU-paced = throughput class (a)
+[probe] posture reminder: the stderr load banner ([Issue 1150] armed / [Issue 1176] DEMOTED) adjudicates what this measured — a feature-less build measures the incumbent, not the armed path.

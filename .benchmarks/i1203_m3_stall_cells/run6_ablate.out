@@ -1,0 +1,10 @@
+[bench] loading /Users/kat/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf (ctx 4096, chunk 512) ...
+CubeCL runtime initialized: wgpu<msl>
+[qwen38-wgpu] loaded: 64 layers (48 GDN / 16 attn), vocab 248320, wte host 10.2 GB, lm_head 8 chunks of 32768 rows, ctx 4096, chunk 512
+[bench] loaded in 52.0s
+[bench] prompt: 45 chars -> 10 tokens
+[decode-ablate-matrix] 13 classes x 3 pair(s), seed 10 tokens (ctx target None), 16 steps/cell, layers: 48 gdn + 16 attn
+[decode-ablate-matrix] warm-up start: ingest 10 tokens + 16 decode steps
+[decode-ablate-matrix] warm-up: 397.49s = 0.04 tok/s
+[decode-ablate d_embed] cell start (3 pairs x 16 steps)
+[decode-ablate d_embed] pair 0 base arm start
