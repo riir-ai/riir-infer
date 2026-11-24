@@ -2,6 +2,9 @@
 
 **Status:** LANDED 2026-11-16 (zed-a081f5f1@amo) — the batched GPU lane compiles, unit-gated, parity-gated; the real-model full-basis run is the next cell (4090).
 
+**Claimed:** zed-074a264a@amo, 1795527652, expires 2026-11-26T21:00:00+00:00
+**(the DECIDING RUN cell — docs=10/t=128/dim_batch=128, ~25.9 h, dispatched to the quiet 4090; closes the Bench-1240 structural-only G3 caveat + lands the production tolerance calibration; machinery record per the 2026-11-23 verdict pointer, never a lens promotion)**
+
 **⚠ Verdict pointer (2026-11-23, from this box's 999 collection wake):** katgpt-rs 999 CLOSED DEMOTED 2026-11-17 (Research 666 §7 Addendum — G1 0.00088 vs 0.25 bar / masked 0.065 vs the 0.309 random-K null; G2 mid-band 0.400/0.047 vs 0.45/0.04 with a real late-layer depth gradient; G3 j-drift 47.6% — the fit learned corpus statistics, not weight geometry). The lens primitive is demoted for our stack; promotion is dead; the laya headful variant is refuted-by-verdict. This lane's deciding-run calibration (i1223) stays worthwhile as MACHINERY record (the kernels + tolerance calibration outlive the primitive — GPU batched tangent transport is reusable), but its completion must NOT be read as a lens promotion; any future re-open goes through 666 §7's named re-scope triggers.
 
 ## Real-model smoke record (2026-11-18, Bench 1240)
