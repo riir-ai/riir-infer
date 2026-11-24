@@ -1,0 +1,60 @@
+# MemT-1.0 Memory-Foundation-Model distill — two-cell GDN stability law + training recipe
+
+**Status:** RECORD — born-complete distillation; pending work lives in `riir-infer/.issues/1249_gdn_erase_stability_gate.md` (claimed) + `riir-train/.plans/515_gdn_memory_adapter_kd.md` (pilot-gated).
+
+Source: arXiv:2610.26825 "MemT-1.0: Towards Memory-Native Evolution" (MemTensor Team, v2 2026-10-20; paper CC BY-NC-SA 4.0) + HF card `MemTensor/MemT-1.0-Pro` (2026-11-20, weights OpenMDW-1.1). Full HTML + card read this session. **Method consumed only — no MemT weights or data enter any tree.**
+
+Family: MemT-1.0-Nano (36B/3B-active, Qwen3.6-35B-A3B backbone, 451M memory params, 10M state elements, 40 MiB FP32 state), Flash (288B/17B-active, prepared DeepSeek-V4-Flash, 3.61B memory params, 336M elements), Pro (565B, Nemotron-3-Ultra; released 2026-11-20).
+
+## TL;DR
+
+A trained **memory-native LLM**: per selected layer, a constant-size memory matrix M ∈ R^{H_kv×d_k×d_v} evolving across turns via a Stable-GDN-2 token-level update, read by parallel memory attention added to the backbone attention output. O(1) state in history length: 66× persistent-storage reduction vs full-context KV at 128K, flat ~104–112 ms query TTFT (vs 257 ms @128K full context), 1.86× e2e speedup @128K. Trained by two-stage CPT + top-64-truncated KL distillation from the frozen full-context backbone teacher (teacher sees full history text; student sees current turn + memory state only). #1/#2 among parametric-memory baselines on 11 memory benchmarks (Flash 50.6 / Nano 47.0 avg) — but textual retrieval still leads overall (DenseRAG 56.5–57.3, MemOS ~68.6, full context ~66), and their agentic eval shows native-memory experience ≈ textual-experience (pass³ 61.6 = 61.6 on SWE-bench Verified).
+
+## Architecture (what the mechanism is)
+
+- **Native Memory Block** on selected layers (Nano: 3,7,…,39; Flash: 20 layers), parallel to backbone attention: `A = A_ori + A_mem`. Readout per channel: `R = Q·M/√d_k`, `Q = L2Norm(H̃ W_Q)`, gated `RMSNorm(R) ⊙ SoftCapSiLU(G)`, `SoftCapSiLU(x) = τ·tanh(SiLU(x)/τ)`, τ=2 — a **bounded** memory readout that cannot dominate backbone attention.
+- **Storage update** at each turn boundary, token-level: K = L2Norm(H̃ W_K), V = H̃ W_V, erase β = σ(H̃ W_β), write ω = σ(H̃ W_ω), forget λ = −exp(s)⊙Softplus(F W_λ + b_λ) (half-life init log-uniform 2048–32768 tokens Nano / 128–32768 Flash; b_λ, s excluded from weight decay), then `M̃ = [I − UᵀU]·Diag(exp λ)·M̃_prev + Uᵀ(ω⊙V)` with **U = √β⊙k** (the symmetrization — see the law below).
+- **MoS (Mixture-of-Storage)**: E dense-routed memory experts over a shared address matrix; a utilization router mixes expert readouts, a storage router modulates erase/write gates. DENSE routing — every expert computes; softmax weights, never sparse dispatch.
+- **Training**: CPT (CE, segments as steps, memory carried across segments) → post-training KL: teacher = frozen backbone WITH full history in context; student = backbone + memory only. Teacher logits truncated to top-64 support and renormalized; student penalized for mass outside the support (the truncation also punishes hallucinated mass — a nice property). Backbone frozen; only memory params train. FP32 memory states; FP32 decay/normalization math.
+- **Experience-guided agentic coding**: 1,040 procedural experiences distilled from 41K successful trajectories (trigger/steps/constraints/verification fields); retrieved (BGE-M3 top-k), stored into native memory via a memory-store op at breakpoints (harness-detected: command failures, empty observations, repeated failed ops), counterfactually validated (original fails → experience-conditioned continuation passes executable tests; 42,403 retained of 199,500 interventions). KD-trained: teacher gets the experience as text, student only through memory. +7.6pp avg / +8.8pp pass³ (Verified) vs no-experience; ≈ ties textual experience; consistency (pass³) the biggest win.
+- **Backbone preparation finding**: post-training improves **reliability, not capability** — never-solved-in-8 tasks stay 1.6–4.0% after preparation; supplying the relevant facts in context raises 27%→91% ⇒ "the remaining gap is informational". Direct validation of the ESC-ladder thesis (cheap lane = reliability; escalate to a teacher for informational gaps) and of the rulewright's miss-triage shape.
+
+## The two-cell stability law (the extraction)
+
+**Cell (a) — classical DeltaNet scalar-beta bound (prior art: Yang et al. 2412.06464 lineage; NOT MemT's).** Eigenvalues of the erase operator I−βkkᵀ are {1 (×d−1), 1−β‖k‖²}; the update is non-expansive iff **0 ≤ β‖k‖² ≤ 2**. Our shipped lane satisfies this **by construction**: scalar per-head β (`betas [H]`, `delta_roll.rs` L79) + `expand_l2_normalized_heads_into` (forward.rs L725-737) + sigmoid β ∈ (0,1) + L2-normalized k ⇒ β‖k‖² < 1. Our own empirical fixture comment (`crates/riir-infer-gpu/src/cudarc_kernels/deltanet.rs` L4955-4959: raw fixture drove β·‖k‖² to 5..30, eigenvalues −4..−29, state → ~1.5e7 — the raw fixture bypassed the production `expand_and_l2_normalize`) is the measured violation of exactly this classical class. Issue 1249 cell (a) pins it as a regression guard; MemT is not credited for it.
+
+**Cell (b) — MemT's channel-wise law (arXiv:2610.26825 App. C; MemT's delta on NVIDIA GDN-2, arXiv:2605.22791).** With a channel-wise gate b on unit-norm k, the asymmetric rank-1 erase `A = I − kᵀ(b⊙k)` is **non-normal**: the k-orthogonal direction acquires coupling γ² = m−ρ² (ρ = Σbᵢkᵢ², m = Σbᵢ²kᵢ²), the 2×2 block's spectral norm λ₊ ∈ [1, 4/3), i.e. **up to 2/√3 ≈ 1.1547 per-step amplification** (peak at ρ = 1/3). Fix: symmetrize `U = √β⊙k` ⇒ `I − UᵀU` contracts the parallel component by (1−‖u‖²) and leaves the orthogonal complement untouched — non-expansive by construction. **Coupling to the forget gate**: ‖AD‖ ≤ (2/√3)·d̄ < 1 is a SUFFICIENT, worst-case, PER-STEP contraction condition — not necessary (products of non-normal steps can still contract when k decorrelates over time) — and the per-step worst-case guarantee requires **d̄ < √3/2 ≈ 0.866/token**, i.e. worst-case-guarantee half-life ≈ 5 tokens: an unsymmetrized channel-wise erase gate and a long-half-life forget gate cannot both hold their design intent. **Measured verification this session** (reviewer sweep, 60k random draws, unit-norm k, b∈(0,1)^d, d∈{2,4,16}): unsymmetrized sup 1.1493 vs analytic 1.1547 (random lands ~0.005 short of the peak); symmetrized sup exactly 1.000. The issue's gate test uses a **deterministic grid covering ρ = 1/3**, never random draws alone.
+
+Signal-diff vs cousins: B253 (`fla` distill) owns the channel-gate **implementation** law (axis-split, bake-into-operand, the GDN-2 watch-note) — not the stability bound; katgpt-rs 629/630 are delta-rule memory-capacity probes (RLS/KronLSTM) — different surface; the fixture comment is the empirical instance the law formalizes. Nobody in the corpus owned either closed form before this note.
+
+## Path-0 inventory (two questions per component)
+
+| # | Component | Analog exists? | Extractable without GD? | Disposition |
+|---|---|---|---|---|
+| 1 | Stable-GDN-2 symmetrization + decay coupling | No (B253 = implementation law; fixture = empirical only) | YES — closed form, ships as gate/test | **Issue 1249**, two cells |
+| 2 | SoftCapSiLU bounded readout | Partial (sigmoid-family bounded gates pervade the stack) | Trivial (one-line bounded saturation; τ a calibration item) | Recorded here; no separate file (smallest artifact) |
+| 3 | Top-K truncated teacher KL | No (our KD lanes use full-support KL) | Recipe item | **Plan 515** component |
+| 4 | Constant-size state + save/resume (O(1), 66× storage, flat TTFT) | YES — NeuronShard + MerkleFrozenEnvelope + session-as-shard + freeze/thaw (our design IS this shape) | Architecture, not training | Validation; delta = trained write gates → feeds Plan 515 |
+| 5 | Experience injection into latent state at breakpoints | YES — refine misses-queue + adoption_gate + corpus-gap events (corpus-as-model) | Op closed-form; content quality is the training residue | Validation (their native ≈ textual ⇒ our retrieval floor is the incumbent); Plan 515 extension lane |
+| 6 | Backbone prep: reliability vs informational gap | YES (ESC ladder thesis) | Diagnostic protocol extractable (attempt-classification + attribution-by-intervention for refine's miss queue) | Recorded here; no separate file |
+| 7 | MoS dense routing over shared addresses | YES (sigmoid-gate-not-hard-dispatch law everywhere) | — | No extraction |
+| 8 | Online SVD rank truncation, benchmark-dependent rank saturation | Partial (shard_compactor / spectral lanes) | Closed-form op | Supports the per-family conditional retention law (lossy-surface promotion rule) with published evidence — cite, no file |
+
+## Fusion map
+
+- **B253** (fla): COMPOSES — their gdn2 watch-note gains the adoption-gate rider; the axis-split law (how) + the symmetrization law (safe-shape) travel together when a GDN-2-family model enters the league.
+- **Session-shard / freeze-thaw** (riir-neuron-db): MemT is the trained-weights proof that O(1) latent session state with save/resume-without-plaintext works at production scale — our fingerprint+shard design validated; the delta (learned what-to-keep write gates) is exactly what Plan 515 would add.
+- **ESC ladder / decision serving**: their Table-3 noise-setting result (general capabilities preserved under distracting memories, −0.9 avg) + the reliability/informational split are citable evidence for cheap-lane/escalate-lane separation.
+- **Rulewright miss triage**: their backbone-prep protocol (attempt-classification: reliably/occasionally/never-solved; attribution-by-intervention: re-run with the suspected missing piece, does the failure disappear?) is a directly portable diagnostic for `.refine/misses/` — separates "corpus has the rule but the drafter doesn't apply it" (reliability → drafter/pruner lever) from "corpus lacks the rule" (informational → mining queue).
+
+## Per-track verdicts
+
+- **Track (a) modelless**: **HARDENING + ADOPTION GATE** (honest label — the shipped lane is contractive by construction; this is prevention-with-proof-path, not repair). Proof path: Issue 1249's two-cell gate test (classical bound pin on the shipped lane + measured-supremum sweep on a deterministic grid with the 1.14 falsification arm).
+- **Track (c) model-based**: **GAIN (plan filed)** — `riir-train/.plans/515_gdn_memory_adapter_kd.md`: GDN-state-shaped memory adapter on Bonsai-27B ternary (~340M params, kernel reuse), KD-only from the frozen full-context backbone, **Phase-0 ~10 GPU-h pilot with a kill gate vs the retrieval floor** before any full run, 4090-routed. Honest expectation: reliability gains are the realistic win; capability closure only where facts are supplied; the retrieval floor is the incumbent to beat (their own tables show parametric memory losing to textual retrieval on most memory benchmarks).
+- **Self-evolve stack (priority-1 two-sided check)**: what this does for the rulewright = the miss-triage diagnostic (item 6) + validation of the corpus floor (item 5). Recorded here; no file inflation.
+
+## Verdict record
+
+Claude verdict ping-pong, 2 rounds, session `18b5a3da-1ab0-4916-83f1-d1f208681ea8`: round 1 REVISE (four fixes: fixture class split, sufficient-per-step wording + measured-supremum test, tier honesty, pilot kill gate + license line) — all addressed with evidence; round 2 **AGREE** (reviewer independently re-ran the sweep: unsymmetrized 1.1493 vs analytic 1.1547, symmetrized 1.000; verified `betas [H]` and `expand_l2_normalized_heads_into` lines; confirmed counters 040/1248/514 free and no prior distill of 2610.26825 anywhere — the only MemTensor hit is katgpt-rs research 133 FluxMem, a different paper). Final refinement folded in: deterministic grid at ρ = 1/3 in the gate spec.
+
+Files this note fathered: `riir-infer/.issues/1249_gdn_erase_stability_gate.md` · `riir-train/.plans/515_gdn_memory_adapter_kd.md` · rider line on `riir-refine/.research/253_fla_returning_source_distill.md` (gdn2 watch-note).
