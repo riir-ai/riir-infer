@@ -1,6 +1,6 @@
 # Bench 1252 — plan 508 T1 pre-GPU KL minimum-effect gate (the anchor-KL instrument's first consumer)
 
-**Date:** 2026-11-21T14:1xZ (zed-989683dc@4090). Plan: [riir-train 508](../../../riir-train/.plans/508_onpolicy_own_answer_kd_quant_recovery.md) T1; the verdict's recovery-signal risk (session `cc0f0014`) measured BEFORE any GPU-h burn, exactly as pinned.
+**Date:** 2026-11-21T14:1xZ (zed-989683dc@4090). Plan: [riir-train 508](../../riir-train/.plans/508_onpolicy_own_answer_kd_quant_recovery.md) T1; the verdict's recovery-signal risk (session `cc0f0014`) measured BEFORE any GPU-h burn, exactly as pinned.
 
 ## The instrument (1242 T1's first consumer)
 

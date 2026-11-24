@@ -35,6 +35,6 @@
 
 ## Cross-references
 
-- [`.issues/1167_metal_prefill_followup_lane_b_c.md`](1167_metal_prefill_followup_lane_b_c.md) — the parent lane; its gdn_rec ground is hereby delegated HERE (this filing is the "files its own issue" act its close note names).
+- `.issues/1167_metal_prefill_followup_lane_b_c.md` — the parent lane; its gdn_rec ground is hereby delegated HERE (this filing is the "files its own issue" act its close note names).
 - `.benchmarks/1233_i1167_gdnrec_price_cell.md` (the confirmatory close + the entry price), `.benchmarks/1227_i1167_postf16b_census_rerank.md` (the 6.9% share), `.benchmarks/937` (the frame A/B decider shape), Bench 995 (the fused-GDN decode rungs, opt-in — the fusion prior inside THIS crate).
 - riir-ai Issue 971 watch (the CUDA chunked promotion REFUSED bank) — the prior to beat.

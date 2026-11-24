@@ -1,7 +1,7 @@
 # Bench 893 — Issue 1117 T3/T4: the FlashMemory budget decode lane end-to-end on the real Bonsai-2 PQ2_0 — teacher-forced NLL / top-1 vs dense at 32K, ρ ∈ {0.05, 0.10, 0.15, 0.30}
 
 **Status:** COLLECTED 2026-10-27 ~05:37 +07 (the v2 relaunch completed end to end; report.md + report.json at `~/.cache/i1117/32k_rel/`). v1 (killed 10-25) partials stand as the cross-session INDICATIVE rows; the v2 session's dense + ρ 0.15 + ρ 0.30 are one-session self-consistent on corpus v2.
-**Date:** 2026-10-25 · **Issue:** [1117](../.issues/1117_flashmemory_budget_decode_consumer.md) T3/T4 · **Code:** riir-infer `51f52f4` (the ternary decode lane + the G1 battery) + katgpt-rs `3d3152fbd` (the incremental last-block centroid substrate) · **Instrument:** `src/bin/flashmemory_decode_gate.rs` · **Predecessor:** riir-train [Bench 671](../../riir-train/.benchmarks/671_issue452_e1_topk_budget_selection_fidelity.md) (the per-layer fidelity oracle this gate compounds), katgpt-rs Issue 962 (the budget selector).
+**Date:** 2026-10-25 · **Issue:** `1117` T3/T4 · **Code:** riir-infer `51f52f4` (the ternary decode lane + the G1 battery) + katgpt-rs `3d3152fbd` (the incremental last-block centroid substrate) · **Instrument:** `src/bin/flashmemory_decode_gate.rs` · **Predecessor:** riir-train [Bench 671](../../riir-train/.benchmarks/671_issue452_e1_topk_budget_selection_fidelity.md) (the per-layer fidelity oracle this gate compounds), katgpt-rs Issue 962 (the budget selector).
 
 ## Question
 

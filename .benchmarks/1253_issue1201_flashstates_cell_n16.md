@@ -1,7 +1,7 @@
 # Bench 1253 — Issue 1201 flashstates rung-1 cell (N=16, cap 2048, seed 0, frac 1/16): arms a0/a0p/a1/a2 at the league posture
 
 **Date:** 2026-11-22 (data completed 2026-11-20 22:26 +07 on bmo)
-**Issue:** [1201_flashstates_hybrid_state_serving.md](../.issues/1201_flashstates_hybrid_state_serving.md) · **Plan:** 630 T3 ladder rung 1 (the amended (16, 2048, seed 0) @ frac 1/16 pin)
+**Issue:** `1201_flashstates_hybrid_state_serving.md` · **Plan:** 630 T3 ladder rung 1 (the amended (16, 2048, seed 0) @ frac 1/16 pin)
 **Model:** Qwen3.8-27B Q4_K_M (sha256 `e00082f7…`, the amo uzu27b copy shipped bit-identical over the bridge — the bartowski repack's attn_qkv Q8_0 refused the loader; the repacker lesson recorded in the issue)
 **Instrument:** `crates/riir-infer-gpu/src/bin/flashstates_cell.rs` (the run's own commit pin; bars computed in-instrument, `bars.json`)
 **Job:** bmo exclusive `01a1f72b-0a27-7a71-ad01-2dd208603bdd` (est 30h/timeout 45h), start ~13:0x +07 11-20, COMPLETE 22:26 +07 11-20; the run dir `/Users/katopz/git/riir-infer/.benchmarks/flashstates_cell/16_2048_s0/` on bmo (a0/a0p/a1/a2 rows+summaries+bars.json+manifest+`job_20261120T1100_resume.log`)

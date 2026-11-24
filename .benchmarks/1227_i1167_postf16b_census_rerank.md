@@ -3,7 +3,7 @@
 **Status:** RECORD — census re-rank PASS ×2 (pre-fusion table + the promoted-posture fused table, both exit 0, engagement `twin 264192 dispatched / incumbent 0 served` asserted, non-vacuous bit-identity anchors held, G-C1 additivity residue −3.54 / +1.59 — noise-class). Re-ranks Bench 937 post-f16B: the f16-B twin (promoted dist default 2026-11-16, Bench 1226) armed for every GEMM site in both runs — the residual table at the serving posture for the first time. **The re-rank verdict (§The promoted-posture re-rank): gdn_rec 6.9% is the top remaining kernel ground (priced, needs its own engagement+price cell); the pp512 config rung −6.7% at the promoted posture (fully priced); FFN 54.9% → the 1226 lane's f16-B follow-ups; attention closed; prework fused 15.7× re-validated.** Both of the issue's named remaining grounds now carry numbers at the promoted posture — the lane's remaining ground is PRICED, not open.
 **Date:** 2026-11-16
 **Session:** zed-ddc61e9c@amo, 1794849000
-**Issue:** [`.issues/1167_metal_prefill_followup_lane_b_c.md`](../.issues/1167_metal_prefill_followup_lane_b_c.md)
+**Issue:** `.issues/1167_metal_prefill_followup_lane_b_c.md`
 **Box:** bmo (M5 Ultra, 96 GiB), AC, Exclusive lane (GPU-quiet by construction), load 1.4–2.9/30
 **Model:** `Ternary-Bonsai-2-27B-PQ2_0.gguf` (league pin, absolute `BONSAI2_G1_MODEL` = `/Users/katopz/models/…`)
 **Pin:** bmo worktree at `04667ea` (the instrumented-census commit; the instrument fixes `db0dfce` — see §Instrument — landed mid-bisect and both runs carry them)

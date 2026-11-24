@@ -1,6 +1,6 @@
 # Bench 1249 — plan 503 T0.1/T0.2 lattice-census gate run (compile + fixtures + clippy + real-checkpoint smoke + determinism)
 
-**Date:** 2026-11-20 (zed-989683dc@4090). Plan: [riir-train 503](../../../riir-train/.plans/503_lattice_conditioning_xhc_gdn.md) Phase 0; authoring receipt riir-infer `d112204`; this bench = the compile-gated residue discharged.
+**Date:** 2026-11-20 (zed-989683dc@4090). Plan: [riir-train 503](../../riir-train/.plans/503_lattice_conditioning_xhc_gdn.md) Phase 0; authoring receipt riir-infer `d112204`; this bench = the compile-gated residue discharged.
 
 ## Cells
 

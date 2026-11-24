@@ -3,7 +3,7 @@
 **Status:** RECORD — census re-run PASS (attempt 4 `01a19d1b-4481`, exit 0, bit-identity anchors held, G-C1 additivity residue −4.35 ms). Re-ranks Bench 925 post-4(c): **attention 37% → 8.9%** (the 4(c) matmul2d arm did its job), **FFN 50.4%** (now the dominant class), DeltaNet 39.0% — of which **gdn_prework 12.1%**, exposed as a PROMOTION GAP (Bench 024's R2 fused prework was promoted default-on Metal 2026-10-28 but `deltanet_prework_fused` never joined `riir-infer-gpu/production`; serving runs the chunked fallback). Paired A/B cell queued (attempt 5 `01a19d26-c556`: census + the feature) — see §Fused-prework cell below for the verdict when it lands.
 **Date:** 2026-11-02
 **Session:** zed-cadbba9f@amo, 1793635248
-**Issue:** [`.issues/1167_metal_prefill_followup_lane_b_c.md`](../.issues/1167_metal_prefill_followup_lane_b_c.md)
+**Issue:** `.issues/1167_metal_prefill_followup_lane_b_c.md`
 **Box:** bmo (M5 Ultra, 96 GiB), AC, Exclusive lane (GPU-quiet by construction — the rig held the box alone)
 **Model:** `Ternary-Bonsai-2-27B-PQ2_0.gguf` (league pin, absolute `BONSAI2_G1_MODEL`)
 **Pin:** worktree `riir-infer@6941f7788fca` (develop at queue time; probe-confirmed present in bmo's clone — its remote-tracking refs are stale at `efeb527` 10-29, objects are not)

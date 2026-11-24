@@ -4,7 +4,7 @@
 **⚠ Round-2 closure retracted:** the first landing of this record proposed closing rung C at 0.8–1.2% e2e from the 13:55-window walls (ffn_gate/up 4.267 ms, ffn_down 5.108 ms). Those walls are ~2.9× the clean-window class (1.4–2.0 ms, reproduced in three independent windows: 14:29 full-suite, 14:31 standalone, 14:34 standalone) and the round-2 twin walls SUMMED to ~873 ms/frame vs the census's 281 ms FFN strip — physically impossible for the same kernels. Cause: the co-tenant `plm_gpu_backward_parity` GPU job (the train sibling's rig lane) was running during the 13:39–13:55 window; rig status listed it as amo heavy. Nobody should quote the round-2 share numbers.
 **Date:** 2026-11-05
 **Session:** zed-fcebab50@amo, 1793856517
-**Issue:** [`.issues/1167_metal_prefill_followup_lane_b_c.md`](../.issues/1167_metal_prefill_followup_lane_b_c.md) (rung C, re-scoped by Bench 937)
+**Issue:** `.issues/1167_metal_prefill_followup_lane_b_c.md` (rung C, re-scoped by Bench 937)
 **Box:** amo (M5 Ultra, 30 cores, 96 GB), AC, load 2.45–2.49 (settled; a syspolicyd burst above 3 preceded the run and had drained), no GPU compute consumer — the slot was sequenced with the co-tenants (a387ce2c's bench_1156 1164 battery, then zed-83e79a9e's 1177 Item-2 cell, via agent-mail handshake; both drained before this run).
 **Model:** synthetic bit-plane fixtures at the three Bonsai-2 prefill bottleneck shapes (the real-model frame census is Bench 937 — this cell prices the KERNEL, and the fixture laws below pin the decode).
 **Instrument:** `crates/riir-infer-gpu/tests/issue1167_rung_c_staging_price.rs` (G1 `2.682e-7` worst_rel vs the CPU decode; commits `c5fba2e`, `cb00077`, `e7b98d1`).

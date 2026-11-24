@@ -3,7 +3,7 @@
 **Status:** RECORD (decider adjudicated; rung C closed per the pre-registered rule).
 **Date:** 2026-11-09 (cell ran 2026-11-08 16:37–16:48 UTC on bmo)
 **Session:** cell executed by bmo exclusive rig job `01a1bc05-8fb9-78c2-9ddc-d41f5ea19300` under the zed-amo-1167rungc@amo lease (fold owner zed-754da340@amo — both sessions nowake by 11-09); adjudicated by zed-15be441a@amo under the owner's nowake-takeover directive (lease folded in the issue).
-**Issue:** [`.issues/1167_metal_prefill_followup_lane_b_c.md`](../.issues/1167_metal_prefill_followup_lane_b_c.md) (rung C, the decider half)
+**Issue:** `.issues/1167_metal_prefill_followup_lane_b_c.md` (rung C, the decider half)
 **Instrument:** the paired Bench-937 frame-census A/B (script `/tmp/i1167rungc_ab_job.sh` — the attempt-2 hardening: ABORTS LOUD exit 4 on any pass with no `(baseline)` line, closing the attempt-1 green-zero laundering class), gate sha `b490a9f2593c` (the G1b commit — the variant gate landed there: `set_metal_tensor_double_buffer` + the construction-time smem capture + `g1b_double_buffer_variant_gate` 4/4 PASS, worst_rel ≤ 4.228e-7, bit-identity to_bits EXACT).
 **Box:** bmo (M5 Ultra 96 GB, AC), release census binary `bench_1146_prefill_frame_census`, exclusive lane, ~77 s/pass, 8 passes alternating.
 
