@@ -87,8 +87,11 @@ riir-infer-ane = { path = "../riir-infer-ane", optional = true }
 # Issue 1237 — the ACE extraction primitive (katgpt-rs Plan 640
 # `relevance_core`) + the subspace-intervention basis helpers, consumed by
 # the decision-core census bin only. Public upstream (BOUNDARY allowlist);
-# default features off so the lane pulls nothing else.
-katgpt-core = { path = "../../../katgpt-rs/crates/katgpt-core", default-features = false, optional = true }
+# inherited from the workspace (the fence's sanctioned prefix is the ROOT
+# manifest's spelling — a member carrying its own `../../../katgpt-rs`
+# path dep trips fence_gate F1 by construction; fence red `ac11bd21`+).
+# Optional: laya's default build never resolves katgpt-core at all.
+katgpt-core = { workspace = true, optional = true }
 
 # ── non-macOS: the CUDA backend (`laya-riir-cuda`, .issues/002) ──────────
 # cudarc 0.19 with driver + nvrtc ONLY (no cublas, no runtime) — the lane
