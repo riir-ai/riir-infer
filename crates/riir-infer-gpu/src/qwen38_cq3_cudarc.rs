@@ -53,6 +53,8 @@
 //! `production` before the T3 GOAT.
 #![cfg(all(feature = "cq3_cuda", not(target_os = "macos")))]
 
+use std::sync::Arc;
+
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream};
@@ -67,6 +69,17 @@ pub fn words_row_len(d_in: usize, b: u32) -> usize {
 // The CUDA source lives in the CQ3_CUDA_SRC string below (the kernels
 // are documented in the string's comments; keeping one copy — the wire —
 // avoids a drifting twin).
+
+/// The compiled CQ3 kernel set (nvrtc sm_89). One per context; the
+/// launchers are the module's three pub methods.
+pub struct Cq3CudarcKernels {
+    act_prep: CudaFunction,
+    quant_x8: CudaFunction,
+    gemv_tiled: CudaFunction,
+    /// The functions borrow the module's code image — retained so the
+    /// functions stay valid for the struct's whole life.
+    _module: CudaModule,
+}
 
 impl Cq3CudarcKernels {
     /// Compile + load (nvrtc, sm_89 — the 4090's arch, the same option
@@ -84,7 +97,11 @@ impl Cq3CudarcKernels {
         )
         .map_err(|e| format!("nvrtc: {e}"))?;
         let module = ctx.load_module(ptx).map_err(|e| e.to_string())?;
-        let f = |name: &str| module.load_function(name).map_err(|e| format!("{name}: {e}"));
+        let f = |name: &str| {
+            module
+                .load_function(name)
+                .map_err(|e| format!("{name}: {e}"))
+        };
         Ok(Self {
             act_prep: f("cq3_act_prep")?,
             quant_x8: f("cq3_quant_x8")?,
@@ -118,12 +135,7 @@ impl Cq3CudarcKernels {
         groups: usize,
     ) -> Result<(), String> {
         let inv = 1.0f32 / (g as f32).sqrt();
-        let params: Vec<f32> = vec![
-            g as f32,
-            smooth_len as f32,
-            inv,
-            tokens as f32,
-        ];
+        let params: Vec<f32> = vec![g as f32, smooth_len as f32, inv, tokens as f32];
         let shared = (g * std::mem::size_of::<f32>()) as u32;
         // SAFETY: caller contract above.
         unsafe {

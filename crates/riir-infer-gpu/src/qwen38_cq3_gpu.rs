@@ -51,31 +51,10 @@ use cubecl::server::Handle;
 
 use crate::qwen38_cq3_serving::PackedCq3Tensor;
 
-/// Pack one `b`-bit index stream into whole `u32` words (LSB-first, padded
-/// to a word boundary) — the DEVICE upload form. Values must fit `b` bits.
-/// The container's u64 form repacks through the u8 carrier here (the
-/// battery pins pack/unpack identity both ways).
-#[must_use]
-pub fn pack_indices_b32(carrier: &[u8], b: u32) -> Vec<u32> {
-    assert!((1..=8).contains(&b), "cq3 pack32: b in 1..=8, got {b}");
-    let bits = carrier.len() as u64 * u64::from(b);
-    let n_words = bits.div_ceil(32) as usize;
-    let mut words = vec![0_u32; n_words];
-    for (i, &v) in carrier.iter().enumerate() {
-        assert!(
-            u32::from(v) < (1_u32 << b),
-            "cq3 pack32: carrier value {v} does not fit {b} bits"
-        );
-        let bit = i as u64 * u64::from(b);
-        let w = (bit / 32) as usize;
-        let off = (bit % 32) as u32;
-        words[w] |= u32::from(v) << off;
-        if off + b > 32 {
-            words[w + 1] |= u32::from(v) >> (32 - off);
-        }
-    }
-    words
-}
+// The device-form bit packing lives in the HOST recipe module (`qwen38_cq3`,
+// cfg `cq3`) so BOTH GPU arms — this CubeCL lane and the cudarc twin — share
+// one bit-order law; re-exported here for the CubeCL-path importers.
+pub use crate::qwen38_cq3::pack_indices_b32;
 
 /// Words per group on the device form: `ceil(g·b / 32)`.
 #[must_use]

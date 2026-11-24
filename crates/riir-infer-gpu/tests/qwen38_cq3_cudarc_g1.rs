@@ -25,8 +25,8 @@
 
 use cudarc::driver::safe::CudaContext;
 use riir_infer_gpu::qwen38_cq3::CqTensor;
+use riir_infer_gpu::qwen38_cq3::pack_indices_b32;
 use riir_infer_gpu::qwen38_cq3_cudarc::{Cq3CudarcKernels, words_row_len};
-use riir_infer_gpu::qwen38_cq3_gpu::pack_indices_b32;
 use riir_infer_gpu::qwen38_cq3_serving::PackedCq3Tensor;
 
 /// Deterministic f32 in [lo, hi) — the LCG fill (the CubeCL battery's

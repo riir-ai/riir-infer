@@ -241,6 +241,34 @@ fn fwht_block(x: &mut [f32]) {
 /// random-unit-vector distribution (the post-group-norm value distribution),
 /// never on weights. Centroids are sorted ascending; `c8`/`s_c` are the
 /// pre-rounded int8 twin consumed by [`CqTensor::gemv_i8_sdot`].
+/// Pack one `b`-bit index stream into whole `u32` words (LSB-first, padded
+/// to a word boundary) — the DEVICE upload form shared by both GPU arms
+/// (the CubeCL handle and the cudarc twin upload byte-identical words;
+/// the bit-order law is THIS function). Values must fit `b` bits. The
+/// container's u64 form repacks through the u8 carrier here (the batteries
+/// pin pack/unpack identity both ways).
+#[must_use]
+pub fn pack_indices_b32(carrier: &[u8], b: u32) -> Vec<u32> {
+    assert!((1..=8).contains(&b), "cq3 pack32: b in 1..=8, got {b}");
+    let bits = carrier.len() as u64 * u64::from(b);
+    let n_words = bits.div_ceil(32) as usize;
+    let mut words = vec![0_u32; n_words];
+    for (i, &v) in carrier.iter().enumerate() {
+        assert!(
+            u32::from(v) < (1_u32 << b),
+            "cq3 pack32: carrier value {v} does not fit {b} bits"
+        );
+        let bit = i as u64 * u64::from(b);
+        let w = (bit / 32) as usize;
+        let off = (bit % 32) as u32;
+        words[w] |= u32::from(v) << off;
+        if off + b > 32 {
+            words[w + 1] |= u32::from(v) >> (32 - off);
+        }
+    }
+    words
+}
+
 pub struct Codebook {
     pub b: u32,
     /// `2^b` centroids, ascending.
