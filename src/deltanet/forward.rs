@@ -1318,6 +1318,12 @@ pub struct HybridForwardScratch {
     /// layer up: the census is offline, not per-call).
     #[cfg(feature = "sink_audit")]
     pub sink_audit_q: Option<crate::deltanet::sink_audit::SinkAuditQCapture>,
+    /// The lattice-census query-gain capture (riir-train plan 503 T0.1(b),
+    /// the `sink_audit_q` mirror): per-GDN-layer `q_normed` rows at the armed
+    /// snapshot positions. The census bin owns the only armed copy; every
+    /// other caller leaves it `None` and pays nothing.
+    #[cfg(feature = "lattice_census")]
+    pub lattice_q: Option<crate::deltanet::lattice_census::LatticeQueryGainCapture>,
     /// The grafts-cell hidden-state capture (riir-infer Issue 1206,
     /// `grafts_cell`): the residual stream at the END of each layer at one
     /// armed position, for the offline graft probe/eval lanes. Same shape as
@@ -1366,6 +1372,8 @@ impl HybridForwardScratch {
             closed_form_rank_scratch: vec![0.0; config.mlp_hidden.min(config.n_embd)],
             #[cfg(feature = "sink_audit")]
             sink_audit_q: None,
+            #[cfg(feature = "lattice_census")]
+            lattice_q: None,
             #[cfg(feature = "grafts_cell")]
             grafts_hidden: None,
             #[cfg(feature = "deletion_mask")]
@@ -1457,6 +1465,13 @@ fn forward_qwen_deltanet_body<'a>(
                 config,
                 &mut scratch.deltanet,
             );
+            // Lattice-census query-gain capture (riir-train plan 503 T0.1(b),
+            // the `sink_audit_q` mirror): the step at pos writes the snapshot
+            // slot for pos+1. The census bin owns the only armed copy.
+            #[cfg(feature = "lattice_census")]
+            if let Some(cap) = scratch.lattice_q.as_mut() {
+                cap.capture(layer_idx, pos, &scratch.deltanet.q_normed);
+            }
         } else {
             // Standard attention layer with GQA + QK-norm + RoPE
             forward_attention_layer(

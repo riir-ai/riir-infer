@@ -1133,6 +1133,16 @@ pub fn qwen_deltanet_ternary_layer_body(
             rotation,
             &mut scratch.rotation_buf,
         );
+        // Lattice-census query-gain capture (riir-train plan 503 T0.1(b), the
+        // `sink_audit_q` mirror): after the GDN layer returns, `q_normed`
+        // still holds this step's expanded+L2-normed Q (the recurrent step
+        // reads it, none write it). The step at pos writes the snapshot slot
+        // for pos+1 — the state the driver snapshots at pos+1. The census bin
+        // owns the only armed copy; every other caller pays a None check.
+        #[cfg(feature = "lattice_census")]
+        if let Some(cap) = scratch.lattice_q.as_mut() {
+            cap.capture(layer_idx, pos, &scratch.deltanet.q_normed);
+        }
     } else {
         forward_attention_layer_ternary(
             &mut x[..n],

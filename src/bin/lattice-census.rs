@@ -35,7 +35,8 @@ use anyhow::{Context, Result, bail};
 use riir_infer_core::corpus_text::load_corpus_text;
 use riir_infer_core::deltanet::effective_rotary_dim;
 use riir_infer_core::deltanet::lattice_census::{
-    FilmFilter, FilmMatvecHook, LatticeCensusReport, MAX_CAPTURE_POSITIONS, census_state_snapshot,
+    FilmFilter, FilmMatvecHook, LatticeCensusReport, LatticeQueryGainCapture,
+    MAX_CAPTURE_POSITIONS, census_state_snapshot,
 };
 use riir_infer_core::deltanet::{
     forward_qwen_deltanet_ternary, forward_qwen_deltanet_ternary_with_hook,
@@ -236,6 +237,14 @@ fn main() -> Result<()> {
         args.n,
     );
     let mut scratch = riir_infer_core::deltanet::HybridForwardScratch::new(&config);
+    // T0.1(b) query-gain capture arm: armed for this bin unconditionally —
+    // the snapshot positions arm the q_normed rows, the report flips to
+    // query_armed=true and real g1 rows (the g1=na posture is gone).
+    scratch.lattice_q = Some(LatticeQueryGainCapture::new(
+        &config,
+        &weights.layer_types,
+        &positions,
+    ));
     let mut logits = vec![0.0f32; config.vocab_size];
 
     let mut points = Vec::with_capacity(positions.len());
@@ -334,12 +343,31 @@ fn main() -> Result<()> {
             // `pos+1` — the capture-point position label.
             let snap_pos = pos + 1;
             let mut geometry = Vec::with_capacity(n_gdn);
+            let q_snap_ord = positions
+                .iter()
+                .position(|&p| p == snap_pos)
+                .expect("snapshot position must be in the armed schedule");
+            let q_cap = scratch
+                .lattice_q
+                .as_ref()
+                .expect("lattice_q armed for this bin");
             for layer_idx in 0..config.n_layer {
                 if weights.layer_types[layer_idx] != DeltaNetLayerType::DeltaNet {
                     continue;
                 }
+                let layer_slot = q_cap
+                    .gdn_layers
+                    .iter()
+                    .position(|&l| l == layer_idx)
+                    .expect("GDN layer must have a capture slot");
                 let state = &cache.deltanet_state.recurrent_states[layer_idx];
-                geometry.push(census_state_snapshot(state, None, n_v_heads, d_k, d_v)?);
+                geometry.push(census_state_snapshot(
+                    state,
+                    Some(q_cap.q_row(layer_slot, q_snap_ord)),
+                    n_v_heads,
+                    d_k,
+                    d_v,
+                )?);
             }
             points.push(riir_infer_core::deltanet::lattice_census::CapturePoint {
                 pos: snap_pos,
@@ -357,7 +385,7 @@ fn main() -> Result<()> {
         positions: points.iter().map(|p| p.pos).collect(),
         points,
         shape: (n_gdn, n_v_heads, d_k, d_v),
-        query_armed: false,
+        query_armed: true,
     };
     let payload = report.canonical_payload();
     let digest = report.digest();

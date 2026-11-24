@@ -34,12 +34,15 @@
 //! forward-body edits** for the state half. The query-alignment feature
 //! needs the transient `DeltaNetLayerScratch.q_normed` (it dies at the end
 //! of each layer step), so its capture arm rides the scratch the way
-//! `sink_audit_q` does; the arm's scratch field + the two cfg write-sites
-//! are the compile-window wiring step (plan 503 T0.1 note) — until they
-//! land, [`LatticeCensusReport`] carries `query_gain: None` rows and the
-//! r_ent / r_stable halves are complete.
+//! `sink_audit_q` does: the driver arms [`LatticeQueryGainCapture`] with the
+//! SNAPSHOT positions (the state's pos+1 labels); the two cfg write-sites
+//! (ternary + dense main body, the census's own postures) copy the layer's
+//! `q_normed` into the slot for `pos+1` right after the GDN layer returns.
+//! Unarmed callers pay a None check; the report carries `query_armed=false`
+//! + `g1=na` rows until the arm is wired.
 
 use super::ternary_weights::ternary_matvec_parallel;
+use crate::types::{Config, DeltaNetLayerType};
 use anyhow::{Result, bail};
 use std::fmt::Write as _;
 
@@ -84,6 +87,86 @@ pub struct CapturePoint {
     /// Per GDN layer (ascending layer index), per head (ascending), the
     /// head geometry. `geometry[layer_slot][head]`.
     pub geometry: Vec<Vec<HeadGeometry>>,
+}
+
+/// The query-gain capture arm (plan 503 T0.1(b), the `sink_audit_q` mirror):
+/// the driver arms it with the SNAPSHOT positions (the state's pos+1 labels,
+/// ascending — the same schedule the state snapshots use); the two cfg
+/// write-sites (ternary + dense main body) copy each GDN layer's transient
+/// `q_normed` into the snapshot's slot right after the layer returns — the
+/// step at position `p` writes slot `p+1`, exactly the state the snapshot at
+/// `p+1` reads. G1 pairs the top singular vector of that state with THIS
+/// query. Slots are addressed by layer (the census's `layer_slot` order =
+/// ascending GDN layer) and by row (the snapshot position's ordinal in the
+/// armed list). Offline instrument: sized `n_gdn × snaps × n_v_heads×d_k`
+/// f32 (27B: 48 × 8 × 2048 × 4 B ≈ 3.1 MB).
+pub struct LatticeQueryGainCapture {
+    /// Slot `s` holds `[snaps × n_v_heads × d_k]` q_normed rows for GDN
+    /// layer `gdn_layers[s]` (parallel arrays).
+    pub q_rows: Vec<Vec<f32>>,
+    /// The `layer_idx` values that are GDN layers, ascending.
+    pub gdn_layers: Vec<usize>,
+    /// `layer_idx → slot` (None for attention layers), built once.
+    slot_of_layer: Vec<Option<usize>>,
+    /// The armed snapshot positions, ascending (binary-search keyed).
+    snaps: Vec<usize>,
+    /// Row length per layer: `n_v_heads × d_k`.
+    row_len: usize,
+}
+
+impl LatticeQueryGainCapture {
+    /// Size the capture for one census pass: `snaps` rows per GDN layer.
+    pub fn new(config: &Config, layer_types: &[DeltaNetLayerType], snaps: &[usize]) -> Self {
+        let row_len = config.deltanet_linear_n_value_heads * config.deltanet_linear_head_dim;
+        let mut gdn_layers = Vec::new();
+        let mut slot_of_layer = vec![None; layer_types.len()];
+        for (idx, lt) in layer_types.iter().enumerate() {
+            if *lt == DeltaNetLayerType::DeltaNet {
+                slot_of_layer[idx] = Some(gdn_layers.len());
+                gdn_layers.push(idx);
+            }
+        }
+        let q_rows = gdn_layers
+            .iter()
+            .map(|_| vec![0.0f32; snaps.len() * row_len])
+            .collect();
+        Self {
+            q_rows,
+            gdn_layers,
+            slot_of_layer,
+            snaps: snaps.to_vec(),
+            row_len,
+        }
+    }
+
+    /// Capture one GDN layer's `q_normed` for the step at position `pos` —
+    /// written into the snapshot slot for `pos+1` (the pairing contract:
+    /// the snapshot taken AFTER pos's update is the state at pos+1). A
+    /// position outside the armed snapshot schedule is a no-op (the arm
+    /// captures only the pinned pairs; every other step pays one search).
+    pub(crate) fn capture(&mut self, layer_idx: usize, pos: usize, q_normed: &[f32]) {
+        let Some(slot) = self.slot_of_layer[layer_idx] else {
+            return;
+        };
+        let Ok(row) = self.snaps.binary_search(&(pos.wrapping_add(1))) else {
+            return;
+        };
+        let off = row * self.row_len;
+        let n = q_normed.len().min(self.row_len);
+        self.q_rows[slot][off..off + n].copy_from_slice(&q_normed[..n]);
+    }
+
+    /// The captured query row for `(layer_slot, snapshot ordinal)` — the
+    /// census driver pairs it with the state snapshot at the same ordinal.
+    pub fn q_row(&self, layer_slot: usize, snap_ordinal: usize) -> &[f32] {
+        let off = snap_ordinal * self.row_len;
+        &self.q_rows[layer_slot][off..off + self.row_len]
+    }
+
+    /// The armed snapshot positions (the driver pairs rows by ordinal).
+    pub fn snaps(&self) -> &[usize] {
+        &self.snaps
+    }
 }
 
 /// The census report (deterministic payload text is the artifact).
@@ -576,6 +659,31 @@ mod film_hook_tests {
         let signs = [1i8, -1, 1, -1];
         let rb = f.rotated_beta(&signs);
         assert_eq!(rb, vec![0.1, 0.2, 0.3, 0.4]);
+    }
+
+    #[test]
+    fn query_capture_pairs_step_pos_with_next_snapshot_slot() {
+        // The pairing contract: the step at pos p writes the snapshot slot
+        // for p+1; positions outside the armed schedule no-op; attention
+        // layers no-op.
+        let mut config = Config::qwen_deltanet(2, vec![]);
+        config.deltanet_linear_head_dim = 8;
+        config.deltanet_linear_n_value_heads = 2;
+        let layer_types = vec![DeltaNetLayerType::DeltaNet, DeltaNetLayerType::Attention];
+        let mut cap = LatticeQueryGainCapture::new(&config, &layer_types, &[1, 65]);
+        assert_eq!(cap.gdn_layers, vec![0]);
+        let q: Vec<f32> = (0..16).map(|i| i as f32 * 0.5).collect(); // 2 heads × d_k 8
+
+        cap.capture(0, 0, &q); // → snapshot slot 1 (row 0)
+        cap.capture(0, 64, &q); // → snapshot slot 65 (row 1)
+        cap.capture(0, 7, &q); // pos 8 not armed → no-op
+        cap.capture(1, 0, &q); // attention layer → no-op
+
+        assert_eq!(cap.q_row(0, 0), q.as_slice());
+        assert_eq!(cap.q_row(0, 1), q.as_slice());
+        // The row the schedule never armed stays zero-filled.
+        let untouched = LatticeQueryGainCapture::new(&config, &layer_types, &[3]);
+        assert!(untouched.q_row(0, 0).iter().all(|&v| v == 0.0));
     }
 
     #[test]
