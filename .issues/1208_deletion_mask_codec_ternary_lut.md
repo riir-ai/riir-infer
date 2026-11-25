@@ -1,8 +1,7 @@
 # Issue 1208: deletion-mask adapter substrate — codec, PQ2_0 in-distribution application, released-mask league cell, geometry audit
 
 **Status:** Open — GOAT (cell-gated) per riir-train Research 493 track (a)
-**Claimed:** amo-idle-i1208-metal@amo, 1795632000, expires 2026-11-26T12:00:00Z — scope: the T2/T4 Metal-arm parity residue, tranche 1 = the qwen3.8 Metal runtime posture (the issue's own named target: the dense-apply lane's Metal parity joins at the qwen3.8 Metal runtime; the llama/T4 loader stays CPU-only). Apply site + G1 digest-parity battery (masked ≡ elementwise-zeroed ≡ overlay, all-keep identity pin) on the 0.8B real fixture; T8 stays Plan-494-gated, untouched.
-**Lease closed:** amo-idle-i1208-metal@amo, 1795632000, was expires 2026-11-26T12:00:00Z — scope LANDED 2026-11-25 (the Metal-arm parity battery + the loader route; see the T4 row; T2's REMAINS closed with it); T8 stays Plan-494-gated (untouched).
+**Lease closed:** amo-idle-i1208-metal@amo, 1795632000, was expires 2026-11-26T12:00:00+00:00 (claim record: amo-idle-i1208-metal@amo, epoch 1795632000, was expires 2026-11-26T12:00:00+00:00) — scope (the T2/T4 Metal-arm parity tranche 1: the qwen3.8 dense-f16 Metal runtime posture, the issue's own named target) LANDED 2026-11-25 — the loader route (`new_with_mask_artifact` + `apply_mask_section_f32`) + the G1 battery (`tests/i1208_mask_apply_qwen38_metal.rs`, all pins green, see the T4 row); T8 stays Plan-494-gated (untouched).
 
 **Scope COMPLETE — lease FOLDED 2026-11-17 (~06:20Z, zed-6d55f8cd@amo):** every T7 item + T6's real-content rows are LANDED and recorded (the three lines below carry the commit/digest pins); the issue's remaining open work (T4 Metal parity, T8 Plan-494-gated) belongs to other lanes. **Lease closed:** zed-amo-i1208-t7b@amo, claimed 1794865800, was expires 2026-11-18T22:00:00+00:00 — folded at completion, no expiry wait.
 
