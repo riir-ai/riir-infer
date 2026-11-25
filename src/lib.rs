@@ -38,6 +38,13 @@ pub mod rope;
 /// Research 040). The bin front is `src/bin/hisa_plan.rs`.
 pub mod hisa_plan;
 
+/// Issue 1244 T2 — the HiSA rotation-suppression census arm (report-only;
+/// the score-path instrument beside [`hisa_plan`]'s closed-form prior).
+/// Opt-in under `hisa_census`; the census driver owns the only armed copy
+/// (the scratch field compiles out of every other build).
+#[cfg(feature = "hisa_census")]
+pub mod hisa_census;
+
 /// Gemma architecture layer helpers (leaf).
 pub mod gemma_layer;
 

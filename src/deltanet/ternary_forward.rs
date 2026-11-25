@@ -567,6 +567,50 @@ fn forward_attention_layer_ternary(
     let scale = 1.0 / (hd as f32).sqrt();
     scratch.attn_out[..q_dim].fill(0.0);
     let t_n = pos + 1;
+    // HiSA rotation-suppression census arm (Issue 1244 T2, `hisa_census`):
+    // armed ONLY by the census driver for ONE probed layer; the arm
+    // REPLACES the attention call there and the band energy accumulates
+    // inside the kernel. Unarmed builds compile the field itself out and
+    // this dispatch vanishes; the incumbent paths below are byte-identical
+    // in every posture the arm does not take.
+    #[cfg(all(feature = "hisa_census", feature = "scale_invariant_attn"))]
+    assert!(
+        scratch.scale_invariant.is_none(),
+        "the scale-invariant session is a full-row logit affine — undefined under the HiSA census ablation; do not combine the lanes"
+    );
+    #[cfg(not(feature = "hisa_census"))]
+    let hisa_taken = false;
+    #[cfg(feature = "hisa_census")]
+    let hisa_taken = match scratch.hisa_census.as_mut() {
+        Some(arm) if arm.layer == _layer_idx => {
+            // SAFETY: the incumbent `attention_heads_parallel_bias`
+            // contract (softcap 0, no bias); in the Replace posture the
+            // arm's null rows are indexed `t * kv_dim + kv_group_offset`
+            // for in-band `t` — the constructor + driver guarantee
+            // `arm.t_null >= t_n` (skipped swaps surface in the report,
+            // never silently).
+            unsafe {
+                crate::hisa_census::attention_heads_hisa(
+                    &scratch.q_buf,
+                    &cache.key,
+                    &cache.value,
+                    &mut scratch.attn_out,
+                    &mut scratch.head_scores,
+                    n_head,
+                    n_kv,
+                    kvd,
+                    hd,
+                    t_n,
+                    scale,
+                    config.block_size,
+                    arm,
+                );
+            }
+            true
+        }
+        _ => false,
+    };
+    if !hisa_taken {
     #[cfg(feature = "scale_invariant_attn")]
     match scratch.scale_invariant.as_mut() {
         Some(crate::transformer::attention_si::SiAttentionSession::Probe(acc)) => unsafe {
@@ -644,6 +688,7 @@ fn forward_attention_layer_ternary(
             config.block_size,
             key_bias,
         );
+    }
     }
 
     // 6. Output gating (Issue 594): attn_out *= sigmoid(gate).
@@ -812,6 +857,13 @@ fn forward_attention_layer_ternary_flashmemory<S: GqaBlockSelector>(
             CacheUpdate::Rebuild
         },
         last_n_blocks,
+    );
+    // The HiSA census arm is defined on the full attention path only —
+    // arming it under FlashMemory's selected-token softmax is undefined.
+    #[cfg(feature = "hisa_census")]
+    assert!(
+        scratch.hisa_census.is_none(),
+        "the HiSA census arm is defined on the full attention path only — do not arm it under FlashMemory's selected-token softmax"
     );
     {
         let s = &mut *scratch;

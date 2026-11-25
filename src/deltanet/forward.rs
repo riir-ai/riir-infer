@@ -1250,6 +1250,13 @@ pub struct AttentionLayerScratch {
     /// buffer; callers (the si harness, tests) arm it per arm.
     #[cfg(feature = "scale_invariant_attn")]
     pub scale_invariant: Option<crate::transformer::attention_si::SiAttentionSession>,
+    /// The HiSA rotation-suppression census arm (Issue 1244, `hisa_census`):
+    /// census CONFIG + the band-energy accumulator; the census driver owns
+    /// the only armed copy and the dispatch takes the arm for the probed
+    /// layer only. `pub` beside `scale_invariant` for the same reason
+    /// (session config, not a buffer).
+    #[cfg(feature = "hisa_census")]
+    pub hisa_census: Option<crate::hisa_census::HisaCensusArm>,
 }
 
 impl AttentionLayerScratch {
@@ -1267,6 +1274,8 @@ impl AttentionLayerScratch {
             head_scores: vec![0.0; config.n_head * config.block_size],
             #[cfg(feature = "scale_invariant_attn")]
             scale_invariant: None,
+            #[cfg(feature = "hisa_census")]
+            hisa_census: None,
         }
     }
 }

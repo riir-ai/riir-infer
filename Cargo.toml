@@ -161,6 +161,21 @@ weight_audit = []
 # P30). T2's GGUF cell routes to the 4090 --needs-cuda window.
 neuron_census = ["dep:katgpt-pruners", "katgpt-pruners/mech_attribution", "deltanet_inference"]
 
+# Issue 1244 T2 (Research 040, arXiv:2611.26363) — the HiSA
+# rotation-suppression census arm beside `hisa_plan`'s closed-form
+# prior: per (attention layer, 16-feature rotating chunk, log-Δ band)
+# ablation of the chunk's score contribution on the band, with pooled
+# teacher-forced Δ-NLL + argmax flips and the E_observe/E_remove/
+# E_replace band-mass trio (the paper's suppression-vs-noise read).
+# REPORT-ONLY, offline by construction — the arm is a cfg-gated scratch
+# field the census driver alone arms; serving bins never link it, and
+# no serving-path code lands from Issue 1244. Ternary body wired (the
+# Bonsai postures); the dense body's mirror is a follow-up. The census
+# session/bin front is the follow-up slice (required-features row lands
+# with it — P30); this row gates the kernel + its two-regime identity
+# gates (`cargo test --lib --features hisa_census`).
+hisa_census = ["deltanet_inference"]
+
 # riir-train plan 503 T0.1/T0.2 — the lattice-conditioning geometry census
 # over per-head GDN recurrent states (r_ent / r_stable / query-alignment
 # closed forms; cyclic-Jacobi spectrum in f64, Issue-940 deterministic
