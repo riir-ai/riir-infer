@@ -30,7 +30,7 @@ use riir_infer_dist::stage_gpu::TernaryGpuStage;
 use riir_infer_dist::transport::{Direction, PeerKey, TcpTransport};
 use riir_infer_gpu::vram_budget::forward_working_set_bytes;
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 const PROMPT: [u32; 4] = [9707, 11, 1879, 0];
 
 fn load(

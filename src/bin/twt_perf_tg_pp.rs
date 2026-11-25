@@ -27,7 +27,7 @@
 //!
 //! Usage:
 //!   cargo run --release --features twt_bonsai --bin twt_perf_tg_pp -- \
-//!     --parent ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     --parent ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!     --collapsed /tmp/twt_collapse_pq2_e0.01.gguf \
 //!     --corpus .raw/twt/audition_calib.txt \
 //!     --pp-tokens 512 --tg-tokens 128 --out .raw/twt/t53_perf_tg_pp.json

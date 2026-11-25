@@ -62,7 +62,7 @@
 //! ```sh
 //! cargo run --release --features flashmemory_budget,deltanet_ternary_inference,bonsai2_hadamard \
 //!   --bin flashmemory_decode_gate -- \
-//!   --gguf ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!   --gguf ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!   --corpus-file /tmp/corpus.txt --ctx 32768 --rho-list 0.05,0.10,0.15,0.30 \
 //!   --bucket 4096 --out /tmp/fm_decode_gate
 //! ```
@@ -96,7 +96,7 @@ fn hex(bytes: &[u8]) -> String {
     out
 }
 
-const DEFAULT_GGUF: &str = "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const DEFAULT_GGUF: &str = "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 struct Args {
     gguf: PathBuf,

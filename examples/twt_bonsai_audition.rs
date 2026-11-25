@@ -44,7 +44,7 @@
 //! ```text
 //! cargo run --release -p riir-infer-core --features twt_bonsai,twt_collapse \
 //!   --example twt_bonsai_audition -- \
-//!   --parent ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!   --parent ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!   --profile .raw/twt/bonsai_ultrachat_profile.json \
 //!   --corpus .raw/twt_bonsai_calib.txt \
 //!   --eps 0.1 --rows 8 --row-len 256 \

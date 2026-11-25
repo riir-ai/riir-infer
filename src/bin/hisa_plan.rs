@@ -14,7 +14,7 @@
 //!
 //! Usage:
 //! ```text
-//! cargo run --release --bin hisa_plan -- --gguf ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf
+//! cargo run --release --bin hisa_plan -- --gguf ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf
 //! cargo run --release --bin hisa_plan -- --gguf <model> --budgets 90,180,360,720 --contexts 512,2048,4096,16384,32768
 //! ```
 
@@ -25,7 +25,7 @@ use riir_infer_core::hisa_plan::{
 };
 use std::path::{Path, PathBuf};
 
-const RESTORE_POINTER: &str = "restore: `./scripts/data_backup.sh pull data/Ternary-Bonsai-2-27B-PQ2_0.gguf` from the riir-train root (the plan-631 pin; LOCAL-KEEP row)";
+const RESTORE_POINTER: &str = "re-download: `hf download prism-ml/Ternary-Bonsai-2.5-27B-GGUF Ternary-Bonsai-2.5-27B-PQ2_0.gguf --local-dir data/` from the riir-train root (the league pin; LOCAL-KEEP row in data/BASE_MODELS.md)";
 
 fn parse_csv_num(s: &str) -> Result<Vec<f64>> {
     s.split(',')

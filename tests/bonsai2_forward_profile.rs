@@ -26,7 +26,7 @@ const WARMUP: usize = 4;
 #[ignore = "real 27B model — run with --ignored --release"]
 fn bonsai2_decode_section_breakdown() {
     let gguf = std::env::var("BONSAI2_GGUF")
-        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".into());
+        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".into());
     let corpus =
         std::env::var("Q8_GATE_CORPUS").unwrap_or_else(|_| ".raw/twt/audition_calib.txt".into());
     let n_tok: usize = std::env::var("PROFILE_TOKENS").map_or(32, |v| v.parse().expect("usize"));

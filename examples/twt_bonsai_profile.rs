@@ -24,7 +24,7 @@
 //!
 //! ```text
 //! cargo run --release -p riir-infer-core --features twt_profile \
-//!   --example twt_bonsai_profile -- --gguf data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!   --example twt_bonsai_profile -- --gguf data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!   --calib /path/to/prompts.txt [--svcca] [--stride 4] [--max-rows 4096] \
 //!   [--out .raw/twt/bonsai_profile.json]
 //! ```
@@ -43,7 +43,7 @@ use riir_infer_core::twt::{
 use std::path::Path;
 
 fn main() {
-    let mut gguf_path = String::from("../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf");
+    let mut gguf_path = String::from("../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf");
     let mut calib = String::new();
     let mut svcca = false;
     let mut stride = 4usize;

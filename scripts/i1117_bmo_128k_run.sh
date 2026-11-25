@@ -23,7 +23,7 @@ set -eu
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 WT=/Users/katopz/git/riir-infer-benchwt
 OUT="$HOME/riir-bench/i1117_128k"
-GGUF="$HOME/git/riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf"
+GGUF="$HOME/git/riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"
 GATE="$OUT/target/release/flashmemory_decode_gate"
 
 cd "$WT"

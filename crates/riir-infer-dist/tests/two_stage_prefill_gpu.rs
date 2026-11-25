@@ -40,7 +40,7 @@ use riir_infer_gpu::TernaryDeltanetGpuForward;
 use riir_infer_gpu::cubecl_runtime::CubeCLContext;
 use riir_infer_gpu::ternary_deltanet_gpu_forward::set_prefill_chunk_max;
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 type Weights = Arc<QwenDeltaNetTernaryWeights>;
 

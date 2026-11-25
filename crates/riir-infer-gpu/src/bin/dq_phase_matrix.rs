@@ -1,5 +1,5 @@
 //! `dq_phase_matrix` — Plan 614 / Issue 026: the DQ phase-sensitivity bench
-//! runner (the 2×2 activation-quant phase matrix on Ternary-Bonsai-2-27B-PQ2_0).
+//! runner (the 2×2 activation-quant phase matrix on Ternary-Bonsai-2.5-27B-PQ2_0).
 //!
 //! The FROZEN protocol lives in `.plans/614_dq_phase_sensitivity_bench.md`
 //! (commit d3300f2 + the T1/T2 amendments); this bin EXECUTES it. Deviations
@@ -76,7 +76,7 @@ use riir_infer_gpu::dq_fakequant::{self as dq, DqGrid, DqPhaseArm};
 use riir_infer_gpu::ternary_deltanet_gpu_forward as tdf;
 use riir_infer_gpu::{CubeCLContext, TernaryDeltanetGpuForward};
 
-const DEFAULT_MODEL: &str = "../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const DEFAULT_MODEL: &str = "../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 const EOS: usize = 248_046;
 
 // ─── deterministic corpora (the seal is this file's git commit) ─────────────

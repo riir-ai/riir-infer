@@ -69,7 +69,7 @@ use riir_infer_gpu::ternary_deltanet_gpu_forward::{
 };
 use riir_infer_gpu::TernaryDeltanetGpuForward;
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 /// Default chunk width — the Bench-911 per-frame floor posture
 /// (`I1146C_CHUNK` overrides). The wide-chunk comparison re-runs the ALL

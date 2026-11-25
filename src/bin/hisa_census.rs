@@ -5,12 +5,12 @@
 //! ```bash
 //! # The smoke cell (one layer × one chunk × one band, short read):
 //! cargo run --release --features hisa_census --bin hisa_census -- \
-//!     ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!     --read-len 256 --layers 3 --chunks 0 --bands 0 \
 //!     --out /tmp/hisa_smoke_report.txt --state-dir /tmp/hisa_smoke_state
 //! # The full sweep (resumable — kill/resume is bit-identical):
 //! cargo run --release --features hisa_census --bin hisa_census -- \
-//!     ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!     --read-len 2048 --out .benchmarks/hisa_census_report.txt \
 //!     --state-dir .hisa_census_state --resume
 //! ```
@@ -64,7 +64,7 @@ fn parse_list(s: &str) -> Vec<usize> {
 
 fn parse_args() -> Args {
     let mut a = Args {
-        model: PathBuf::from("../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf"),
+        model: PathBuf::from("../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"),
         corpus: PathBuf::from("../riir-train/data/chat_probe"),
         read_len: DEFAULT_READ_LEN,
         null_offset: None,

@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! cargo run --release --features weight_audit --bin weight-audit -- \
-//!     --gguf ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf [--layer N]
+//!     --gguf ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf [--layer N]
 //! ```
 
 use anyhow::{Context, Result, bail};

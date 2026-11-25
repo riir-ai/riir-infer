@@ -27,7 +27,7 @@
 //!
 //! Usage (qwen35 league lane):
 //!   cargo run --release --features twt_collapse --example twt_collapse_emit -- \
-//!     --parent ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     --parent ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!     --profile .raw/twt/bonsai_ultrachat_profile.json \
 //!     --eps 0.05 \
 //!     --out /tmp/twt_collapse_pq2_e005.gguf [--typed] [--selection sel.json]

@@ -1,5 +1,5 @@
 //! spike_census_t3_kv_ab_ternary — Issue 919 T3 cell 2: the measured-diagonal
-//! KV exemption A/B on the DECISIVE cell, Ternary-Bonsai-2-27B-PQ2_0 (qwen35
+//! KV exemption A/B on the DECISIVE cell, Ternary-Bonsai-2.5-27B-PQ2_0 (qwen35
 //! hybrid DeltaNet/attention, Hadamard-folded).
 //!
 //! Cell 1 (gemma-2-2b) measured G-MAIN PASS-but-thin (+0.0008 ppl over the
@@ -48,7 +48,7 @@
 //! ```text
 //! cargo run --release --features spike_census_t3_ternary \
 //!     --bin spike_census_t3_kv_ab_ternary -- \
-//!     [--gguf ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf] \
+//!     [--gguf ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf] \
 //!     [--out /tmp/t3_kv_ab_ternary] [--s 2] [--seq-len 512] [--select max|rms] [--seed 919]
 //! ```
 
@@ -155,7 +155,7 @@ fn score_quantized<C: QuantizedKVCache + Send>(
 
 fn main() -> Result<()> {
     let args = kvq_harness::parse_args(
-        "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf",
+        "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf",
         "/tmp/t3_kv_ab_ternary",
     )?;
 

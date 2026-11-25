@@ -21,7 +21,7 @@ use riir_infer_dist::argmax_first;
 use riir_infer_gpu::TernaryDeltanetGpuForward;
 use riir_infer_gpu::cubecl_runtime::CubeCLContext;
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 const WARMUP: usize = 8;
 
 #[test]

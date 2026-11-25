@@ -59,7 +59,7 @@ use riir_infer_gpu::{set_prefill_attn_metal_tensor, set_prefill_use_metal_tensor
 
 /// The CURRENT league lane model (the Bonsai-2 league pin; the walk's own
 /// default).
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 /// The replay's families — the walk's frozen corpus, code + math VERBATIM
 /// (a changed text changes every number).

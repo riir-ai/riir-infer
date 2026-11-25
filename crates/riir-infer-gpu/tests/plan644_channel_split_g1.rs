@@ -71,7 +71,7 @@ use riir_infer_gpu::ane_prefill::exec_zc::{
 use riir_infer_gpu::cubecl_runtime::CubeCLContext;
 use riir_infer_gpu::set_prefill_use_metal_tensor_zerocopy;
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 fn env_usize(key: &str, default: usize) -> usize {
     std::env::var(key)

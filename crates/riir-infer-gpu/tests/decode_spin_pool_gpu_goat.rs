@@ -41,7 +41,7 @@ use riir_infer_core::types::Config;
 use riir_infer_gpu::cubecl_runtime::CubeCLContext;
 use riir_infer_gpu::{GpuTernaryFfn, GpuTernaryInputProj, GpuTernaryMatvec};
 
-const MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 const CORPUS: &str = "../../.raw/twt/audition_calib.txt";
 const DEFAULT_POSITIONS: usize = 24;
 /// No-harm bar: the pool may not cost the hooked lane > 5% at the median.

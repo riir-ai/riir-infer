@@ -1032,7 +1032,7 @@ mod tests {
             "issue": "riir-infer 1156 T3",
             "plan": "riir-infer 625",
             "model_blake3": "deadbeef",
-            "model_path_hint": "riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf",
+            "model_path_hint": "riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf",
             "corpus_blake3": "feedface",
             "grid": grid.collect::<Vec<_>>(),
             "epsilon": OMEGA_EPS,

@@ -37,7 +37,7 @@ if [ -n "$QUIET" ]; then
 fi
 say "GPU quiet OK"
 
-MODEL="$HOME/models/Ternary-Bonsai-2-27B-PQ2_0.gguf"
+MODEL="$HOME/models/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"
 LB="$HOME/git/prismml-llama.cpp/build-rpc/bin/llama-bench"
 PYV="/Users/katopz/git/riir-infer/.raw/mlx-env/bin/python"
 SCRIPTS="/Users/katopz/git/riir-infer/scripts"

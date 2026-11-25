@@ -3,7 +3,7 @@
 //! Issue-886 tap points).
 //!
 //! One pass over a natural-text corpus through the frozen checkpoint
-//! (`Ternary-Bonsai-2-27B-PQ2_0.gguf`, qwen35 hybrid DeltaNet/attention,
+//! (`Ternary-Bonsai-2.5-27B-PQ2_0.gguf`, qwen35 hybrid DeltaNet/attention,
 //! Hadamard-folded) observing the INPUT of every ternary projection beside
 //! each matvec, feeding `katgpt_core::act_channel_moments::ActChannelMoments`.
 //! Output: the BLAKE3-committed `ActChannelDiagonal` artifact (the T2 refit

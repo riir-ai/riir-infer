@@ -35,7 +35,7 @@
 //!
 //! Usage (release; the 27B CPU forward is minutes-scale):
 //!   cargo run --release --features deltanet_ternary_inference,bonsai2_hadamard \
-//!     --bin rollout_history_probe -- --gguf ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     --bin rollout_history_probe -- --gguf ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!     [--prompts 4] [--samples 5] [--max-new 96] [--temp 0.7] [--out .raw/issue1122]
 
 use std::path::PathBuf;

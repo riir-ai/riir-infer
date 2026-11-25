@@ -72,7 +72,7 @@ use riir_infer_gpu::{set_prefill_attn_metal_tensor, set_prefill_use_metal_tensor
 
 /// The CURRENT league lane model (the Bonsai-2 league pin; the same
 /// sibling-layout default every lane here reads).
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 /// The frozen four-family text corpus — `issue1146_relaxed_kl.rs` verbatim
 /// (the repo's lossy-surface precedent; a changed text changes every

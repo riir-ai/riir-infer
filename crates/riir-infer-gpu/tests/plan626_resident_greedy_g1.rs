@@ -128,7 +128,7 @@ fn plan626_resident_greedy_walk_is_exact() {
     };
 
     let model_path = std::env::var("BONSAI_GGUF")
-        .unwrap_or_else(|_| "../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".to_string());
+        .unwrap_or_else(|_| "../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".to_string());
     let model_path = std::path::PathBuf::from(model_path);
     eprintln!("[plan626-g1] loading {} …", model_path.display());
     let t0 = Instant::now();

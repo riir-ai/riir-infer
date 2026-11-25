@@ -85,7 +85,7 @@ fn issue1149_prework_fused_cuda_routing() {
     };
 
     let model_path = std::env::var("BONSAI_GGUF")
-        .unwrap_or_else(|_| "../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".to_string());
+        .unwrap_or_else(|_| "../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".to_string());
     let model_path = std::path::PathBuf::from(model_path);
     eprintln!("[1149-routing] loading {} …", model_path.display());
     let t0 = std::time::Instant::now();

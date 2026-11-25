@@ -20,7 +20,7 @@ set -eu
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 REPO="$HOME/git/riir-infer"
 OUT="$HOME/riir-bench/i1117_128k_metal_bmo"
-GGUF="$HOME/git/riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf"
+GGUF="$HOME/git/riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"
 CORPUS="$HOME/riir-bench/i1117_128k/corpus_128k.txt"
 CORPUS_SHA256="95816174fb3a5d92f2101b6d46bb77f466c36fc911123d42a13a0cd67543ff10"
 CORPUS_BYTES=629060

@@ -9,11 +9,11 @@
 # $I1146W_TAIL_BIN on the tail host. Cells interleaved ABAB per length.
 #
 #   I1146W_BIN=/tmp/i1146w-tgt/release/dist_stage \
-#   I1146W_MODEL=../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+#   I1146W_MODEL=../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 #     bash scripts/i1146_width_2box.sh
 # Env: I1146W_TAIL_HOST (katopz@100.100.117.44), I1146W_TAIL_ADDR
 #      (192.168.10.2, the TB5 bridge), I1146W_TAIL_BIN (/tmp/dist_stage),
-#      I1146W_TAIL_MODEL (/Users/katopz/models/Ternary-Bonsai-2-27B-PQ2_0.gguf),
+#      I1146W_TAIL_MODEL (/Users/katopz/models/Ternary-Bonsai-2.5-27B-PQ2_0.gguf),
 #      I1146W_WIDTHS ("128 512"), I1146W_LENS ("512 4096"), I1146W_REPS (2).
 set -u
 
@@ -29,7 +29,7 @@ MODEL="${I1146W_MODEL:?set I1146W_MODEL}"
 TH="${I1146W_TAIL_HOST:-katopz@100.100.117.44}"
 TA="${I1146W_TAIL_ADDR:-192.168.10.2}"
 TBIN="${I1146W_TAIL_BIN:-/tmp/dist_stage}"
-TMODEL="${I1146W_TAIL_MODEL:-/Users/katopz/models/Ternary-Bonsai-2-27B-PQ2_0.gguf}"
+TMODEL="${I1146W_TAIL_MODEL:-/Users/katopz/models/Ternary-Bonsai-2.5-27B-PQ2_0.gguf}"
 WIDTHS="${I1146W_WIDTHS:-128 512}"
 LENS="${I1146W_LENS:-512 4096}"
 REPS="${I1146W_REPS:-2}"

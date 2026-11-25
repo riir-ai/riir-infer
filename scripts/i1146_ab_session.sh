@@ -41,7 +41,7 @@ if [ -n "$QUIET" ] && [ "${I1146_FORCE:-0}" != "1" ]; then
 fi
 say "GPU quiet OK"
 
-MODEL="$REPO/../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf"
+MODEL="$REPO/../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"
 [ -e "$MODEL" ] || { say "REFUSED: missing $MODEL"; exit 2; }
 
 PORT=17641

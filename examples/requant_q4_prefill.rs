@@ -17,7 +17,7 @@
 //!
 //! Usage (the T4 artifact):
 //!   cargo run --release --features twt_collapse --example requant_q4_prefill -- \
-//!     --parent ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     --parent ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!     --out ../riir-train/data/Ternary-Bonsai-2-27B-Q4_K.pf.gguf
 //!
 //! The S3 matched-single control (all-projections Q6_K single at ~20.5 GB —
@@ -194,7 +194,7 @@ struct Args {
 
 fn parse_args() -> Args {
     let mut a = Args {
-        parent: "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".to_owned(),
+        parent: "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".to_owned(),
         out: "../riir-train/data/Ternary-Bonsai-2-27B-Q4_K.pf.gguf".to_owned(),
         target: Target::Q4K,
         sample_only: false,

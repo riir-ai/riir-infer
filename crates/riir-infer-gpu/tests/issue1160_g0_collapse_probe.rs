@@ -40,7 +40,7 @@ use riir_infer_core::tokenizer::BpeTokenizer;
 use riir_infer_gpu::TernaryDeltanetGpuForward;
 use riir_infer_gpu::cubecl_runtime::CubeCLContext;
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 /// The pilot arm's soft-token shape (Issue 1160 §Arms: k = 128, tau = 1.5).
 const PILOT_K: usize = 128;

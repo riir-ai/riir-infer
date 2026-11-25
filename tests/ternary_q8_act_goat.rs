@@ -21,7 +21,7 @@
 //! cargo test --release --features ternary_q8_act,bonsai2_hadamard \
 //!     --test ternary_q8_act_goat -- --ignored --nocapture --test-threads=1
 //! ```
-//! Env: `BONSAI2_GGUF` (default `../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf`),
+//! Env: `BONSAI2_GGUF` (default `../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf`),
 //! `Q8_GATE_CORPUS` (default `.raw/twt/audition_calib.txt`), `Q8_GATE_POSITIONS`
 //! (default 256).
 #![cfg(all(feature = "ternary_q8_act", feature = "bonsai2_hadamard"))]
@@ -116,7 +116,7 @@ fn median(v: &mut [f64]) -> f64 {
 #[ignore = "real 27B model, ~10 min — run with --ignored --release"]
 fn q8_act_holds_quality_and_wins_wall_on_bonsai2() {
     let gguf = std::env::var("BONSAI2_GGUF")
-        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".into());
+        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".into());
     let corpus =
         std::env::var("Q8_GATE_CORPUS").unwrap_or_else(|_| ".raw/twt/audition_calib.txt".into());
     let n_pos: usize =

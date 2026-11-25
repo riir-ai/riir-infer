@@ -39,7 +39,7 @@ use riir_infer_dist::stage::{ArtifactIdentity, StageCompute, stage_scope};
 use riir_infer_dist::stage_gpu::TernaryGpuStage;
 use riir_infer_dist::transport::{Direction, PeerKey, TcpTransport};
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 const SPLIT: u32 = 32;
 /// Decode-step walk for the bit-identity arm (one warm + the measured).
 const STEPS: usize = 6;

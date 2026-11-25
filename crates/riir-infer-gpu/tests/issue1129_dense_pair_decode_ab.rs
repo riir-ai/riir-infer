@@ -175,7 +175,7 @@ fn issue1129_dense_pair_decode_ab() {
     };
 
     let model_path = std::env::var("BONSAI_GGUF")
-        .unwrap_or_else(|_| "../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".to_string());
+        .unwrap_or_else(|_| "../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".to_string());
     let model_path = std::path::PathBuf::from(model_path);
     eprintln!("[1129-cuda-decode-ab] loading {} …", model_path.display());
     let t0 = Instant::now();

@@ -28,7 +28,7 @@
 //!   --features issue929_bonsai2_probe --bin issue929_bonsai2_loop_probe
 //! ```
 //! Model path: `B929_MODEL` env, else
-//! `{CARGO_MANIFEST_DIR}/../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf`.
+//! `{CARGO_MANIFEST_DIR}/../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf`.
 //! Scale knobs (smoke postures): `B929_LOOPS`, `B929_TWO_HOP`,
 //! `B929_ONE_HOP`, `B929_FACTS`, `B929_ANSWER_TOKENS`, `B929_BOOTSTRAP`,
 //! `B929_MAX_QUERIES`, `B929_OUT` (JSON path).
@@ -190,7 +190,7 @@ fn run() -> Result<()> {
     let t0 = std::time::Instant::now();
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let model_path = std::env::var("B929_MODEL").unwrap_or_else(|_| {
-        format!("{manifest_dir}/../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf")
+        format!("{manifest_dir}/../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf")
     });
 
     // B929_PHRASE: the fixture fact template. Default = standard (the

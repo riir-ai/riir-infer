@@ -38,7 +38,7 @@
 //! ```text
 //! cargo run --release --features scale_invariant_attn,bonsai2_hadamard \
 //!   --bin si_zero_shot_ppl -- \
-//!   --gguf ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!   --gguf ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!   --corpus <text> [--arms base,si,si-cal,si-pprope] [--max-length 2048]
 //!   [--score-window 128] [--tolerance 0.05] [--probe-tokens 512]
 //!   [--tau 10.0] [--retrieval] [--pp-train-len 1024]

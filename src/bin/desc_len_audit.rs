@@ -12,7 +12,7 @@
 //! Usage:
 //! ```text
 //! cargo run --release --features desc_len --bin desc_len_audit -- \
-//!     --gguf ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf [--json] [--min-mb 1.0]
+//!     --gguf ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf [--json] [--min-mb 1.0]
 //! ```
 
 use anyhow::{Context, Result, bail};

@@ -3,7 +3,7 @@
 //! Port of PrismML-Eng/llama.cpp `2a42998c5` (PR #306, "cuda: PQ2_0 mat-vec
 //! kernel for 3-8 columns on Ada", distill Lead 12) to OUR packed-code weight
 //! format and OUR 16-element activation block. Upstream measured on
-//! Ternary-Bonsai-2-27B-PQ2_0 (our league model) on an RTX 4070 (sm_89): batched
+//! Ternary-Bonsai-2.5-27B-PQ2_0 (our league model) on an RTX 4070 (sm_89): batched
 //! decode +17/+25/+29% at 4/6/8 seq; kernel cold-L2 1.96×/1.75× at n=4/8.
 //!
 //! ## The mechanism (upstream atoms, ported)

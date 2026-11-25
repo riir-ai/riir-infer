@@ -50,7 +50,7 @@ use riir_infer_core::multi_host::LayerRange;
 use riir_infer_gpu::TernaryDeltanetGpuForward;
 use riir_infer_gpu::cubecl_runtime::CubeCLContext;
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 fn env_path(var: &str, default: &str) -> PathBuf {
     std::env::var_os(var)

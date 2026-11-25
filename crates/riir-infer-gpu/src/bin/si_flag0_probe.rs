@@ -35,7 +35,7 @@
 //! ```text
 //! cargo build --release -p riir-infer-gpu --features ternary_gemv_cuda_raw,cuda_graphs_forward,riir-infer-core/bonsai2_hadamard \
 //!   --bin si_flag0_probe
-//! ./target/release/si_flag0_probe --gguf ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf
+//! ./target/release/si_flag0_probe --gguf ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf
 //! ```
 
 #![cfg(all(
@@ -100,7 +100,7 @@ fn run() -> Result<(), String> {
     let gguf = arg_of(&args, "--gguf")
         .map(PathBuf::from)
         .or_else(|| std::env::var("BONSAI_GGUF").ok().map(PathBuf::from))
-        .unwrap_or_else(|| PathBuf::from("../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf"));
+        .unwrap_or_else(|| PathBuf::from("../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"));
     let prefill_n: usize = arg_of(&args, "--prefill")
         .and_then(|v| v.parse().ok())
         .unwrap_or(128);

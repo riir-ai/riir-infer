@@ -57,7 +57,7 @@ fn load_weights() -> (
 ) {
     let here = env!("CARGO_MANIFEST_DIR");
     let path = std::env::var("BONSAI_PQ2_0_GGUF").unwrap_or_else(|_| {
-        format!("{here}/../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf")
+        format!("{here}/../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf")
     });
     load_qwen_deltanet_ternary_weights_gguf(std::path::Path::new(&path))
         .expect("load Bonsai-2-27B-PQ2_0 (BONSAI_PQ2_0_GGUF or the default data path)")

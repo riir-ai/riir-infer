@@ -15,8 +15,8 @@ set -u
 BMO=${I623_BMO:-katopz@192.168.10.2}
 BMO_BIN=${I623_BMO_BIN:-/Users/katopz/git/riir-infer/target/release/dist_stage}
 AMO_BIN=${I623_AMO_BIN:-/Users/katopz/git/riir-infer/target/release/dist_stage}
-BMO_MODEL=${I623_BMO_MODEL:-/Users/katopz/models/Ternary-Bonsai-2-27B-PQ2_0.gguf}
-AMO_MODEL=${I623_AMO_MODEL:-/Users/katopz/git/riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf}
+BMO_MODEL=${I623_BMO_MODEL:-/Users/katopz/models/Ternary-Bonsai-2.5-27B-PQ2_0.gguf}
+AMO_MODEL=${I623_AMO_MODEL:-/Users/katopz/git/riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf}
 KEY=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
 PORT=${I623_PORT:-17632}
 OUT_R=/tmp/i623_wire_cells                      # tail logs live ON bmo

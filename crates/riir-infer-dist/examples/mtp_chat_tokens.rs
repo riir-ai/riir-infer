@@ -21,7 +21,7 @@
 //!
 //! ```text
 //! cargo run --release -p riir-infer-dist --example mtp_chat_tokens -- \
-//!   --model ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!   --model ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!   --out ../riir-train/data/bonsai_mtp/tokens.chat.tokens
 //! ```
 
@@ -240,7 +240,7 @@ fn chat_turn(user: &str, assistant: &str) -> String {
 }
 
 fn main() {
-    let mut model = PathBuf::from("../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf");
+    let mut model = PathBuf::from("../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf");
     let mut out = PathBuf::from("../riir-train/data/bonsai_mtp/tokens.chat.tokens");
     let mut reps: usize = 1;
     let mut args = std::env::args().skip(1);

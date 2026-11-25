@@ -54,7 +54,7 @@ use riir_infer_gpu::ternary_deltanet_gpu_forward::{
     set_prefill_chunked_conv1d,
 };
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 const PREROT_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-27B-Q2_0.gguf";
 /// The pre-rotation prefill pin at P=2048 (Issue 1004 G1 anchor class;
 /// reproduced by riir-ai `bench_1004_r1_staged_recurrence_e2e`, 2026-10-01).

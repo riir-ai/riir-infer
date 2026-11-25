@@ -43,7 +43,7 @@ use riir_infer_gpu::gemm_ternary_metal_tensor::set_metal_tensor_relaxed_precisio
 use riir_infer_gpu::prefill_f16b::{set_f16b_placebo, set_f16b_route, set_f16b_tap};
 use riir_infer_gpu::{set_prefill_attn_metal_tensor, set_prefill_use_metal_tensor_zerocopy};
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 /// The same seed text + pass shape as the frame A/B (the incumbent bytes
 /// are the A anchor's bytes for this corpus/posture).

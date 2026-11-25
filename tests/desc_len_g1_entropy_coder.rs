@@ -351,7 +351,7 @@ fn real_corpus_groups_match_the_floor() {
     let Some(path) = std::env::var_os("RIIR_DESC_LEN_GGUF") else {
         eprintln!(
             "SKIP (loud): RIIR_DESC_LEN_GGUF unset — the real-corpus G1 lane needs a \
-             named GGUF, e.g. RIIR_DESC_LEN_GGUF=../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf"
+             named GGUF, e.g. RIIR_DESC_LEN_GGUF=../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"
         );
         return;
     };

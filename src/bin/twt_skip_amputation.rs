@@ -39,7 +39,7 @@
 //! Run:
 //! ```sh
 //! cargo run --release --features twt_bonsai --bin twt_skip_amputation -- \
-//!     --parent ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     --parent ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!     --corpus ../riir-train/data/chat_probe \
 //!     --cache .raw/twt/parent_argmax_cache.json \
 //!     --kept-twt 4,12,15 --arm-shortgpt --arm-hydra --arm-random 20261002 \
@@ -508,8 +508,8 @@ fn main() -> Result<()> {
         let c_corpus = cached["corpus"].as_str().context("cache: corpus")?;
         let c_seq = cached["seq_len"].as_u64().context("cache: seq_len")? as usize;
         let c_max = cached["max_tokens"].as_u64().context("cache: max_tokens")? as usize;
-        let same_parent = c_parent.ends_with("Ternary-Bonsai-2-27B-PQ2_0.gguf")
-            && parent_display.ends_with("Ternary-Bonsai-2-27B-PQ2_0.gguf");
+        let same_parent = c_parent.ends_with("Ternary-Bonsai-2.5-27B-PQ2_0.gguf")
+            && parent_display.ends_with("Ternary-Bonsai-2.5-27B-PQ2_0.gguf");
         if !(same_parent && c_corpus == corpus_display && c_seq == SEQ_LEN && c_max == MAX_TOKENS) {
             bail!(
                 "cache params mismatch: ({c_parent}, {c_corpus}, {c_seq}, {c_max}) vs \

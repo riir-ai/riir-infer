@@ -792,7 +792,7 @@ mod tests {
             );
         }
         let model_path = std::env::var("BONSAI_GGUF").unwrap_or_else(|_| {
-            "../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".to_string()
+            "../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".to_string()
         });
         let model_path = std::path::PathBuf::from(model_path);
 

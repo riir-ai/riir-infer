@@ -65,7 +65,7 @@ use riir_infer_gpu::cubecl_runtime::CubeCLContext;
 use riir_infer_gpu::set_prefill_use_metal_tensor_zerocopy;
 use riir_infer_gpu::{prefill_attn_metal_tensor_launch_count, set_prefill_attn_metal_tensor};
 
-const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 /// Fixed per-family text. Frozen: a changed text changes every number, so
 /// edit only together with a re-measured control row.

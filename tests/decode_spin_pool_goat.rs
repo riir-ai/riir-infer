@@ -83,7 +83,7 @@ impl Arm {
 #[ignore = "real 27B model — run with --ignored --release"]
 fn decode_spin_pool_is_bit_identical_and_faster_on_bonsai2() {
     let gguf = std::env::var("BONSAI2_GGUF")
-        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".into());
+        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".into());
     let corpus =
         std::env::var("Q8_GATE_CORPUS").unwrap_or_else(|_| ".raw/twt/audition_calib.txt".into());
     let n_pos: usize =

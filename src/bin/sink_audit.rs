@@ -3,7 +3,7 @@
 //!
 //! ```bash
 //! cargo run --release --features sink_audit --bin sink_audit -- \
-//!     ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!     --n 512 --out .benchmarks/sink_audit_report.json
 //! # Optional (issue 1185 T2-run): the per-layer ε-width census on the same
 //! # window — writes width_census_report.json beside --out, NEVER touching the
@@ -66,7 +66,7 @@ struct Args {
 
 fn parse_args() -> Args {
     let mut a = Args {
-        model: PathBuf::from("../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf"),
+        model: PathBuf::from("../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"),
         corpus: PathBuf::from(DEFAULT_CORPUS),
         n: DEFAULT_N,
         incumbent_sinks: DEFAULT_SINKS,

@@ -19,7 +19,7 @@
 //! ```text
 //! cargo run --release -p riir-infer-dist --features bonsai2_hadamard \
 //!   --example mtp_head_acceptance -- \
-//!   --model ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!   --model ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!   --head ../riir-train/data/bonsai_mtp/head/bonsai_mtp_head_v1.bin \
 //!   --tokens ../riir-train/data/bonsai_mtp/tokens.read.tokens \
 //!   --split 63 --prompt-tokens 768 --gen-tokens 192 --k 2
@@ -73,7 +73,7 @@ struct Args {
 
 fn parse_args() -> Args {
     let mut a = Args {
-        model: PathBuf::from("../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf"),
+        model: PathBuf::from("../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"),
         head: PathBuf::from("../riir-train/data/bonsai_mtp/head/bonsai_mtp_head_v1.bin"),
         tokens: PathBuf::from("../riir-train/data/bonsai_mtp/tokens.read.tokens"),
         split: 63,

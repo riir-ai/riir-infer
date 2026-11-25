@@ -14,7 +14,7 @@ use riir_infer_core::tokenizer::BpeTokenizer;
 
 fn gguf_path() -> String {
     std::env::var("BONSAI2_GGUF")
-        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".into())
+        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".into())
 }
 
 /// Deterministic mixed corpus: prose samples + vocab-sourced fuzz (fixed

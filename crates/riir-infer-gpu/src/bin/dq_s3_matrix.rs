@@ -87,7 +87,7 @@ use riir_infer_core::gguf_loader::{GgufFile, load_qwen_deltanet_ternary_weights_
 use riir_infer_core::tokenizer::BpeTokenizer;
 use riir_infer_gpu::ternary_deltanet_gpu_forward_cudarc::TernaryDeltanetGpuForwardCudarc;
 
-const DEFAULT_DECODE: &str = "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const DEFAULT_DECODE: &str = "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 const DEFAULT_PF: &str = "../riir-train/data/Ternary-Bonsai-2-27B-Q4_K.pf.gguf";
 const DEFAULT_Q6: &str = "../riir-train/data/Ternary-Bonsai-2-27B-Q6_K.sg.gguf";
 const EOS: usize = 248_046;

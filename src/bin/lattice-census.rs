@@ -6,7 +6,7 @@
 //! ```bash
 //! cargo run --release --features lattice_census[,bonsai2_hadamard] \
 //!     --bin lattice-census -- \
-//!     ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!     --n 512 --cap-every 64 --out .benchmarks/lattice_census_report.json
 //! # T0.2 probe arm (fixed-coeff FiLM over the GDN layer input):
 //! #   ... --film-seed 0x50E1C5   (census re-runs under the injection;
@@ -46,7 +46,7 @@ use riir_infer_core::rope::RopeFreqTable;
 use riir_infer_core::tokenizer::BpeTokenizer;
 use riir_infer_core::types::DeltaNetLayerType;
 
-const DEFAULT_MODEL: &str = "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+const DEFAULT_MODEL: &str = "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 const DEFAULT_CORPUS: &str = "../riir-train/data/chat_probe";
 const DEFAULT_N: usize = 512;
 const DEFAULT_CAP_EVERY: usize = 64;

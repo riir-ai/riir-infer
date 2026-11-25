@@ -52,7 +52,7 @@ fn main() {
     // parent's truth, `twt.layer_types` is the COLLAPSED file's).
     let parent = GgufFile::open(&std::path::PathBuf::from(
         std::env::var("TWT_PARENT")
-            .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".to_owned()),
+            .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".to_owned()),
     ))
     .expect("open parent for full_attention_interval");
     let interval = parent

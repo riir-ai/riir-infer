@@ -13,7 +13,7 @@
 //!
 //! Usage (qwen35 lane, T5.0):
 //!   cargo run --release --features twt_bonsai --bin twt_goat_agreement -- \
-//!     --parent ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!     --parent ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!     --collapsed /tmp/twt_collapse_pq2_e005.gguf \
 //!     --corpus .raw/twt/audition_calib.txt \
 //!     --seq-len 512 --max-tokens 4096

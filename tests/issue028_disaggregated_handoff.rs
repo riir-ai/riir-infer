@@ -25,7 +25,7 @@
 //! 5. **Compat gate:** two files whose geometry metadata differs refuse
 //!    (the blake3-over-Debug fingerprint covers every Config field).
 //! 6. **Real-artifact arm** (`#[ignore]`, `bonsai2_hadamard`): the 6.7 GB
-//!    `Ternary-Bonsai-2-27B-PQ2_0.gguf` pack through the same phase split —
+//!    `Ternary-Bonsai-2.5-27B-PQ2_0.gguf` pack through the same phase split —
 //!    the same-weights byte-identity on the real 27B contract.
 //!
 //! Fixtures ride the shared synthetic-Bonsai-2 kit
@@ -400,7 +400,7 @@ fn identical_two_file_pair_loads_and_runs_byte_identical() {
 #[ignore = "loads the real 6.7 GB PQ2_0 pack — run manually (see the doc comment)"]
 fn real_bonsai_phase_split_is_byte_identical() {
     let path = std::env::var("BONSAI_PQ2_0_GGUF")
-        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".to_string());
+        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".to_string());
     let path = std::path::PathBuf::from(path);
     if !path.exists() {
         eprintln!("[skip] checkpoint not found: {}", path.display());
@@ -558,7 +558,7 @@ fn dual_format_q4_prefill_pair_loads_and_runs() {
 #[ignore = "loads the real 20.5 GB pair — run manually (see the doc comment)"]
 fn real_q4_prefill_pair_loads_and_prefills() {
     let decode_path = std::env::var("BONSAI_PQ2_0_GGUF")
-        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf".to_string());
+        .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf".to_string());
     let prefill_path = std::env::var("BONSAI_Q4_PF_GGUF")
         .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2-27B-Q4_K.pf.gguf".to_string());
     let (decode_path, prefill_path) = (

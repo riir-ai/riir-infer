@@ -22,7 +22,7 @@
 //! ```text
 //! cargo run --release -p riir-infer-core --features twt_collapse \
 //!   --example twt_ternarize_probe -- \
-//!   --gguf ../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf \
+//!   --gguf ../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf \
 //!   --blocks 5:8,20:23 [--suffix in_proj] [--n-x 8] [--max-rows 5120]
 //! ```
 //!
@@ -81,7 +81,7 @@ fn tensor_to_dense(parent: &GgufFile, name: &str) -> anyhow::Result<(Vec<f32>, u
 }
 
 fn main() {
-    let mut gguf = PathBuf::from("../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf");
+    let mut gguf = PathBuf::from("../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf");
     let mut blocks_spec = String::new();
     let mut suffix = String::from("ffn_down");
     let mut n_x = 8usize;

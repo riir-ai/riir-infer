@@ -49,7 +49,7 @@ fi
 SCRIPT_SHA=$(git -C "$REPO" log --format=%h -1 -- scripts/i1146_attn_tensor_ab.sh)
 say "script at commit: $SCRIPT_SHA"
 
-MODEL="$REPO/../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf"
+MODEL="$REPO/../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"
 [ -e "$MODEL" ] || { say "REFUSED: missing $MODEL"; exit 2; }
 
 # ── Build ONE dist_stage at the promoted posture ──

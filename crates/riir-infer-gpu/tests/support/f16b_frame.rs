@@ -12,7 +12,7 @@ use riir_infer_core::multi_host::LayerRange;
 use riir_infer_gpu::TernaryDeltanetGpuForward;
 
 /// The CURRENT league lane model (the Bonsai-2 league pin).
-pub const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf";
+pub const FOLDED_MODEL: &str = "../../../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf";
 
 /// The frozen seed text — the walk's `prose` family (one corpus is enough
 /// for a timing cell; the token list cycles to the pass length exactly as

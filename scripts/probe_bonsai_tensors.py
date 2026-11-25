@@ -3,7 +3,7 @@ import mmap
 import struct
 import sys
 
-P = r"../riir-train/data/Ternary-Bonsai-2-27B-PQ2_0.gguf"
+P = r"../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf"
 
 f = open(P, "rb")
 data = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
