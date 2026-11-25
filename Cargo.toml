@@ -911,6 +911,15 @@ name = "readout-screen"
 path = "src/bin/readout-screen.rs"
 required-features = ["readout_screen"]
 
+# Issue 1250 T2 — the J-share verbalizability pass over the T1
+# artifact (weights-only, offline; reads the RDMAP1 atom supports,
+# never re-derives; emits RDMAP2). Same opt-in feature as T1.
+# Reader protection row (the green-zero law).
+[[bin]]
+name = "readout-jshare"
+path = "src/bin/readout-jshare.rs"
+required-features = ["readout_screen"]
+
 # riir-train plan 503 T0.1 — the lattice-conditioning geometry census CLI:
 # one ternary pass per checkpoint over the first N tokens, per-head GDN
 # state geometry at the pinned capture positions, a fixed-precision

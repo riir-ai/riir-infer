@@ -10,9 +10,14 @@
 //! battery. Deterministic weights via SplitMix64 — no external data, no
 //! fixture files.
 
+use crate::readout_jshare::{
+    CONTROLS_PER_LAYER, HIGH_PERCENTILE, J_ROW_BYTES, LOW_PERCENTILE, bucket_of,
+    build_j_artifact, j_artifact_digest, j_share, nnls_gram, parse_v1_rows,
+    rademacher_direction, render_j_report, run_jshare, top_k_tokens,
+};
 use crate::readout_screen::{
-    Band, Bucket, ReadoutTensors, Sign, TOP_K, artifact_digest, band_of, build_artifact, lens_norm,
-    ordered_dot_f64, parse_header, screen,
+    Band, Bucket, HEADER_BYTES, ReadoutTensors, Sign, TOP_K, artifact_digest, band_of,
+    build_artifact, lens_norm, ordered_dot_f64, parse_header, screen,
 };
 use anyhow::{Result, bail};
 
@@ -442,6 +447,244 @@ pub fn gate_report_deterministic() -> Result<()> {
     Ok(())
 }
 
+// ── The T2 J-share gates (Issue 1250 T2) ────────────────────
+
+/// The fixture source with a FIXED file digest (the J-share pass
+/// refuses a digest-less source — the provenance law).
+struct DigestedSource {
+    inner: FixtureSource,
+    digest: [u8; 32],
+}
+
+impl ReadoutTensors for DigestedSource {
+    fn n_layers(&self) -> usize {
+        self.inner.n_layers()
+    }
+    fn n_ff(&self) -> usize {
+        self.inner.n_ff()
+    }
+    fn n_embd(&self) -> usize {
+        self.inner.n_embd()
+    }
+    fn vocab(&self) -> usize {
+        self.inner.vocab()
+    }
+    fn gamma(&self) -> &[f32] {
+        self.inner.gamma()
+    }
+    fn rms_eps(&self) -> f64 {
+        self.inner.rms_eps()
+    }
+    fn down_out_row(&self, layer: usize, j: usize) -> Result<Vec<f32>> {
+        self.inner.down_out_row(layer, j)
+    }
+    fn unemb_rows(&self) -> Result<Vec<f32>> {
+        self.inner.unemb_rows()
+    }
+    fn label(&self) -> String {
+        self.inner.label()
+    }
+    fn file_digest(&self) -> Option<[u8; 32]> {
+        Some(self.digest)
+    }
+}
+
+/// NNLS exactness: u in the cone of its atoms → J = 1; u orthogonal to
+/// every atom → J = 0; the classic suppression case (two correlated
+/// atoms, the unconstrained solve goes negative) → the active set
+/// lands on the right single-atom support with α ≥ 0 throughout.
+pub fn gate_jshare_nnls_exactness() -> Result<()> {
+    // Cone case: u = 2·e0 + 3·e1 → NNLS recovers (2, 3), J = 1.
+    let mut unemb = vec![0.0f32; 4 * 4];
+    unemb[0] = 1.0;
+    unemb[5] = 1.0;
+    let u = [2.0f32, 3.0, 0.0, 0.0];
+    let j = j_share(&u, &unemb, &[0, 1], 4, 4).expect("cone J");
+    // 1e-9, not 1e-12: the sub-solve carries a 1e-12×maxdiag Tikhonov
+    // damping (the rank-deficiency guard) — exact recovery reads
+    // 1 − ~2e-12, and the assertion must sit above the damping floor.
+    if (j - 1.0).abs() > 1e-9 {
+        bail!("cone case: J {j} != 1.0");
+    }
+    // Orthogonal case: u = e2, atoms {e0, e1} → J = 0.
+    let u2 = [0.0f32, 0.0, 1.0, 0.0];
+    let j0 = j_share(&u2, &unemb, &[0, 1], 4, 4).expect("orthogonal J");
+    if j0.abs() > 1e-12 {
+        bail!("orthogonal case: J {j0} != 0.0");
+    }
+    // Suppression case (the NNLS textbook example): c = (1, 0.9) on
+    // Gram [[1, 0.9], [0.9, 1]] — the unconstrained solve is
+    // (5.26, −4.74); NNLS must land on the single atom 0 with α = 1.
+    let g = [1.0f64, 0.9, 0.9, 1.0];
+    let c = [1.0f64, 0.9];
+    let alpha = nnls_gram(&g, &c, 2);
+    if (alpha[0] - 1.0).abs() > 1e-9 || alpha[1].abs() > 1e-9 {
+        bail!("suppression case: α = {:?} (want [1, 0])", alpha);
+    }
+    Ok(())
+}
+
+/// NNLS degeneracy + tie law.
+pub fn gate_jshare_ties() -> Result<()> {
+    // Symmetric atoms (identical gradient): both enter, α = (1, 1).
+    let g = [1.0f64, 0.0, 0.0, 1.0];
+    let c = [1.0f64, 1.0];
+    let alpha = nnls_gram(&g, &c, 2);
+    if (alpha[0] - 1.0).abs() > 1e-9 || (alpha[1] - 1.0).abs() > 1e-9 {
+        bail!("symmetric case: α = {:?} (want [1, 1])", alpha);
+    }
+    // Degenerate atom (zero diagonal): never selected, never divides.
+    let g2 = [1.0f64, 0.0, 0.0, 0.0];
+    let c2 = [1.0f64, 5.0];
+    let alpha2 = nnls_gram(&g2, &c2, 2);
+    if (alpha2[0] - 1.0).abs() > 1e-9 || alpha2[1].abs() > 1e-9 {
+        bail!("degenerate atom: α = {:?} (want [1, 0])", alpha2);
+    }
+    Ok(())
+}
+
+/// The Rademacher control determinism + the top-k comparator.
+pub fn gate_jshare_controls() -> Result<()> {
+    let a = rademacher_direction(42, 64);
+    let b = rademacher_direction(42, 64);
+    let c = rademacher_direction(43, 64);
+    if a != b {
+        bail!("rademacher: same seed differs");
+    }
+    if a == c {
+        bail!("rademacher: different seed identical (64 dims)");
+    }
+    if a.iter().any(|&x| x != 1.0 && x != -1.0) {
+        bail!("rademacher: non-±1 entry");
+    }
+    // top_k_tokens matches the brute-force reference (the engineered
+    // unit — the col IS unemb row 7 × 4).
+    let fx = FixtureSource::new();
+    let unit = &fx.cols[1][3 * EMBD..4 * EMBD];
+    let normed = lens_norm(unit, &fx.gamma, 1e-6);
+    let (toks, vals) = top_k_tokens(&normed, &fx.unemb, VOCAB, EMBD, TOP_K);
+    let (bt, bv, _, _) = brute(&fx.unemb, unit, &fx.gamma, 1e-6);
+    if toks != bt || vals != bv {
+        bail!("top_k_tokens != brute force");
+    }
+    Ok(())
+}
+
+/// The T2 pass end-to-end on the fixture: the v1 artifact built from
+/// `screen()`, the J-share pass over the SAME digested source, bucket
+/// coverage, the engineered unit's J = 1, the v2 artifact byte
+/// stability + shape, report determinism, and the digest-mismatch
+/// refusal.
+pub fn gate_jshare_e2e() -> Result<()> {
+    let digest = [0xABu8; 32];
+    let src = DigestedSource {
+        inner: FixtureSource::new(),
+        digest,
+    };
+    let scr = screen(&src)?;
+    let v1 = build_artifact(&scr);
+    let (_, _, _, _, n_units, _) = parse_header(&v1)?;
+    if n_units != LAYERS * FF * 2 {
+        bail!("fixture v1 units {n_units} != {}", LAYERS * FF * 2);
+    }
+    let js = run_jshare(&v1, &src)?;
+    let total: usize = js.layers.iter().map(|l| l.units.len()).sum();
+    if total != n_units {
+        bail!("T2 units {total} != v1 {n_units}");
+    }
+    for l in &js.layers {
+        if l.controls.len() != CONTROLS_PER_LAYER {
+            bail!("layer {} controls {}", l.layer, l.controls.len());
+        }
+        for u in &l.units {
+            if u.bucket == Bucket::Unassigned {
+                bail!("unit {}:{} left Unassigned", u.layer, u.col);
+            }
+            if !(0.0..=1.0).contains(&u.jshare) {
+                bail!("unit {}:{} J {} out of [0,1]", u.layer, u.col, u.jshare);
+            }
+            if u.tokens.len() != TOP_K {
+                bail!("unit {}:{} tokens {}", u.layer, u.col, u.tokens.len());
+            }
+        }
+    }
+    // The engineered unit (layer 1 col 3 +): its column IS unemb row 7
+    // × 4 — its own top atom spans the unit fully → J = 1.
+    let eng = js.layers[1]
+        .units
+        .iter()
+        .find(|u| u.col == 3 && u.sign == Sign::Plus)
+        .expect("engineered + unit");
+    if eng.tokens[0] != 7 {
+        bail!("engineered unit top token {} != 7", eng.tokens[0]);
+    }
+    if (eng.jshare - 1.0).abs() > 1e-6 {
+        bail!("engineered unit J {} != 1.0", eng.jshare);
+    }
+    // Bucket census sums to the unit total.
+    let buckets: usize = js.rollups.iter().map(|r| r.high + r.middle + r.low).sum();
+    if buckets != total {
+        bail!("rollup buckets {buckets} != {total}");
+    }
+    // The v2 artifact: byte-stable across two runs + shape-pinned.
+    let bytes = build_j_artifact(&js);
+    let bytes2 = build_j_artifact(&run_jshare(&v1, &src)?);
+    if bytes != bytes2 {
+        bail!("v2 artifact not byte-stable across runs");
+    }
+    let want = HEADER_BYTES
+        + total * J_ROW_BYTES
+        + (4 + 4)
+        + LAYERS * CONTROLS_PER_LAYER * 4;
+    if bytes.len() != want {
+        bail!("v2 artifact length {} != {want}", bytes.len());
+    }
+    let _ = j_artifact_digest(&bytes);
+    // Report determinism.
+    let hex = "ab".repeat(32);
+    let r1 = render_j_report(&js, &hex);
+    let r2 = render_j_report(&js, &hex);
+    if r1 != r2 {
+        bail!("T2 report not deterministic");
+    }
+    // The digest-mismatch refusal names its cause.
+    let bad = DigestedSource {
+        inner: FixtureSource::new(),
+        digest: [0xCDu8; 32],
+    };
+    match run_jshare(&v1, &bad) {
+        Err(e) => {
+            if !e.to_string().contains("digest mismatch") {
+                bail!("digest refusal named the wrong cause: {e}");
+            }
+        }
+        Ok(_) => bail!("digest mismatch accepted"),
+    }
+    // The v1 row parser round-trips the supports.
+    let rows = parse_v1_rows(&v1)?;
+    if rows.len() != n_units {
+        bail!("parse_v1_rows {} != {n_units}", rows.len());
+    }
+    Ok(())
+}
+
+/// The percentile → bucket edges (the pinned bars).
+pub fn gate_jshare_bucket_edges() -> Result<()> {
+    if bucket_of(HIGH_PERCENTILE) != Bucket::High {
+        bail!("p = HIGH_PERCENTILE must read High");
+    }
+    if bucket_of(HIGH_PERCENTILE - 1e-9) == Bucket::High {
+        bail!("just below the High bar must not read High");
+    }
+    if bucket_of(LOW_PERCENTILE - 1e-9) != Bucket::Low {
+        bail!("below the median must read Low");
+    }
+    if bucket_of(LOW_PERCENTILE) == Bucket::Low {
+        bail!("exactly the median is Middle (the Low bar is open)");
+    }
+    Ok(())
+}
+
 /// Run every gate; returns the receipt lines (the bin's `--self-test`
 /// and the cargo tests share this exact source).
 pub fn run_all() -> Result<Vec<String>> {
@@ -456,12 +699,23 @@ pub fn run_all() -> Result<Vec<String>> {
         ("refusals=loud", gate_refusals_loud),
         ("lens-norm=f64-reference", gate_lens_norm_reference),
     ];
-    let mut receipt = Vec::with_capacity(gates.len() + 1);
+    let mut receipt = Vec::with_capacity(gates.len() + 6);
     for (name, gate) in gates {
         gate()?;
         receipt.push(format!("  PASS {name}"));
     }
     gate_report_deterministic()?;
     receipt.push("  PASS report=deterministic".to_string());
+    // T2 (Issue 1250): the J-share pass.
+    gate_jshare_nnls_exactness()?;
+    receipt.push("  PASS jshare-nnls=exact".to_string());
+    gate_jshare_ties()?;
+    receipt.push("  PASS jshare-degenerate+ties".to_string());
+    gate_jshare_controls()?;
+    receipt.push("  PASS jshare-controls=deterministic".to_string());
+    gate_jshare_bucket_edges()?;
+    receipt.push("  PASS jshare-bucket-edges".to_string());
+    gate_jshare_e2e()?;
+    receipt.push("  PASS jshare-e2e".to_string());
     Ok(receipt)
 }

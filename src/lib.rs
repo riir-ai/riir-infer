@@ -199,6 +199,8 @@ pub mod neuron_census_gguf;
 pub mod readout_screen;
 #[cfg(feature = "readout_screen")]
 pub mod readout_screen_fixture;
+#[cfg(feature = "readout_screen")]
+pub mod readout_jshare;
 
 /// KL-vs-anchor ranked-selection census (Issue 1242 T1 — the QDA distill's
 /// anchor-KL instrument): per-token forward-KL from logits slices, the
