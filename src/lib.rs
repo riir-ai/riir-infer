@@ -45,6 +45,12 @@ pub mod hisa_plan;
 #[cfg(feature = "hisa_census")]
 pub mod hisa_census;
 
+/// Issue 1244 T2.1b — the census sweep driver (grids, cell table, the
+/// frozen-read pass runner, the resumable ledger, the canonical report);
+/// the bin front is `src/bin/hisa_census.rs`.
+#[cfg(feature = "hisa_census")]
+pub mod hisa_census_run;
+
 /// Gemma architecture layer helpers (leaf).
 pub mod gemma_layer;
 

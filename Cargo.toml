@@ -173,8 +173,10 @@ neuron_census = ["dep:katgpt-pruners", "katgpt-pruners/mech_attribution", "delta
 # Bonsai postures); the dense body's mirror is a follow-up. The census
 # session/bin front is the follow-up slice (required-features row lands
 # with it — P30); this row gates the kernel + its two-regime identity
-# gates (`cargo test --lib --features hisa_census`).
-hisa_census = ["deltanet_inference"]
+# gates (`cargo test --lib --features hisa_census`). The ternary body is
+# the census's only probe surface (v1), so the arm implies it — the
+# dispatch wiring and the driver both compile under the feature alone.
+hisa_census = ["deltanet_inference", "deltanet_ternary_inference"]
 
 # riir-train plan 503 T0.1/T0.2 — the lattice-conditioning geometry census
 # over per-head GDN recurrent states (r_ent / r_stable / query-alignment
@@ -963,6 +965,14 @@ required-features = ["desc_len"]
 [[bin]]
 name = "hisa_plan"
 path = "src/bin/hisa_plan.rs"
+
+# Issue 1244 T2.1b — the census sweep driver front. Gated (the module is
+# feature-gated, so a default build would compile it to nothing — the
+# green-zero law).
+[[bin]]
+name = "hisa_census"
+path = "src/bin/hisa_census.rs"
+required-features = ["hisa_census"]
 
 # Issue 027 / Plan 615 T6 — the model-level per-family retention gate
 # (fakequant-at-load over the llama path; MiniCPM5-1B vehicle).
