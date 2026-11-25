@@ -936,6 +936,19 @@ name = "desc_len_audit"
 path = "src/bin/desc_len_audit.rs"
 required-features = ["desc_len"]
 
+# Issue 1244 T1 — the header-only HiSA planner front (Research 040):
+# REQUIRED header reads before any window arithmetic (rope.freq_base,
+# attention.key_length, rope.dimension_count, full_attention_interval),
+# per-pair windows Δ_max,l = Φ·b^(2l/d_rot), reach R, ρ_dec/ρ_prefill/κ
+# per league shape, chunk-ring tables at both granularities with the
+# q8-block alignment (Q8_BLOCK_SIZE=32 verified in quant::q8kv).
+# REPORT-ONLY, exit 0 on every successful read; ungated (header-only,
+# no forward dep — the family_census posture). The math lives in the lib
+# module `hisa_plan` so the anchor test drives it without the bin.
+[[bin]]
+name = "hisa_plan"
+path = "src/bin/hisa_plan.rs"
+
 # Issue 027 / Plan 615 T6 — the model-level per-family retention gate
 # (fakequant-at-load over the llama path; MiniCPM5-1B vehicle).
 [[bin]]

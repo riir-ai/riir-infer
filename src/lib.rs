@@ -32,6 +32,12 @@ pub mod simd;
 /// `RoPE` tables (leaf).
 pub mod rope;
 
+/// Issue 1244 T1 — the header-only HiSA planner (report-only; pure math
+/// over `HisaHeader`, the GGUF header's own facts — `rope.freq_base`,
+/// `attention.key_length`, `rope.dimension_count`, `full_attention_interval`;
+/// Research 040). The bin front is `src/bin/hisa_plan.rs`.
+pub mod hisa_plan;
+
 /// Gemma architecture layer helpers (leaf).
 pub mod gemma_layer;
 
