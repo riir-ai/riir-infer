@@ -1,7 +1,7 @@
 # Issue 1244 — HiSA rotation census + header-only planner PoC (report-only instruments; RECORD-tier per Research 040 §4)
 
 **Status:** open — filed from riir-infer Research 040 (HiSA, arXiv:2611.26363). Research 040's verdict is RECORD after the header probes (both league backbones are partial-RoPE: `rope.dimension_count` 64/256, 32/128 pairs rotating; the decode lever is 10–14.5% on 1/4 of the layers — below the Issue-1211 ≥5% e2e bar). This issue is therefore **census + planner only** — REPORT-ONLY instruments, zero serving-path code; the decode ring-mode kernel arm CANNOT file from this issue: it needs (a) a census verdict that is not `no_suppression` AND (b) a full-rotary serving surface in scope (today: only the paused DFlash2 drafter — its lane owns any such work).
-**Claimed:** zed-1244-hisa@m3, 1795438864, expires 2026-11-25T13:01:00+00:00
+**Claimed:** zed-fc40d4ff@amo, 1795612245, expires 2026-11-27T13:15:00+00:00
 (scope: both instruments; T0 DONE this session. Heavy release builds isolate `CARGO_TARGET_DIR=/tmp/i1244`.)
 **Routing:** modelless substrate lane (Research 040 §3 extractions 1–3). Claim with a lease line before implementing.
 
