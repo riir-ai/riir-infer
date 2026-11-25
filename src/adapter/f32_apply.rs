@@ -57,6 +57,44 @@ pub fn apply_mask_f32(dst: &mut [f32], bits: &[u8], mask_offset: usize) -> usize
     zeroed
 }
 
+/// Apply ONE named tensor's deletion section to a raw host-dequanted f32
+/// matrix (row-major, the same layout [`apply_mask_f32`] documents). The
+/// qwen38 dense-Metal load route's helper (Issue 1208 T2/T4 Metal arm):
+/// the GPU forward host-dequants every quant tensor to f32 before upload,
+/// so zeroing the deleted weights in that host slice — before the upload
+/// — IS the apply-at-load posture on that runtime; the masked forward and
+/// the elementwise-zeroed reference forward are then byte-constructively
+/// identical (one upload route, the zeroed slice is the only difference).
+///
+/// Same law as [`apply_mask_at_load`]: a name the mask does not list is a
+/// silent no-op (`Ok(0)` — the mask is silent where it does not bind), a
+/// listed section whose `bit_len` disagrees with `dst.len()` refuses
+/// loudly (the artifact and the model disagree — never a partial zero).
+/// Returns the number of weights zeroed.
+pub fn apply_mask_section_f32(
+    mask: &DecodedMask,
+    tensor_name: &str,
+    dst: &mut [f32],
+) -> Result<usize, MaskCodecError> {
+    let Some(section) = mask
+        .manifest
+        .sections
+        .iter()
+        .find(|s| s.tensor_name == tensor_name)
+    else {
+        return Ok(0);
+    };
+    if dst.len() as u64 != section.bit_len {
+        return Err(MaskCodecError::SectionRange(format!(
+            "section {} covers {} bits, tensor holds {} weights",
+            section.tensor_name,
+            section.bit_len,
+            dst.len()
+        )));
+    }
+    Ok(apply_mask_f32(dst, &mask.bits, section.bit_offset as usize))
+}
+
 /// Per-section application record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MaskApplicationReport {

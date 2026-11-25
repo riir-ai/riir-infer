@@ -368,9 +368,15 @@ pub fn guard() -> &'static DriftGuard {
 /// crate path; the unarmed decline lives in [`install_exact_mm`].
 pub mod metal {
     use super::{
-        DriftGuard, INJECT_DELTA, MAX_SAMPLE_ELEMS, breaches, drift_guard_armed, family_key, guard,
-        inject_armed, rel_rms_divergence, sample_strided,
+        DriftGuard, INJECT_DELTA, MAX_SAMPLE_ELEMS, breaches, family_key, guard, inject_armed,
+        rel_rms_divergence, sample_strided,
     };
+    // `drift_guard_armed` is consulted only under the guard feature (the
+    // narrow-set posture keeps the pre-flip promote-only semantics and
+    // never names the fn) — imported under the same cfg, or the
+    // metal_tensor_gemm-without-drift_guard postures read it as unused.
+    #[cfg(feature = "drift_guard")]
+    use super::drift_guard_armed;
     use crate::cubecl_runtime::ActiveRuntime;
     use crate::gemm_dense_f16_metal_zero_copy::MetalDenseF16ZeroCopyGemm;
     use cubecl::client::ComputeClient;

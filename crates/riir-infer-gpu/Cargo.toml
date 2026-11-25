@@ -214,6 +214,12 @@ dq_s3_bench = ["ternary_gemv_cuda_raw", "riir-infer-core/bonsai2_hadamard", "dep
 # Metal dense session into the f64 golden oracle (the lossy-surface instrument
 # for the dense family). Instrument-grade, never a serving path.
 i1243_dense_golden = ["qwen38_wgpu", "riir-infer-core/golden_nll"]
+# Issue 1208 T2/T4 — the deletion-mask Metal-arm parity residue: the core
+# codec + the f32 host-zeroing helper (riir-infer-core/deletion_mask), the
+# raw blake3 for the base binding, and the masked-load constructor on the
+# qwen38 dense session. Opt-in; never in a serving posture.
+deletion_mask = ["riir-infer-core/deletion_mask", "dep:blake3"]
+deletion_mask_q38_metal = ["deletion_mask", "qwen38_wgpu", "metal_tensor_gemm"]
 cubecl_runtime = ["dep:cubecl", "dep:cubecl-environment", "dep:half", "dep:papaya", "dep:blake3"]
 cuda_backend = ["cubecl_runtime", "cubecl/cuda"]
 # Issue 1191 T1 — the Metal FlashMemory budget decode arm: the three
@@ -1008,6 +1014,15 @@ required-features = ["flashmemory_budget_metal"]
 [[test]]
 name = "flashmemory_budget_metal_t2"
 required-features = ["flashmemory_budget_metal_t2"]
+
+# Issue 1208 T2/T4 — the deletion-mask Metal-arm parity battery (the
+# qwen38 dense-f16 Metal posture, the issue's named target for the Metal
+# arm; the file's own `#![cfg]` additionally demands macOS, so the row
+# compiles the target to nothing off-Mac — disclosed, never a green zero
+# on macOS).
+[[test]]
+name = "i1208_mask_apply_qwen38_metal"
+required-features = ["deletion_mask_q38_metal"]
 
 # Issue 1196 T1 — the hd-128 stage attribution (Metal; same posture family
 # as the T2 parity cell — the synth kit + the decode forward need the same

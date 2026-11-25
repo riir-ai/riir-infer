@@ -406,10 +406,72 @@ pub enum QuantWeight {
     Cq3(crate::qwen38_cq3_gpu::Cq3Handle),
 }
 
-/// Host-dequant one Q4_K / Q6_K tensor to a plain f32 row-major matrix —
-/// the shared body of both load postures (the packed variants keep the
-/// blocks; the f16 posture rounds this to f16 next).
-fn dequant_host_f32(gguf: &GgufFile, name: &str, m: usize, n: usize) -> Result<Vec<f32>, String> {
+/// The decoded deletion mask handed to the load route (Issue 1208 T2/T4
+/// Metal arm). A zero-sized placeholder without the feature so the load
+/// body stays ONE body — the constructor refuses an artifact loudly in
+/// that posture (the issue-192 refusal shape, rebuild command named).
+#[cfg(feature = "deletion_mask")]
+type LoadedMask = riir_infer_core::adapter::mask_codec::DecodedMask;
+#[cfg(not(feature = "deletion_mask"))]
+#[derive(Clone, Copy)]
+struct LoadedMask;
+
+/// BLAKE3 over the raw GGUF bytes — the deletion-mask base binding for
+/// the qwen38 load route (Issue 1208 T2/T4). Streaming, 64 KiB chunks;
+/// runs ONCE per masked load, never per tensor.
+#[cfg(feature = "deletion_mask")]
+pub fn gguf_file_blake3(path: &std::path::Path) -> Result<[u8; 32], String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|e| format!("open: {e}"))?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| format!("read: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(*hasher.finalize().as_bytes())
+}
+
+/// Host-dequant one Q4_K / Q6_K / Q8_0 tensor to a plain f32 row-major
+/// matrix — the shared body of both load postures (the packed variants
+/// keep the blocks; the f16 posture rounds this to f16 next). When a
+/// deletion mask is mounted, its section for `name` is applied to the
+/// host slice BEFORE the caller uploads (Issue 1208 T2/T4 Metal arm) —
+/// one upload route, so masked-forward ≡ elementwise-zeroed-forward is
+/// byte-constructive.
+fn dequant_host_f32(
+    gguf: &GgufFile,
+    name: &str,
+    m: usize,
+    n: usize,
+    mask: Option<&LoadedMask>,
+) -> Result<Vec<f32>, String> {
+    let mut host = dequant_host_f32_raw(gguf, name, m, n)?;
+    #[cfg(feature = "deletion_mask")]
+    if let Some(mask) = mask {
+        let zeroed =
+            riir_infer_core::adapter::f32_apply::apply_mask_section_f32(mask, name, &mut host)
+                .map_err(|e| format!("mask: {name}: {e}"))?;
+        if zeroed > 0 {
+            eprintln!("[i1208] {name}: {zeroed} weights zeroed at load");
+        }
+    }
+    #[cfg(not(feature = "deletion_mask"))]
+    {
+        let _ = (mask, name);
+    }
+    Ok(host)
+}
+
+fn dequant_host_f32_raw(
+    gguf: &GgufFile,
+    name: &str,
+    m: usize,
+    n: usize,
+) -> Result<Vec<f32>, String> {
     let info = gguf
         .tensor_info(name)
         .ok_or_else(|| format!("weights: missing {name}"))?;
@@ -501,6 +563,7 @@ impl QuantWeight {
         name: &str,
         m: usize,
         n: usize,
+        mask: Option<&LoadedMask>,
     ) -> Result<Self, String> {
         let info = gguf
             .tensor_info(name)
@@ -540,12 +603,12 @@ impl QuantWeight {
                 Ok(QuantWeight::Q4(q4))
             }
             GgmlType::Q6_K => Ok(QuantWeight::F32(
-                upload_f32(client, &dequant_host_f32(gguf, name, m, n)?),
+                upload_f32(client, &dequant_host_f32(gguf, name, m, n, mask)?),
                 m,
                 n,
             )),
             GgmlType::Q8_0 => Ok(QuantWeight::F32(
-                upload_f32(client, &dequant_host_f32(gguf, name, m, n)?),
+                upload_f32(client, &dequant_host_f32(gguf, name, m, n, mask)?),
                 m,
                 n,
             )),
@@ -567,9 +630,10 @@ impl QuantWeight {
         name: &str,
         m: usize,
         n: usize,
+        mask: Option<&LoadedMask>,
     ) -> Result<Self, String> {
         Ok(QuantWeight::F16(
-            upload_f16_bits(client, &dequant_host_f32(gguf, name, m, n)?),
+            upload_f16_bits(client, &dequant_host_f32(gguf, name, m, n, mask)?),
             m,
             n,
         ))
@@ -826,11 +890,65 @@ type TokenCapture = (u32, Vec<f32>, Vec<Vec<f32>>);
 impl Qwen38WgpuForward {
     /// Open the GGUF, build the config, upload all weights (host-dequants the
     /// embedding + lm_head to f32 — ~10 GB of host work + buffers), allocate
-    /// zeroed state and scratch for `chunk`-token ingests.
+    /// zeroed state and scratch for `chunk`-token ingests. The unmasked
+    /// posture — byte-identical to every pre-i1208 boot.
     pub fn new(gguf_path: &Path, ctx_len: usize, chunk: usize) -> Result<Self, String> {
+        Self::new_impl(gguf_path, ctx_len, chunk, None)
+    }
+
+    /// Issue 1208 T2/T4 — construct with a deletion mask applied at load
+    /// (the Metal-arm parity route): the RIMSK artifact decodes against the
+    /// file's BLAKE3 (wrong-base refuses before any weight math), then every
+    /// mask-listed tensor's deleted weights are zeroed in the host f32 slice
+    /// BEFORE upload. Requires the dense-f16 posture (the packed Q4_K route
+    /// dequants in-kernel and cannot host-zero — the mask refuses there,
+    /// fail-closed). Unarmed builds refuse the artifact loudly with the
+    /// rebuild command.
+    pub fn new_with_mask_artifact(
+        gguf_path: &Path,
+        ctx_len: usize,
+        chunk: usize,
+        mask_artifact: &[u8],
+    ) -> Result<Self, String> {
+        Self::new_impl(gguf_path, ctx_len, chunk, Some(mask_artifact))
+    }
+
+    fn new_impl(
+        gguf_path: &Path,
+        ctx_len: usize,
+        chunk: usize,
+        mask_artifact: Option<&[u8]>,
+    ) -> Result<Self, String> {
         assert!(chunk.is_multiple_of(64), "chunk must be a multiple of 64");
         let gguf = GgufFile::open(gguf_path).map_err(|e| format!("open: {e}"))?;
         let config = Qwen38WgpuConfig::from_gguf(&gguf)?;
+        // Issue 1208 T2/T4 — decode the deletion-mask artifact (if any)
+        // against the file's BLAKE3 BEFORE any weight math (the wrong-base
+        // law). Without the feature the artifact is a loud refusal naming
+        // the rebuild.
+        #[cfg(feature = "deletion_mask")]
+        let loaded_mask: Option<LoadedMask> = match mask_artifact {
+            None => None,
+            Some(bytes) => {
+                let base = gguf_file_blake3(gguf_path)?;
+                Some(
+                    riir_infer_core::adapter::mask_codec::decode(bytes, Some(&base), None)
+                        .map_err(|e| format!("mask: {e}"))?,
+                )
+            }
+        };
+        #[cfg(not(feature = "deletion_mask"))]
+        {
+            if mask_artifact.is_some() {
+                return Err(
+                    "a deletion-mask artifact was supplied but this build lacks the \
+                     `deletion_mask` feature — rebuild with --features deletion_mask"
+                        .into(),
+                );
+            }
+        }
+        #[cfg(not(feature = "deletion_mask"))]
+        let loaded_mask: Option<LoadedMask> = None;
         let client = crate::cubecl_runtime::CubeCLContext::new()
             .map_err(|e| format!("gpu context: {e}"))?
             .client();
@@ -1265,6 +1383,19 @@ impl Qwen38WgpuForward {
             let kind = config.layer_types[i];
             let gdn = kind == Qwen38WgpuLayerType::Deltanet;
             let attn = !gdn;
+            // Issue 1208 T2/T4 — the packed Q4_K route dequants in-kernel and
+            // cannot host-zero: a mounted mask is refused there fail-closed
+            // (the f16 posture — the Metal league default — is the honored
+            // route; the f32 route applies the mask equally).
+            #[cfg(feature = "deletion_mask")]
+            if loaded_mask.is_some() && !dense_armed {
+                return Err(
+                    "deletion mask requires the dense-f16 load posture — the packed \
+                     Q4_K route dequants in-kernel and cannot host-zero"
+                        .into(),
+                );
+            }
+            let mask_ref = loaded_mask.as_ref();
             #[cfg(all(feature = "metal_tensor_gemm", target_os = "macos"))]
             let g = |name: String, m: usize, n: usize| -> Result<QuantWeight, String> {
                 #[cfg(feature = "cq3")]
@@ -1274,9 +1405,9 @@ impl Qwen38WgpuForward {
                     return QuantWeight::from_cq3(&client, a, &name, m, n);
                 }
                 if dense_armed {
-                    QuantWeight::from_gguf_f16(&client, &gguf, &name, m, n)
+                    QuantWeight::from_gguf_f16(&client, &gguf, &name, m, n, mask_ref)
                 } else {
-                    QuantWeight::from_gguf(&client, &gguf, &name, m, n)
+                    QuantWeight::from_gguf(&client, &gguf, &name, m, n, mask_ref)
                 }
             };
             #[cfg(not(all(feature = "metal_tensor_gemm", target_os = "macos")))]
@@ -1287,7 +1418,7 @@ impl Qwen38WgpuForward {
                 {
                     return QuantWeight::from_cq3(&client, a, &name, m, n);
                 }
-                QuantWeight::from_gguf(&client, &gguf, &name, m, n)
+                QuantWeight::from_gguf(&client, &gguf, &name, m, n, mask_ref)
             };
             let f = |name: &str| -> Result<Handle, String> {
                 Ok(upload_f32(&client, &f32_from_gguf(&gguf, name)?))
