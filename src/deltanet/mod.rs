@@ -42,6 +42,12 @@ pub mod loop_probe;
 // gate law). The runner example is `examples/i1221_t3d_loopability.rs`.
 pub mod loopability;
 pub mod reference;
+
+// Issue-1236 T1 — the chunked-recurrence G1 instrument (the fold-order
+// contract + the oracle/control/probe arms). Same gate discipline as
+// `loopability`: this module's own `deltanet_inference` gate, report/
+// proof-only — the serving path never calls it.
+pub mod chunked_reference;
 #[cfg(feature = "gdn_tree_verify")]
 pub mod tree_forward;
 pub mod weights;
