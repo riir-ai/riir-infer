@@ -46,7 +46,7 @@ use riir_infer_core::dory::self_spec::{
 use riir_infer_core::dory::spectra::verify_resume_lineage;
 use riir_infer_core::dory::{DoryForward, DoryKvCache, load_dory_weights};
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 const ROWS_FILE: &str = "rows.jsonl";
 const ROW_RECORD: &str = "i1221_t4_sampling_row";
 const HEADER_RECORD: &str = "i1221_t4_sampling_header";
@@ -102,8 +102,15 @@ fn main() {
 
     // ── prompts: the lane's LCG law ──
     let toks: Vec<Vec<u32>> = (0..prompts)
-        .map(|p| pseudo_tokens(seed + p as u64, 8, vocab))
+        // The old per-set seed (seed + prompt_idx) collided: pseudo_tokens starts
+        // from seed | 1, so sets 0 and 1 shared one prompt (run 1 of this cell,
+        // and Bench 1238's "2 prompts", were one prompt twice). Odd per-set
+        // seeds pass through the | 1 start unchanged: distinct sets, distinct prompts.
+        .map(|p| pseudo_tokens(2 * seed.wrapping_add(p as u64) + 1, 8, vocab))
         .collect();
+    for (p, t) in toks.iter().enumerate() {
+        println!("[i1221-t4s] prompt p{p}: {t:?}");
+    }
 
     // ── resumable rows ──
     fs::create_dir_all(&out).expect("create out dir");
@@ -136,7 +143,7 @@ fn main() {
         let header = format!(
             "{{\"record\":\"{HEADER_RECORD}\",\"schema_version\":{SCHEMA_VERSION},\
              \"model\":{{\"path\":{},\"blake3\":\"{}\",\"arch\":\"dory\",\"k_full\":{},\"vocab\":{}}},\
-             \"prompts\":{{\"sets\":{},\"seq_len\":8,\"seed\":{},\"law\":\"LCG uniform in [4, vocab), per-set seed = seed + prompt_idx (the lane law)\"}},\
+             \"prompts\":{{\"sets\":{},\"seq_len\":8,\"seed\":{},\"law\":\"LCG uniform in [4, vocab), per-set seed = 2*(seed + prompt_idx) + 1 (odd, so the generator's seed|1 start keeps the sets distinct - the seed+prompt_idx law collided sets 0 and 1)\"}},\
              \"steps\":{},\"arms\":[{{\"arm\":0,\"gamma\":2}},{{\"arm\":1,\"gamma\":4}},{{\"arm\":2,\"gamma\":4,\"note\":\"determinism receipt: arm 1's seed again\"}}],\
              \"temperature\":1.0,\
              \"timing\":\"none (structural cell — plan 636: concurrent-with-light-load allowed, disclosed)\",\
@@ -330,7 +337,7 @@ fn main() {
                     "tv_spec_vs_p": table.tv_spec,
                     "tv_spec_vs_ref": table.tv_spec_ref,
                     "noise_expectation": format!(
-                        "a perfect sampler's TV vs p at N={draws} over a distribution with these top masses is ≈ {:.3}; the bars are not gates",
+                        "scale reference, not a gate: a perfect sampler's summed binomial mean-absolute-deviation TV vs p at N={draws} is ≈ {:.4} (an upper-shape estimate - it sums over every vocab bin); the measured spec TV below it is consistent with identity",
                         table.tv_expected
                     ),
                     "p_max": table.p_max,
@@ -427,7 +434,7 @@ fn first_token_table(p0: &[f64], q0: &[f64], draws: usize, seed: u64) -> FirstTo
             spec_hist
                 .iter()
                 .zip(ref_hist.iter())
-                .map(|(&a, &b)| ((a - b) as f64 / n).abs())
+                .map(|(&a, &b)| (a as f64 - b as f64).abs() / n)
                 .sum::<f64>()
                 * 0.5
         },

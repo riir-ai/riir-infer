@@ -1,0 +1,14 @@
+# nofile: unchanged
+[i1221-t4s] pin ../riir-train/data/NVIDIA-Nemotron-Labs-Dory1.0-4B-Q5_K_M.gguf blake3 f946e530236859ff… stamp 330b3293b61e…
+[i1221-t4s] loaded: k_full=4 vocab=131072 in 4.7s; steps=12 prompts=2 draws=20000 (structural: no timing rows)
+[i1221-t4s] new lineage: header written (concurrency disclosed: 13:48  up 18:52, 4 users, load averages: 11.62 9.74 8.89)
+[i1221-t4s] p0 arm0 γ=2: 12 tok · rounds 4 accepted 8/8 (100.0%) rejected 0 bonus 4 · tok/round 3.00 · induced max|Δ| 1.2e-16 (bar 1.2e-10, 8 pairs) · KL(p‖q) mean inf max inf nats
+[i1221-t4s] p0 arm1 γ=4: 12 tok · rounds 4 accepted 12/16 (75.0%) rejected 1 bonus 3 · tok/round 4.00 · induced max|Δ| 1.2e-16 (bar 1.2e-10, 13 pairs) · KL(p‖q) mean inf max inf nats
+[i1221-t4s] p0 arm2 γ=4: 12 tok · rounds 4 accepted 12/16 (75.0%) rejected 1 bonus 3 · tok/round 4.00 · induced max|Δ| 1.2e-16 (bar 1.2e-10, 13 pairs) · KL(p‖q) mean inf max inf nats · DETERMINISM OK
+[i1221-t4s] p0 first-token table: TV(ref,p)=0.0029 TV(spec,p)=0.0004 TV(spec,ref)=461168601842738.8125 (noise expectation ≈ 0.002; report-only)
+[i1221-t4s] p1 arm0 γ=2: 12 tok · rounds 4 accepted 8/8 (100.0%) rejected 0 bonus 4 · tok/round 3.00 · induced max|Δ| 1.2e-16 (bar 1.2e-10, 8 pairs) · KL(p‖q) mean inf max inf nats
+[i1221-t4s] p1 arm1 γ=4: 12 tok · rounds 4 accepted 12/16 (75.0%) rejected 1 bonus 3 · tok/round 4.00 · induced max|Δ| 1.2e-16 (bar 1.2e-10, 13 pairs) · KL(p‖q) mean inf max inf nats
+[i1221-t4s] p1 arm2 γ=4: 12 tok · rounds 4 accepted 12/16 (75.0%) rejected 1 bonus 3 · tok/round 4.00 · induced max|Δ| 1.2e-16 (bar 1.2e-10, 13 pairs) · KL(p‖q) mean inf max inf nats · DETERMINISM OK
+[i1221-t4s] p1 first-token table: TV(ref,p)=0.0003 TV(spec,p)=0.0000 TV(spec,ref)=461168601842738.8125 (noise expectation ≈ 0.002; report-only)
+[i1221-t4s] cell done: 2 prompt(s) × 3 arm(s) × 12 steps (structural; no timing rows)
+CELL EXIT 0
