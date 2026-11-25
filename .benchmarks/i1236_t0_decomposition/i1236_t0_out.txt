@@ -1,0 +1,230 @@
+   Compiling syn v3.0.6
+   Compiling zerocopy v0.8.57
+   Compiling darling_macro v0.23.0
+   Compiling darling_macro v0.21.3
+   Compiling derive_more v2.1.1
+   Compiling objc2-metal v0.3.2
+   Compiling core-foundation-sys v0.8.7
+   Compiling malloc_buf v0.0.6
+   Compiling bitflags v1.3.2
+   Compiling foreign-types-shared v0.3.1
+   Compiling sentencepiece-sys v0.13.2
+   Compiling regex v1.13.1
+   Compiling block v0.1.6 (/Users/katopz/git/i1236-t0-wt/vendor/block)
+   Compiling riir-infer-gpu v0.1.0 (/Users/katopz/git/i1236-t0-wt/crates/riir-infer-gpu)
+   Compiling prost v0.14.4
+   Compiling objc v0.2.7
+   Compiling core-foundation v0.9.4
+   Compiling darling v0.21.3
+   Compiling darling v0.23.0
+   Compiling sanitize-filename v0.6.0
+   Compiling core-graphics-types v0.1.3
+   Compiling enumset_derive v0.15.0
+   Compiling serde_derive v1.0.229
+   Compiling bytemuck_derive v1.12.1
+   Compiling thiserror-impl v2.0.20
+   Compiling foreign-types-macros v0.2.4
+   Compiling foreign-types v0.5.0
+   Compiling cubecl-macros-internal v0.11.0-pre.2
+   Compiling bytemuck v1.25.2
+   Compiling thiserror v2.0.20
+   Compiling objc2-quartz-core v0.3.2
+   Compiling metal v0.31.0
+   Compiling raw-window-metal v1.1.0
+   Compiling naga-types v30.0.1
+   Compiling cobs v0.3.0
+   Compiling gpu-allocator v0.28.0
+   Compiling wgpu-types v30.0.1
+   Compiling serde v1.0.229
+   Compiling ahash v0.8.12
+   Compiling half v2.7.1
+   Compiling smallvec v1.16.1
+   Compiling enumset v1.1.14
+   Compiling portable-atomic v1.15.0
+   Compiling internment v0.8.6
+   Compiling postcard v1.1.3
+   Compiling parking_lot_core v0.9.12
+   Compiling cubecl-zspace v0.11.0-pre.2
+   Compiling ciborium-ll v0.2.2
+   Compiling ciborium v0.2.2
+   Compiling katgpt-types v0.3.1 (/Users/katopz/git/katgpt-rs/crates/katgpt-types)
+   Compiling float8 v0.7.0
+   Compiling naga v30.0.1
+   Compiling parking_lot v0.12.5
+   Compiling cubecl-environment v0.11.0-pre.2
+   Compiling cubecl-common v0.11.0-pre.2 (/Users/katopz/git/i1236-t0-wt/vendor/cubecl-common-0.11.0-pre.2)
+   Compiling katgpt-micro-belief v0.2.3 (/Users/katopz/git/katgpt-rs/crates/katgpt-micro-belief)
+   Compiling katgpt-hla v0.1.5 (/Users/katopz/git/katgpt-rs/crates/katgpt-hla)
+   Compiling katgpt-sense v0.3.2 (/Users/katopz/git/katgpt-rs/crates/katgpt-sense)
+   Compiling katgpt-personality v0.1.4 (/Users/katopz/git/katgpt-rs/crates/katgpt-personality)
+   Compiling cubecl-macros v0.11.0-pre.2
+   Compiling katgpt-core v0.6.1 (/Users/katopz/git/katgpt-rs/crates/katgpt-core)
+   Compiling cubecl-ir v0.11.0-pre.2
+   Compiling cubecl-runtime v0.11.0-pre.2 (/Users/katopz/git/i1236-t0-wt/vendor/cubecl-runtime-0.11.0-pre.2)
+   Compiling katgpt-transformer v0.1.0 (/Users/katopz/git/katgpt-rs/crates/katgpt-transformer)
+   Compiling wgpu-naga-bridge v30.0.1
+   Compiling wgpu-hal v30.0.0 (/Users/katopz/git/i1236-t0-wt/vendor/wgpu-hal-30.0.0)
+   Compiling katgpt-speculative v0.1.0 (/Users/katopz/git/katgpt-rs/crates/katgpt-speculative)
+   Compiling katgpt-pruners v0.1.0 (/Users/katopz/git/katgpt-rs/crates/katgpt-pruners)
+   Compiling cubecl-core v0.11.0-pre.2
+   Compiling katgpt-forward v0.1.0 (/Users/katopz/git/katgpt-rs/crates/katgpt-forward)
+   Compiling sentencepiece v0.13.2
+   Compiling riir-infer-core v0.1.1 (/Users/katopz/git/i1236-t0-wt)
+   Compiling wgpu-core-deps-apple v30.0.1
+   Compiling wgpu-core v30.0.1
+   Compiling cubecl-opt v0.11.0-pre.2
+   Compiling cubecl-std v0.11.0-pre.2
+   Compiling cubecl-cpp v0.11.0-pre.2
+   Compiling wgpu v30.0.1
+   Compiling cubecl-wgpu v0.11.0-pre.2 (/Users/katopz/git/i1236-t0-wt/vendor/cubecl-wgpu-0.11.0-pre.2)
+   Compiling cubecl v0.11.0-pre.2
+    Finished `release` profile [optimized] target(s) in 48.98s
+     Running unittests src/lib.rs (/tmp/i1236_t0_tgt/release/deps/riir_infer_gpu-ac0a059ab45eda87)
+
+running 1 test
+CubeCL runtime initialized: wgpu<msl>
+[rec-mr-timing-cubecl] n_v=48 hd=128 p=128 (median of 9, interleaved):
+  planes=1-equivalent baseline:    0.439 ms (1.000x)
+  planes=1         :    0.418 ms (1.051x)
+  planes=1  qdefer :    0.449 ms (0.977x)
+  planes=2         :    0.374 ms (1.173x)
+  planes=2  qdefer :    0.385 ms (1.141x)
+  planes=4         :    0.372 ms (1.179x)
+  planes=4  qdefer :    0.375 ms (1.170x)
+  planes=8         :    0.372 ms (1.180x)
+  planes=8  qdefer :    0.361 ms (1.216x)
+  planes=16        :    0.362 ms (1.214x)
+  planes=16 qdefer :    0.352 ms (1.246x)
+  planes=32        :    0.352 ms (1.246x)
+  planes=32 qdefer :    0.353 ms (1.243x)
+  [bar] planes=8 qdefer vs plain: 1.031x (>= 1.03 graduates)
+[rec-mr-timing-cubecl] n_v=48 hd=128 p=512 (median of 9, interleaved):
+  planes=1-equivalent baseline:    1.247 ms (1.000x)
+  planes=1         :    1.257 ms (0.992x)
+  planes=1  qdefer :    1.286 ms (0.969x)
+  planes=2         :    0.918 ms (1.358x)
+  planes=2  qdefer :    0.938 ms (1.330x)
+  planes=4         :    0.862 ms (1.447x)
+  planes=4  qdefer :    0.887 ms (1.405x)
+  planes=8         :    0.884 ms (1.411x)
+  planes=8  qdefer :    0.866 ms (1.440x)
+  planes=16        :    0.891 ms (1.400x)
+  planes=16 qdefer :    0.905 ms (1.378x)
+  planes=32        :    0.887 ms (1.405x)
+  planes=32 qdefer :    0.930 ms (1.341x)
+  [bar] planes=8 qdefer vs plain: 1.021x (>= 1.03 graduates)
+[rec-mr-timing-cubecl] n_v=48 hd=128 p=2048 (median of 9, interleaved):
+  planes=1-equivalent baseline:    5.425 ms (1.000x)
+  planes=1         :    5.420 ms (1.001x)
+  planes=1  qdefer :    5.374 ms (1.010x)
+  planes=2         :    3.710 ms (1.463x)
+  planes=2  qdefer :    3.854 ms (1.408x)
+  planes=4         :    3.580 ms (1.516x)
+  planes=4  qdefer :    3.532 ms (1.536x)
+  planes=8         :    3.504 ms (1.548x)
+  planes=8  qdefer :    3.558 ms (1.525x)
+  planes=16        :    3.909 ms (1.388x)
+  planes=16 qdefer :    3.908 ms (1.388x)
+  planes=32        :    3.826 ms (1.418x)
+  planes=32 qdefer :    3.847 ms (1.410x)
+  [bar] planes=8 qdefer vs plain: 0.985x (>= 1.03 graduates)
+test deltanet_recurrence_mr_cubecl::tests::test_rec_mr_timing_probe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 416 filtered out; finished in 1.15s
+
+     Running unittests src/bin/i1247_driver_interaction_probe.rs (/tmp/i1236_t0_tgt/release/deps/i1247_driver_interaction_probe-6499ff57a900ae5f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/regime_centroid_freeze.rs (/tmp/i1236_t0_tgt/release/deps/regime_centroid_freeze-1728e4097a6c71fb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bench_1004_r2_prework_fused_ab.rs (/tmp/i1236_t0_tgt/release/deps/bench_1004_r2_prework_fused_ab-cebcca5fab85c9c2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/bench_663_t5_single_gemm_isolation.rs (/tmp/i1236_t0_tgt/release/deps/bench_663_t5_single_gemm_isolation-531138680149cfb1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/drift_guard_poc.rs (/tmp/i1236_t0_tgt/release/deps/drift_guard_poc-6a9c1611e39af708)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/i1226_f2_shadow_g1.rs (/tmp/i1236_t0_tgt/release/deps/i1226_f2_shadow_g1-e705f5b0e9178a31)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/i1226_pp32k_placebo_repro.rs (/tmp/i1236_t0_tgt/release/deps/i1226_pp32k_placebo_repro-50b1c60896a5c4bb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/i1245_tail_gemv_units.rs (/tmp/i1236_t0_tgt/release/deps/i1245_tail_gemv_units-23f0e2df64188382)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/i1245_tail_stage_units.rs (/tmp/i1236_t0_tgt/release/deps/i1245_tail_stage_units-9b3d11e416380b68)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/issue1146_attn_tensor_g1.rs (/tmp/i1236_t0_tgt/release/deps/issue1146_attn_tensor_g1-13aef142459fc006)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/issue1168_readback_floor_probe.rs (/tmp/i1236_t0_tgt/release/deps/issue1168_readback_floor_probe-e4e49ab4f7225cb3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/issue1181_encode_share_probe.rs (/tmp/i1236_t0_tgt/release/deps/issue1181_encode_share_probe-f0f80ce5bb12c47c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/plan626_dequant_indirect_g1.rs (/tmp/i1236_t0_tgt/release/deps/plan626_dequant_indirect_g1-d2f6b321cf887786)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/q4k_mma_model_ck.rs (/tmp/i1236_t0_tgt/release/deps/q4k_mma_model_ck-b46360e1e950c2e4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/qwen38_fused_norm_gating_g1.rs (/tmp/i1236_t0_tgt/release/deps/qwen38_fused_norm_gating_g1-60359056c29cfd53)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/qwen38_q4k_mma_g1.rs (/tmp/i1236_t0_tgt/release/deps/qwen38_q4k_mma_g1-172da03f69318f35)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
