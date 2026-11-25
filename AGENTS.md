@@ -100,7 +100,7 @@ cargo run --release --features closed_form_write --example closed_form_write_cel
 #   plan 637's recipe-3 margin-target arm (T0 landed; `--margin-target` — differential margins at the
 #   battle positions; `--phase-a-only` prints the `# battle margin max=` census the cap pre-registration reads):
 cargo run --release --features closed_form_write --example closed_form_write_cell -- --gguf /Users/katopz/git/riir-train/data/Qwen3.5-0.8B-Base-Q8_0.gguf --out /tmp/i1189_phasea --phase-a-only
-# The Dory looped-checkpoint lane (opt-in `dory`; `.docs/006_dory_looped_lane.md` is the map) — gates on synth, then the real-pin cells:
+# The Dory looped-checkpoint lane (opt-in `dory`; `.issues/1221_dory_gguf_looped_lane.md` is the lane record, `.plans/636` the T3 pre-registration): — gates on synth, then the real-pin cells:
 cargo test --features dory --test i1221_t4_sampling_gates --test i1221_t4_self_spec_gates --test i1221_t3a_spectra_gates
 cargo run --release --features dory --example i1221_t4_sampling_cell -- --fresh
 # Issue 1208 deletion-mask lane (opt-in `deletion_mask`): the ingest battery + the llama-lane forward G1 (synthetic, no model file):

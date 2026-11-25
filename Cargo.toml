@@ -1434,6 +1434,14 @@ name = "twt_bonsai_audition"
 path = "examples/twt_bonsai_audition.rs"
 required-features = ["twt_bonsai", "twt_collapse"]
 
+# Issue 701 cell-2 — the pre-compensation PRODUCER: per-block GPTQ-class fit
+# folded into the dense weights before requant, emitted as a spliced GGUF;
+# the consumer cell is the i1188 harness unchanged.
+[[example]]
+name = "i701_precomp_fit"
+path = "examples/i701_precomp_fit.rs"
+required-features = ["closed_form_write"]
+
 [dev-dependencies]
 # The laya encoder lane — the capture driver's checkpoint source (CPU
 # backend; the capture hook rides the same-named `twt_profile` feature).
