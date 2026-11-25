@@ -23,7 +23,7 @@ fn main() -> Result<(), String> {
     let agent = RiirAgent::load_with_device(&root, Checkpoint::TypedDecisions, DeviceKind::Cpu)
         .map_err(|e| e.to_string())?;
     let st = agent.scorer_tensors();
-    let d = st.d;
+    let _d = st.d;
 
     let mut f =
         std::fs::File::open("/tmp/i1216_t0/fid_cpu_cache.bin").map_err(|e| e.to_string())?;
@@ -32,7 +32,7 @@ fn main() -> Result<(), String> {
     if &magic != MAGIC {
         return Err("not LENC".into());
     }
-    let mut u32v = |f: &mut std::fs::File| -> Result<u32, String> {
+    let u32v = |f: &mut std::fs::File| -> Result<u32, String> {
         let mut b = [0u8; 4];
         f.read_exact(&mut b).map_err(|e| e.to_string())?;
         Ok(u32::from_le_bytes(b))
@@ -76,6 +76,8 @@ fn main() -> Result<(), String> {
             z
         };
         // (c) frozen logits via a plain f64 loop over the SAME h
+        // (index form deliberate — the pointer form reads worse here)
+        #[allow(clippy::needless_range_loop)]
         let z_loop: Vec<f32> = (0..k)
             .map(|i| {
                 let h_i = &h[i * row_d..(i + 1) * row_d];

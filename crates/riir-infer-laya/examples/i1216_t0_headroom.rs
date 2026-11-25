@@ -44,7 +44,7 @@ fn load_cache(
     if &magic != MAGIC {
         return Err(format!("{}: not a LENC cache", path.display()));
     }
-    let mut u32v = |f: &mut std::fs::File| -> Result<u32, String> {
+    let u32v = |f: &mut std::fs::File| -> Result<u32, String> {
         let mut b = [0u8; 4];
         f.read_exact(&mut b).map_err(|e| e.to_string())?;
         Ok(u32::from_le_bytes(b))
@@ -500,17 +500,27 @@ fn main() -> Result<(), String> {
         let mut n_neg = 0usize;
         let mut n_zero = 0usize;
         let mut h = Vec::new();
+        // The use_x arm overwrites `x` before any read (clippy
+        // unused_assignments at the 1.99 pin) — the init is the dead one.
+        #[allow(unused_assignments)]
         let mut x = Vec::new();
         for row in &gate_rows {
             let n = row.n_markers;
-            let feats;
-            if use_x {
+            // The reuse buffers (`h`/`x`) are loop-scoped scratch the two
+            // arms share; the borrows must outlive the arm, so the
+            // decl-then-assign shape is deliberate (clippy
+            // unused_assignments + needless_late_init at the 1.99 pin).
+            // The allow rides the DECLARATION whose init is dead (the
+            // `let mut x` above; `h`'s init IS read by the else arm's
+            // first write-through) — per-site, not blanket.
+            #[allow(clippy::needless_late_init)]
+            let feats = if use_x {
                 x = scorer.x_rows(&row.marker_rows, n);
-                feats = &x;
+                &x
             } else {
                 scorer.features(&row.marker_rows, n, &mut h);
-                feats = &h;
-            }
+                &h
+            };
             let z = scorer.probe_logits(feats, n, w);
             let best = first_argmax_f64(&z);
             let gold = gold_of(&row.id).unwrap();

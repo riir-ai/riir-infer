@@ -44,7 +44,7 @@ fn main() -> Result<(), String> {
     if &magic != MAGIC {
         return Err("not LENC".into());
     }
-    let mut u32v = |f: &mut std::fs::File| -> Result<u32, String> {
+    let u32v = |f: &mut std::fs::File| -> Result<u32, String> {
         let mut b = [0u8; 4];
         f.read_exact(&mut b).map_err(|e| e.to_string())?;
         Ok(u32::from_le_bytes(b))
@@ -57,6 +57,9 @@ fn main() -> Result<(), String> {
     let mut raw_sum = 0f64;
     let mut scaled_maxdel = 0f64; // max prob-space delta after the T correction
     let mut n_opts = 0usize;
+    // `h` is the loop's reuse buffer — the init is never read (clippy
+    // unused_assignments at the 1.99 pin).
+    #[allow(unused_assignments)]
     let mut h = Vec::new();
     for _ in 0..n_rows {
         let id_len = u32v(&mut f)? as usize;
@@ -84,6 +87,8 @@ fn main() -> Result<(), String> {
             }
         }
         ops::gelu_erf_inplace(&mut hh);
+        // `h` is the loop's reuse buffer — the init at the declaration is
+        // never read (clippy unused_assignments at the 1.99 pin).
         h = hh;
         let z = {
             let mut z = ops::matmul_w(&h, k, d, &st.s3w, 1);
