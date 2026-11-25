@@ -162,9 +162,7 @@ pub fn nnls_gram(g: &[f64], c: &[f64], k: usize) -> Vec<f64> {
             let evict: Vec<usize> = passive
                 .iter()
                 .copied()
-                .filter(|&j| {
-                    z[j] <= 0.0 && (zero_step || alpha[j].abs() < 1e-9)
-                })
+                .filter(|&j| z[j] <= 0.0 && (zero_step || alpha[j].abs() < 1e-9))
                 .collect();
             let evict = if evict.is_empty() {
                 passive
@@ -330,7 +328,13 @@ fn splitmix64(state: &mut u64) -> u64 {
 pub fn rademacher_direction(seed: u64, n_embd: usize) -> Vec<f32> {
     let mut st = seed;
     (0..n_embd)
-        .map(|_| if splitmix64(&mut st) & 1 == 0 { 1.0f32 } else { -1.0f32 })
+        .map(|_| {
+            if splitmix64(&mut st) & 1 == 0 {
+                1.0f32
+            } else {
+                -1.0f32
+            }
+        })
         .collect()
 }
 
@@ -499,9 +503,7 @@ pub fn run_jshare(artifact: &[u8], src: &dyn ReadoutTensors) -> Result<JShareScr
     let d = src.n_embd();
     let v = src.vocab();
     if n_embd_hdr != d || n_ff_hdr != n_ff {
-        bail!(
-            "artifact shape ({n_embd_hdr},{n_ff_hdr}) disagrees with the source ({d},{n_ff})"
-        );
+        bail!("artifact shape ({n_embd_hdr},{n_ff_hdr}) disagrees with the source ({d},{n_ff})");
     }
     let rows = parse_v1_rows(artifact)?;
     if rows.len() != n_units {
@@ -511,7 +513,10 @@ pub fn run_jshare(artifact: &[u8], src: &dyn ReadoutTensors) -> Result<JShareScr
     let eps = src.rms_eps();
     let unemb = src.unemb_rows()?;
     if unemb.len() != v * d {
-        bail!("unembedding length {} != vocab {v} × n_embd {d}", unemb.len());
+        bail!(
+            "unembedding length {} != vocab {v} × n_embd {d}",
+            unemb.len()
+        );
     }
     for (i, &x) in unemb.iter().enumerate() {
         if !x.is_finite() {
@@ -549,7 +554,10 @@ pub fn run_jshare(artifact: &[u8], src: &dyn ReadoutTensors) -> Result<JShareScr
         for r in 0..d {
             let row = src.down_out_row(layer, r)?;
             if row.len() != n_ff {
-                bail!("layer {layer} ffn_down row {r} length {} != n_ff {n_ff}", row.len());
+                bail!(
+                    "layer {layer} ffn_down row {r} length {} != n_ff {n_ff}",
+                    row.len()
+                );
             }
             for (n, &val) in row.iter().enumerate() {
                 if !val.is_finite() {
@@ -758,7 +766,10 @@ pub fn render_j_report(s: &JShareScreen, artifact_hex: &str) -> String {
     );
     let _ = writeln!(out, "artifact blake3 = {}", artifact_hex);
     let _ = writeln!(out, "-- per-band rollups --");
-    let _ = writeln!(out, "  band   units    high  middle     low   j_med   j_mad");
+    let _ = writeln!(
+        out,
+        "  band   units    high  middle     low   j_med   j_mad"
+    );
     for r in &s.rollups {
         let _ = writeln!(
             out,

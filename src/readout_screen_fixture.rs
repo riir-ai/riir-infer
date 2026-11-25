@@ -11,9 +11,9 @@
 //! fixture files.
 
 use crate::readout_jshare::{
-    CONTROLS_PER_LAYER, HIGH_PERCENTILE, J_ROW_BYTES, LOW_PERCENTILE, bucket_of,
-    build_j_artifact, j_artifact_digest, j_share, nnls_gram, parse_v1_rows,
-    rademacher_direction, render_j_report, run_jshare, top_k_tokens,
+    CONTROLS_PER_LAYER, HIGH_PERCENTILE, J_ROW_BYTES, LOW_PERCENTILE, bucket_of, build_j_artifact,
+    j_artifact_digest, j_share, nnls_gram, parse_v1_rows, rademacher_direction, render_j_report,
+    run_jshare, top_k_tokens,
 };
 use crate::readout_screen::{
     Band, Bucket, HEADER_BYTES, ReadoutTensors, Sign, TOP_K, artifact_digest, band_of,
@@ -632,10 +632,7 @@ pub fn gate_jshare_e2e() -> Result<()> {
     if bytes != bytes2 {
         bail!("v2 artifact not byte-stable across runs");
     }
-    let want = HEADER_BYTES
-        + total * J_ROW_BYTES
-        + (4 + 4)
-        + LAYERS * CONTROLS_PER_LAYER * 4;
+    let want = HEADER_BYTES + total * J_ROW_BYTES + (4 + 4) + LAYERS * CONTROLS_PER_LAYER * 4;
     if bytes.len() != want {
         bail!("v2 artifact length {} != {want}", bytes.len());
     }
