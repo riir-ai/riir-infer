@@ -69,11 +69,12 @@ impl Rig {
         let lib = device
             .new_library_with_source(MSL, &metal::CompileOptions::new())
             .map_err(|e| format!("MSL compile failed: {e}"))?;
+        // ICB recording contract — every pipeline entering an ICB MUST
+        // carry supportIndirectCommandBuffers (the 2026-11-25 m3
+        // finding); `ReplayGroup::icb_pipeline` is the one home.
         let pipeline = |name: &str| -> Result<metal::ComputePipelineState, String> {
             let f = lib.get_function(name, None).map_err(|e| e.to_string())?;
-            device
-                .new_compute_pipeline_state_with_function(&f)
-                .map_err(|e| e.to_string())
+            ReplayGroup::icb_pipeline(&device, &f).map_err(|e| e.to_string())
         };
         Ok(Self {
             axpy: pipeline("icb_axpy")?,
@@ -147,7 +148,6 @@ fn median(mut v: Vec<f64>) -> f64 {
 }
 
 #[test]
-#[ignore = "AGX G17X (M5 Ultra, macOS 27.2) driver segfault INSIDE -[AGXG17XFamilyIndirectComputeCommand setComputePipelineState:] (+116) while recording — the ICB machinery itself is API-correct (allocation + command-handle surface verified); the crash is driver-internal. Re-run when the OS/driver state changes or the missing ICB-recording contract is identified (run: cargo test -p riir-infer-laya --features laya-riir-metal --test icb_replay_smoke -- --ignored --nocapture)"]
 fn icb_replay_smoke() {
     if !ReplayGroup::device_supports(&Device::system_default().expect("metal device")) {
         panic!(
@@ -249,7 +249,6 @@ fn icb_replay_smoke() {
 /// wait. Not `#[ignore]`d — it is cheap (< 2 s) and its value IS the
 /// printed line; nothing here asserts a perf number.
 #[test]
-#[ignore = "same AGX G17X recording segfault as icb_replay_smoke (the A/B needs a recorded group to measure)"]
 fn icb_replay_cost_ab() {
     let rig = Rig::new().expect("rig");
     let x0: Vec<f32> = (0..N).map(|i| (i as f32 * 0.5) - 256.0).collect();

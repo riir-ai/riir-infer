@@ -42,6 +42,42 @@
 //! cost (the fixture prints it; the break-even prices it). Never a
 //! default: the incumbent per-op encode path is untouched, and any
 //! default flip follows the env-switch law + the GOAT gates.
+//!
+//! ## The three ICB recording/execution contracts (found 2026-11-25, m3)
+//!
+//! The 11-15/11-17/11-23 "AGX G17X driver segfault" class was NOT driver
+//! state — it was three lane-logic contract gaps, reproducing on BOTH AGX
+//! families (M5 Ultra AND M3 Max, macOS 27.2.1):
+//!
+//! 1. **Pipeline flag** — a pipeline entering an ICB MUST be created with
+//!    `supportIndirectCommandBuffers = YES` ([`ReplayGroup::icb_pipeline`
+//!    is the one home]). Without it the debug wrapper asserts
+//!    ("Setting a pipeline that does not have
+//!    supportIndirectCommandBuffers = YES is invalid") and the release
+//!    driver segfaults inside the AGX `setComputePipelineState:` setter
+//!    (the recorded crash class).
+//! 2. **metal-rs 0.31's `MTLIndirectCommandType` enum values are WRONG**
+//!    against the SDK header (MTLIndirectCommandBuffer.h): the header
+//!    binds `ConcurrentDispatch = 1<<5` and `ConcurrentDispatchThreads =
+//!    1<<6`, the crate binds `1<<4/1<<5` — bit 5 collides with
+//!    ConcurrentDispatch, so the crate's spelling leaves the
+//!    concurrentDispatchThreads command type UNENABLED (debug:
+//!    "not enabled on this indirect command buffer"; release: the same
+//!    segfault class). [`ReplayGroup::record`] uses
+//!    `from_bits_retain(1 << 6)` with the citation comment.
+//! 3. **The execute-declaration contract** — an encoder that executes an
+//!    ICB sees none of the buffers inside it (the cubecl capture.rs
+//!    law): every bound buffer must be DECLARED to the executing encoder
+//!    (`useResources`, Read|Write) plus the ICB itself (Read), or the
+//!    commands run against nothing — the silent no-op class (recording
+//!    validates clean, execution does nothing, no readback changes).
+//!    `replay`/`replay_from_source` declare `self.resident` + the target
+//!    ICB.
+//!
+//! With all three, the fixture is GREEN unignored: 40 replays
+//! bit-identical to the host composition AND the direct-encode control;
+//! the cost A/B measures (m3 release posture 2026-11-25: remedy 69.0 µs
+//! / source 35.3 µs / direct 33.0 µs per-replay host enqueue).
 
 use std::ops::Deref;
 
@@ -98,6 +134,14 @@ pub struct ReplayGroup {
     source: IndirectCommandBuffer,
     /// The per-replay blit destination (the B319 private copy).
     private: IndirectCommandBuffer,
+    /// Every buffer the recorded commands bind, deduped — DECLARED to the
+    /// executing encoder at replay time (`useResources`). The contract the
+    /// 2026-11-25 m3 no-op cell found: an encoder that executes an ICB
+    /// sees none of the buffers inside it (the cubecl capture.rs law —
+    /// without the declaration the commands run against nothing, a
+    /// silent no-op: recording validates clean, execution does nothing,
+    /// no readback changes).
+    resident: Vec<metal::Buffer>,
     count: usize,
 }
 
@@ -122,6 +166,25 @@ impl ReplayGroup {
             .to_owned()
     }
 
+    /// An ICB-compatible compute pipeline from a function: the recording
+    /// contract requires `supportIndirectCommandBuffers = YES` (the
+    /// 2026-11-25 m3 finding — without it the debug wrapper asserts
+    /// "Setting a pipeline that does not have
+    /// supportIndirectCommandBuffers = YES is invalid" and the release
+    /// driver segfaults inside the AGX setComputePipelineState setter).
+    /// Every pipeline handed to [`ReplayGroup::record`] MUST come
+    /// through this constructor (or set the flag itself).
+    pub fn icb_pipeline(
+        device: &Device,
+        function: &metal::FunctionRef,
+    ) -> Result<ComputePipelineState> {
+        let desc = metal::ComputePipelineDescriptor::new();
+        let d: &metal::ComputePipelineDescriptorRef = desc.deref();
+        d.set_compute_function(Some(function));
+        d.set_support_indirect_command_buffers(true);
+        device.new_compute_pipeline_state(d).map_err(rt)
+    }
+
     /// Freeze `commands` into the source ICB. `max_count` is the ICB's
     /// capacity — the recorded count can never grow past it (a re-record
     /// of a longer sequence allocates a new group; the capacity is part
@@ -141,7 +204,18 @@ impl ReplayGroup {
         }
         let desc = IndirectCommandBufferDescriptor::new();
         let d: &metal::IndirectCommandBufferDescriptorRef = desc.deref();
-        d.set_command_types(MTLIndirectCommandType::ConcurrentDispatchThreads);
+        // metal-rs 0.31's MTLIndirectCommandType values are WRONG against
+        // the SDK header (MTLIndirectCommandBuffer.h): the header binds
+        // ConcurrentDispatch = 1<<5 and ConcurrentDispatchThreads = 1<<6,
+        // the crate binds 1<<4/1<<5 — so the crate's ConcurrentDispatch
+        // Threads bit-5 collides with ConcurrentDispatch and leaves the
+        // concurrentDispatchThreads command type UNENABLED. Recording a
+        // concurrentDispatchThreads command against such a descriptor is
+        // the 11-15/11-17/11-23 crash class (release drivers segfault;
+        // the debug wrapper asserts "not enabled on this indirect
+        // command buffer"). from_bits_retain(1 << 6) IS the header's
+        // ConcurrentDispatchThreads.
+        d.set_command_types(MTLIndirectCommandType::from_bits_retain(1 << 6));
         d.set_inherit_buffers(false);
         d.set_inherit_pipeline_state(false);
         // Metal's per-command compute buffer-bind ceiling.
@@ -154,7 +228,8 @@ impl ReplayGroup {
         let private = device
             .new_indirect_command_buffer_with_descriptor(d, count as u64, opts)
             .to_owned();
-        autoreleasepool(|_| {
+        let resident = autoreleasepool(|_| {
+            let mut resident: Vec<metal::Buffer> = Vec::new();
             for (i, c) in commands.iter().enumerate() {
                 let cmd = source.indirect_compute_command_at_index(i as u64);
                 if c.barrier {
@@ -165,18 +240,30 @@ impl ReplayGroup {
                 cmd.set_compute_pipeline_state(&c.pipeline);
                 for (idx, buf, off) in &c.bindings {
                     cmd.set_kernel_buffer(*idx as u64, Some(buf), *off);
+                    // Dedupe by the ObjC object pointer (the Ref wrappers
+                    // are transparent over it; metal-rs's ForeignType trait
+                    // is private).
+                    let p = buf.as_ref() as *const metal::BufferRef as *const u8;
+                    if !resident
+                        .iter()
+                        .any(|r| r.as_ref() as *const metal::BufferRef as *const u8 == p)
+                    {
+                        resident.push(buf.clone());
+                    }
                 }
                 for (idx, len) in &c.staging {
                     cmd.set_threadgroup_memory_length(*idx as u64, *len);
                 }
                 cmd.concurrent_dispatch_threads(c.grid, c.tpg);
             }
+            resident
         });
         Ok(Self {
             device,
             queue,
             source,
             private,
+            resident,
             count,
         })
     }
@@ -202,6 +289,23 @@ impl ReplayGroup {
             }
             {
                 let enc = cb.new_compute_command_encoder().to_owned();
+                // The execute-declaration contract (the 2026-11-25 m3
+                // no-op cell): an encoder executing an ICB sees none of
+                // the buffers inside it — declare them, plus the ICB
+                // itself (read: the blit above rewrote it).
+                let refs: Vec<&metal::ResourceRef> = self
+                    .resident
+                    .iter()
+                    .map(|b| {
+                        let r: &metal::ResourceRef = b.deref();
+                        r
+                    })
+                    .collect();
+                enc.use_resources(
+                    &refs,
+                    metal::MTLResourceUsage::Read | metal::MTLResourceUsage::Write,
+                );
+                enc.use_resource(self.private.deref(), metal::MTLResourceUsage::Read);
                 execute_commands_in_buffer_compute(
                     &enc,
                     self.private.deref(),
@@ -222,6 +326,21 @@ impl ReplayGroup {
         autoreleasepool(|_| {
             let cb = self.queue.new_command_buffer().to_owned();
             let enc = cb.new_compute_command_encoder().to_owned();
+            // The execute-declaration contract, source arm: same
+            // declaration, the source ICB read.
+            let refs: Vec<&metal::ResourceRef> = self
+                .resident
+                .iter()
+                .map(|b| {
+                    let r: &metal::ResourceRef = b.deref();
+                    r
+                })
+                .collect();
+            enc.use_resources(
+                &refs,
+                metal::MTLResourceUsage::Read | metal::MTLResourceUsage::Write,
+            );
+            enc.use_resource(self.source.deref(), metal::MTLResourceUsage::Read);
             execute_commands_in_buffer_compute(
                 &enc,
                 self.source.deref(),
