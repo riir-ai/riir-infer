@@ -184,6 +184,22 @@ pub mod neuron_census_fixture;
 #[cfg(feature = "neuron_census")]
 pub mod neuron_census_gguf;
 
+/// The static readout pre-screen (Issue 1250 T1 — katgpt-rs Research
+/// 693, the Anthropic Fellows pair distill): the weights-only logit
+/// lens over every down_proj column, sign-split (the type-2 finding),
+/// top-K lens tokens per unit + per-band sharpness/margin rollups —
+/// the strictly-cheaper tier in front of the census screen and the
+/// interventional census. Opt-in `readout_screen`, offline by
+/// construction (weights only, no forward pass, no serving path),
+/// zero new deps. The `bucket` field ships UNASSIGNED in v1 — T2's
+/// J-share verbalizability pass fills it. The fixture gates live in
+/// `readout_screen_fixture` (feature-gated, not test-gated: the
+/// `readout-screen --self-test` bin posture drives the same source).
+#[cfg(feature = "readout_screen")]
+pub mod readout_screen;
+#[cfg(feature = "readout_screen")]
+pub mod readout_screen_fixture;
+
 /// KL-vs-anchor ranked-selection census (Issue 1242 T1 — the QDA distill's
 /// anchor-KL instrument): per-token forward-KL from logits slices, the
 /// top-k-union variant, the trace-set aggregation. OPT-IN under

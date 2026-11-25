@@ -161,6 +161,23 @@ weight_audit = []
 # P30). T2's GGUF cell routes to the 4090 --needs-cuda window.
 neuron_census = ["dep:katgpt-pruners", "katgpt-pruners/mech_attribution", "deltanet_inference"]
 
+# Issue 1250 T1 (2026-11-25, katgpt-rs Research 693 — the Anthropic
+# Fellows pair distill, neuron-basis-theory): the STATIC readout
+# pre-screen — a weights-only logit-lens readout map of every down_proj
+# column, SIGN-SPLIT (+w and −w as separate units; the pair's type-2
+# finding makes one neuron two concept units), top-K lens tokens per
+# unit + per-band (early/middle/late) sharpness/margin rollups. The
+# strictly-cheaper tier in front of census_screen (which needs forward
+# passes) and the 1241 interventional census (557 CPU-h): v0 costs one
+# dequant + one vocab-wide dot per unit, once per checkpoint. Pure-local
+# opt-in (same posture as `weight_audit`): zero serving-path cost,
+# zero new deps (rayon + blake3 in-tree), no forward pass at all.
+# The `bucket` field ships UNASSIGNED in v1 — T2's J-share NNLS
+# verbalizability pass fills it. The `readout-screen` bin is the front
+# (--self-test = the G1 fixture canary; required-features row in the
+# same commit — P30).
+readout_screen = []
+
 # Issue 1244 T2 (Research 040, arXiv:2611.26363) — the HiSA
 # rotation-suppression census arm beside `hisa_plan`'s closed-form
 # prior: per (attention layer, 16-feature rotating chunk, log-Δ band)
@@ -882,6 +899,17 @@ required-features = ["weight_audit"]
 name = "neuron-census"
 path = "src/bin/neuron-census.rs"
 required-features = ["neuron_census"]
+
+# Issue 1250 T1 — the readout-screen front (Research 693): the
+# weights-only logit-lens readout map over a loaded GGUF. `--self-test`
+# runs the G1 fixture gates in-process (the canary vehicle);
+# `--gguf/--out` is the T1 cell (RDMAP1 artifact + digest + report).
+# Reader protection row (the green-zero law): a default build skips
+# the bin loudly.
+[[bin]]
+name = "readout-screen"
+path = "src/bin/readout-screen.rs"
+required-features = ["readout_screen"]
 
 # riir-train plan 503 T0.1 — the lattice-conditioning geometry census CLI:
 # one ternary pass per checkpoint over the first N tokens, per-head GDN
