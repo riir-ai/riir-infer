@@ -1,0 +1,30 @@
+# Issue 1252 — Spike activation coding: decision content + option arms + pre-registered refusals (arXiv:2509.05276 SpikingBrain)
+
+**Status:** OPEN — decision content filed 2026-11-25; unclaimed (option lanes, consumer-gated; routes recorded below)
+**Source:** katgpt-rs `.research/694_SpikingBrain_Adaptive_Threshold_Spike_Coding.md` (the distillation; panel inventory + signal-diffs live there)
+**Paper:** arXiv:2509.05276 "SpikingBrain" v4 — adaptive-threshold spike coding = per-vector mean-abs integer activation quantization (`V_th = mean|x|/k`, `s = round(x/V_th)`, exact scalar dequant); post-hoc applicable (128-sample calibration, ≈2% avg drop on their models); 69% element sparsity at k=3 on THEIR activations.
+
+## Why this issue exists
+
+The mechanism lands on this repo's **already-measured territory** (Plan 614/628 + Benches 023/033: a2 catastrophic in both phases, **decode-a4 clean (0.9583 = base) while prefill-a4 loses 5/48 arith (0.854 — REPORT-ONLY: every axis read INADMISSIBLE per the frozen D6 table, Bench 023)**, NIAH-side activation-a4 clean (Bench 033), the a8 control passes (|Δ| = 0 items), KV axis NULL, decode activation quantization refused by the never-activation-quantize-decode posture). Spike coding is ~a3 class at k=3 — at or BELOW the a4 rung that already costs arith at prefill. The honest residue is three consumer-gated option arms (A1–A3) and four refusals — recorded HERE so no future session re-derives the dead ends or misses the live questions.
+
+## Option arms (each pre-registered; run only when its trigger fires)
+
+- [ ] **A1 — mean-abs vs absmax statistic arm (trigger: a Q8KV-class lane reopens).** The Q8KV lane's documented failure is exactly what mean-abs fixes: `attention_q8kv_cubecl.rs:47` — "absmax lets one MA channel set the block scale, collapsing the row's other ~30 channels in that block to ~1 quant step." The incumbent mitigation is the opt-in f32 sink sidecar (riir-ai Bench 691, lossless but byte-costing). Mean-abs (`mean|x|/k`, outliers encode as high counts instead of setting the scale) is the cheaper candidate. Route: extend `dq_phase_matrix` through its amendment path (a third statistic arm), per-phase R published first per Plan 614's standing rule. Gate: per-family retention (lossy-surface law, never pooled) ≥ the absmax arm on the attention family, no prefill regression; the sink sidecar stays the incumbent until mean-abs BEATS it on the same frozen read.
+- [ ] **A2 — spike-count census arm (trigger: any consumer below arms itself, or the group-skip question reopens).** One offline pass per checkpoint in the census-family shape (`readout_screen` precedent: feature-gated, artifact+BLAKE3+bin+required-features, one pass, minutes-class). Measures on OUR activations (the paper's 69% is THEIRS, never imported): (a) spike-count histogram per layer under `k ∈ {2, 3, 4}`; (b) **whole-128-group zero rates** — the only skip granularity coherent with the packed ternary matvec layout (element-gather loses to dense SDOT/CMMA at 31% density; group-level zero blocks skip whole weight blocks in `matvec_pair_into`-class fused lanes); (c) structural-zero decomposition — Gaussian floor `2Φ(0.399/k)−1` ≈ 10.6% / Laplacian `1−e^(−1/2k)` ≈ 15.4% predict the thresholding zeros; the measured excess over the fitted floor is the post-GLU structural dead mass ρ₀ (predictor-validation arm: census spectrum vs held-out slices). Output: the `sparsity(k)` curve + group-skip ceiling + scheme-selection argmin — the decision data for any future format arm, BEFORE any kernel work.
+- [ ] **A3 — closed-form error-bound monitor (trigger: A1 or A2 runs; rides them).** Mid-tread bound `ε_rel ≤ 1/(2k)` per vector (non-saturated elements); saturation-exact exact form `‖e‖² = Σ_ns(≤V_th/2)² + Σ_sat(x−sV_th)²` computable offline; pair with drift_guard's sampled rel-RMS as bound-vs-realized. Report-only.
+
+## Pre-registered refusals (four; do not re-litigate without new evidence)
+
+- ⛔ **No GPU spike-timestep-simulation lane.** The paper's own measurement: spike coding gives zero GPU TTFT gain (integer-activation simulation only, §5.2); skip-efficiency ≈ 0 on dense SIMT. The spike frame pays only where MACs are skipped (async hardware we don't target) or where the quantizer statistic rides existing int8 lanes.
+- ⛔ **No decode activation-quantization arm of any format** — including spike coding. The never-activation-quantize-decode posture is a measured standing rule on the league artifact (Plan 614/628 lineage). Note the phase asymmetry the posture already priced: decode-a4 was clean (0.9583 = base) but prefill-a4 lost 5/48 arith (0.854, report-only — Bench 023), so a ~a3-class spike format at k=3 sits BELOW a rung that already costs arith accuracy where activation quantization is even legal (prefill, which ships a8 with the control at |Δ| = 0).
+- ⛔ **No kernel (ternary×spike ±add, group-skip) before A2's census shows group-zero rates that change load-shape** (bar: measured group-zero rate ≥ ~35% at k ≥ 3 on a league checkpoint — the pre-registered A/B unlocks then; below it, dense SDOT/CMMA wins and the lane is DONE-NEGATIVE).
+- Energy figures from the paper (43×/6.8×) are **never imported** — they assume asynchronous neuromorphic silicon (their Appendix C names the unmet preconditions; those caveats are the gate checklist if a device lane ever runs, POC-labeled, riir-esp32).
+
+## Cross-refs
+
+- Distillation + discard ledger: katgpt-rs `.research/694` (advocate items 1–14 with coverage verdicts).
+- Q8KV anatomy: riir-ai Bench 691 (sink guard, the incumbent mitigation); katgpt-rs Research 605/487 (MA "spike" anatomy — name collision with SNN spikes, different family).
+- Operand vocabulary the arms would touch: katgpt-types `ternary_group_q8_act` (Issue 935 — per-group absmax int8 + SDOT), `ternary_q2_q8` raw-Q2 resident lane.
+- Exact integer accumulation: rulewright corpus rule `exact-accumulation-via-operand-mantissa-bound` (Batch 418, 2026-11-25) owns the mechanism — consume, never re-derive.
+- Device-lane residue (deferred, LOW priority): expansion-schedule LUTs + `lif_graph` event-parity pattern → riir-esp32, gated on A2.
