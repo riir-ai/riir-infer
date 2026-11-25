@@ -91,6 +91,7 @@ pub struct HisaBandCell {
 /// `scale_invariant` precedent: session config, not a buffer; the census
 /// driver owns the only armed copy, every other construction leaves the
 /// field `None`).
+#[derive(Debug)]
 pub struct HisaCensusArm {
     /// The probed full-attention layer. The dispatch consults this; every
     /// other layer runs the incumbent path untouched.
@@ -228,7 +229,7 @@ impl HisaCensusArm {
     /// never panics inside the forward).
     #[allow(clippy::too_many_arguments)]
     fn modified_score(
-        &self,
+        &mut self,
         t: usize,
         kv_dim: usize,
         kv_group_offset: usize,
@@ -260,6 +261,7 @@ impl HisaCensusArm {
                     // No null row at this distance: keep the incumbent score
                     // and count the skip — the report discloses a nonzero
                     // count as a driver bug, never a silent mix.
+                    self.swapped_skipped += 1;
                     full * scale
                 }
             }
@@ -820,10 +822,8 @@ mod tests {
             .cloned()
             .fold(f32::NEG_INFINITY, f32::max);
         let mut exp_vals = [0.0f32; 3];
-        let mut sum = 0.0f32;
         for i in 0..3 {
             exp_vals[i] = (expected_scores[i] - max).exp();
-            sum += exp_vals[i];
         }
         assert_bitwise(&scores[..3], &exp_vals, "head_scores(exp)");
     }
