@@ -14,13 +14,19 @@
 //!   the deterministic report. Weights only — no forward pass, no
 //!   serving surface.
 //!
+//! - `--artifact <rdmap2> --signs-census` — the T3 both-signs census
+//!   (report-only): reads the v2 artifact alone (tokens + buckets are
+//!   self-contained; no GGUF), prints the fraction of neurons whose
+//!   both signs are High-bucket reading distinct concepts, and names
+//!   the ≥10% gate verdict.
+//!
 //! Reader protection: `required-features = ["readout_screen"]` — a
 //! default build never compiles this bin (the green-zero law).
 
 use anyhow::Context as _;
 use riir_infer_core::gguf_loader::GgufFile;
 use riir_infer_core::readout_jshare::{
-    build_j_artifact, j_artifact_digest, render_j_report, run_jshare,
+    build_j_artifact, j_artifact_digest, parse_v2_rows, render_j_report, run_jshare, signs_census,
 };
 use riir_infer_core::readout_screen::{GgufReadoutSource, hex};
 use riir_infer_core::readout_screen_fixture;
@@ -29,12 +35,14 @@ use std::time::Instant;
 fn main() {
     let mut args = std::env::args().skip(1);
     let mut self_test = false;
+    let mut signs_census_mode = false;
     let mut model: Option<String> = None;
     let mut artifact: Option<String> = None;
     let mut out: Option<String> = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--self-test" => self_test = true,
+            "--signs-census" => signs_census_mode = true,
             "--gguf" => model = args.next(),
             "--artifact" => artifact = args.next(),
             "--out" => out = args.next(),
@@ -62,6 +70,37 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        return;
+    }
+
+    if signs_census_mode {
+        let Some(artifact_path) = artifact else {
+            eprintln!("readout-jshare: --signs-census needs --artifact <rdmap2>");
+            std::process::exit(2);
+        };
+        let bytes = std::fs::read(&artifact_path)
+            .with_context(|| format!("read {artifact_path}"))
+            .unwrap_or_else(|e| {
+                eprintln!("readout-jshare: {e:#}");
+                std::process::exit(1);
+            });
+        let (_, _, _, _, _, layers) = parse_v2_rows(&bytes).unwrap_or_else(|e| {
+            eprintln!("readout-jshare: {e:#}");
+            std::process::exit(1);
+        });
+        // Reconstruct the screen shell the census reads (the rollups
+        // and controls are in the artifact; the census reads units).
+        let js = riir_infer_core::readout_jshare::JShareScreen {
+            n_layers: layers.len(),
+            n_ff: layers.first().map(|l| l.units.len()).unwrap_or(0) / 2,
+            n_embd: 0,
+            vocab: 0,
+            controls_per_layer: layers.first().map(|l| l.controls.len()).unwrap_or(0),
+            rollups: Vec::new(),
+            layers,
+            seed_base: [0; 32],
+        };
+        print!("{}", signs_census(&js));
         return;
     }
 
@@ -125,6 +164,7 @@ fn print_help() {
          \x20 (weights-only offline census; opt-in feature `readout_screen`)\n\
          \n\
          \x20 readout-jshare --self-test\n\
-         \x20 readout-jshare --gguf <checkpoint.gguf> --artifact <rdmap1> --out <rdmap2>\n"
+         \x20 readout-jshare --gguf <checkpoint.gguf> --artifact <rdmap1> --out <rdmap2>\n\
+         \x20 readout-jshare --artifact <rdmap2> --signs-census   (T3 report-only)\n"
     );
 }

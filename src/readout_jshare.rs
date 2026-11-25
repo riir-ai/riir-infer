@@ -45,7 +45,7 @@ use crate::readout_screen::{
     Band, Bucket, HEADER_BYTES, ROW_BYTES, ReadoutTensors, Sign, TOP_K, band_of, lens_norm,
     ordered_dot_f64, parse_header,
 };
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use rayon::prelude::*;
 use std::fmt::Write as _;
 
@@ -744,6 +744,174 @@ pub fn build_j_artifact(s: &JShareScreen) -> Vec<u8> {
 /// BLAKE3 digest of the v2 artifact bytes.
 pub fn j_artifact_digest(bytes: &[u8]) -> [u8; 32] {
     *blake3::hash(bytes).as_bytes()
+}
+
+/// Parse a v2 artifact (header + rows + trailer). Returns the screen
+/// reconstruction: layers (ascending, canonical order), controls, and
+/// the header fields. The bits slot per row is v1-parity filler (zero)
+/// and is not reconstructed.
+pub fn parse_v2_rows(bytes: &[u8]) -> Result<(usize, usize, usize, usize, usize, Vec<JLayer>)> {
+    if bytes.len() < HEADER_BYTES || &bytes[..7] != J_MAGIC {
+        bail!("not an RDMAP2 artifact (magic/length mismatch)");
+    }
+    let rd_u32 = |off: usize| -> u32 {
+        u32::from_le_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
+    };
+    let version = rd_u32(7);
+    if version != J_VERSION {
+        bail!("artifact version {version} != {J_VERSION}");
+    }
+    let vocab = rd_u32(11) as usize;
+    let n_embd = rd_u32(15) as usize;
+    let n_ff = rd_u32(19) as usize;
+    let n_layers = rd_u32(23) as usize;
+    let top_k = rd_u32(27) as usize;
+    if top_k != TOP_K {
+        bail!("artifact top_k {top_k} != {TOP_K}");
+    }
+    // The seed base IS the header's file-digest field (the audit key);
+    // the parser reconstructs layers/units/controls, not the seed.
+    let _seed_base: [u8; 32] = bytes[FILE_DIGEST_OFFSET..HEADER_BYTES]
+        .try_into()
+        .expect("32-byte slice");
+    let n_units = n_layers
+        .checked_mul(n_ff)
+        .and_then(|p| p.checked_mul(2))
+        .context("unit count overflow")?;
+    let rows_end = HEADER_BYTES + n_units * J_ROW_BYTES;
+    if bytes.len() < rows_end + J_TRAILER_FIXED {
+        bail!(
+            "v2 artifact truncated ({} < {rows_end}+{J_TRAILER_FIXED})",
+            bytes.len()
+        );
+    }
+    let mut units: Vec<JRow> = Vec::with_capacity(n_units);
+    for chunk in bytes[HEADER_BYTES..rows_end].as_chunks::<J_ROW_BYTES>().0 {
+        let layer = chunk[0] as usize;
+        let col = u32::from_le_bytes([chunk[1], chunk[2], chunk[3], chunk[4]]) as usize;
+        let sign = match chunk[5] {
+            0 => Sign::Plus,
+            1 => Sign::Minus,
+            other => bail!("v2 row sign byte {other}"),
+        };
+        let bucket = match chunk[6] {
+            0 => Bucket::Unassigned,
+            1 => Bucket::High,
+            2 => Bucket::Middle,
+            3 => Bucket::Low,
+            other => bail!("v2 row bucket byte {other}"),
+        };
+        let jbits = u32::from_le_bytes([chunk[7], chunk[8], chunk[9], chunk[10]]);
+        let mut tokens = Vec::with_capacity(TOP_K);
+        for i in 0..TOP_K {
+            let off = 11 + i * 8;
+            let tok =
+                u32::from_le_bytes([chunk[off], chunk[off + 1], chunk[off + 2], chunk[off + 3]]);
+            if tok != u32::MAX {
+                tokens.push(tok);
+            }
+        }
+        units.push(JRow {
+            layer,
+            col,
+            sign,
+            bucket,
+            tokens,
+            jshare: f32::from_bits(jbits),
+        });
+    }
+    let cpl = rd_u32(rows_end) as usize;
+    let nl = rd_u32(rows_end + 4) as usize;
+    if cpl == 0 || nl != n_layers {
+        bail!("v2 trailer cpl {cpl} n_layers {nl} != {n_layers}");
+    }
+    if bytes.len() != rows_end + J_TRAILER_FIXED + nl * cpl * 4 {
+        bail!(
+            "v2 artifact length {} != rows_end+trailer+{}×{}×4",
+            bytes.len(),
+            nl,
+            cpl
+        );
+    }
+    let mut layers: Vec<JLayer> = Vec::with_capacity(n_layers);
+    for layer in 0..n_layers {
+        let base = rows_end + J_TRAILER_FIXED + layer * cpl * 4;
+        let mut controls: Vec<f32> = Vec::with_capacity(cpl);
+        for k in 0..cpl {
+            let off = base + k * 4;
+            controls.push(f32::from_bits(rd_u32(off)));
+        }
+        let band = band_of(layer, n_layers);
+        let lu: Vec<JRow> = units[layer * n_ff * 2..(layer + 1) * n_ff * 2].to_vec();
+        layers.push(JLayer {
+            layer,
+            band,
+            units: lu,
+            controls,
+        });
+    }
+    Ok((vocab, n_embd, n_ff, n_layers, vocab, layers))
+}
+
+/// The both-signs census (T3's ≥10% gate): the fraction of neurons
+/// whose PLUS unit is High-bucket AND whose MINUS unit is High-bucket
+/// AND whose two signs read DISTINCT concepts. Distinctness pin: the
+/// two signs' top-1 tokens differ AND their top-3 token sets share at
+/// most one token (the type-2 reading — mascara +w / radio −w — two
+/// unrelated concepts, not one concept's two poles).
+pub fn signs_census(s: &JShareScreen) -> String {
+    let mut neurons = 0usize;
+    let mut both_high = 0usize;
+    let mut distinct = 0usize;
+    for l in &s.layers {
+        for pair in l.units.chunks(2) {
+            // Canonical order: Plus then Minus per col.
+            if pair.len() != 2 || pair[0].col != pair[1].col {
+                continue;
+            }
+            neurons += 1;
+            let (plus, minus) = (&pair[0], &pair[1]);
+            if plus.bucket != Bucket::High || minus.bucket != Bucket::High {
+                continue;
+            }
+            both_high += 1;
+            let top1_distinct = plus.tokens.first() != minus.tokens.first();
+            let overlap = plus
+                .tokens
+                .iter()
+                .take(3)
+                .filter(|t| minus.tokens.iter().take(3).any(|m| m == *t))
+                .count();
+            if top1_distinct && overlap <= 1 {
+                distinct += 1;
+            }
+        }
+    }
+    let mut out = String::new();
+    let _ = writeln!(out, "== i1250 T3 both-signs census (report-only) ==");
+    let _ = writeln!(
+        out,
+        "neurons {neurons} · both-signs-High {both_high} · distinct-concept {distinct}"
+    );
+    let _ = writeln!(
+        out,
+        "distinct-of-all {:.2}% · distinct-of-both-high {:.2}% — the T3 gate: >= 10.00% of ALL screened units",
+        100.0 * distinct as f64 / neurons.max(1) as f64,
+        100.0 * distinct as f64 / both_high.max(1) as f64,
+    );
+    let share = 100.0 * distinct as f64 / neurons.max(1) as f64;
+    if share >= 10.0 {
+        let _ = writeln!(
+            out,
+            "GATE: OPEN — the per-sign CensusRow extension is warranted"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "GATE: CLOSED — below the 10% bar: record the finding, leave the row format alone"
+        );
+    }
+    out
 }
 
 /// Render the deterministic T2 text report (byte-identical across

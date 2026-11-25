@@ -40,3 +40,11 @@
 ## Verdict
 
 T2 PASS as a lane row: the pass is deterministic (fixture-pinned, cross-run byte-stable), the real cell ran end-to-end on the real checkpoint, and the census numbers are sane against both the controls and the source's provenance range. T4's ordering-prior GOAT (screen-ordered sweep efficiency) now has its bucket field — still gated on the 1241 census sweep (in flight on bmo).
+
+## Addendum — the T3 both-signs census (same artifacts, amo-i1250-t3, 2026-11-26)
+
+The `--signs-census` arm (report-only, reads the RDMAP2 alone) + the v2 round-trip parser landed in the same commit; the census ran over the regenerated artifacts — **the T2 digest reproduced bit-identical (`0411d383…`)**, the v2 determinism claim proven on-box, and the v1 T1 digest again `c508d917…`.
+
+**GATE CLOSED — distinct-of-all 1.58% << the 10% bar** (86,016 neurons; both-signs-High 1,358 = 1.6%; of those, 100% read distinct concepts under the pinned rule: top-1 differs AND top-3 sets share ≤ 1 token). Per the pre-registered T3 rule: the finding is recorded and the row format stands — no `CensusRow` per-sign extension. The informative residue: when BOTH signs of a neuron are verbalizable, they really are two unrelated concepts (the type-2 reading confirmed on the 1.6% minority); verbalizability on this checkpoint is predominantly single-sign.
+
+Distinctness pin (this lane's): top-1 tokens differ AND the top-3 sets share at most one token — the mascara +w / radio −w shape, not one concept's two poles.

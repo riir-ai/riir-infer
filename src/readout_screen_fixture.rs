@@ -662,6 +662,33 @@ pub fn gate_jshare_e2e() -> Result<()> {
     if rows.len() != n_units {
         bail!("parse_v1_rows {} != {n_units}", rows.len());
     }
+    // The v2 parser round-trips: the artifact parses back to the same
+    // layer/unit structure, and the census renders.
+    let (_, _, _, nl2, _, layers2) = crate::readout_jshare::parse_v2_rows(&bytes)?;
+    if nl2 != LAYERS || layers2.len() != LAYERS {
+        bail!("v2 parse layers {nl2}/{}, want {LAYERS}", layers2.len());
+    }
+    let total2: usize = layers2.iter().map(|l| l.units.len()).sum();
+    if total2 != total {
+        bail!("v2 parse units {total2} != {total}");
+    }
+    for (a, b) in js.layers.iter().zip(layers2.iter()) {
+        if a.controls != b.controls {
+            bail!("v2 parse controls drift at layer {}", a.layer);
+        }
+        for (ua, ub) in a.units.iter().zip(b.units.iter()) {
+            if ua.bucket != ub.bucket
+                || ua.jshare.to_bits() != ub.jshare.to_bits()
+                || ua.tokens != ub.tokens
+            {
+                bail!("v2 parse unit drift at {}:{}", ua.layer, ua.col);
+            }
+        }
+    }
+    let census = crate::readout_jshare::signs_census(&js);
+    if !census.contains("both-signs-High") || !census.contains("GATE:") {
+        bail!("signs census missing its verdict lines");
+    }
     Ok(())
 }
 
