@@ -27,7 +27,7 @@
 //! [`score_cell`]'s `t2a_passed` input.
 
 use crate::readout_screen::ordered_dot_f64;
-use crate::trigger_vote::{GgufVoteSource, TriggerVote, Verdict, VoteTensors};
+use crate::trigger_vote::{TriggerVote, Verdict, VoteTensors};
 use crate::trigger_vote_cell::{PlantManifest, PlantMode};
 use anyhow::{Context, Result, ensure};
 use rayon::prelude::*;
@@ -86,8 +86,8 @@ pub enum WhichBaseline {
 /// material — the deliberate duplication IS the same-statistic-family
 /// guarantee, not drift).
 pub fn baseline_rankings(
-    base: &GgufVoteSource<'_>,
-    ft: &GgufVoteSource<'_>,
+    base: &dyn VoteTensors,
+    ft: &dyn VoteTensors,
     vote: &TriggerVote,
 ) -> Result<BaselineRanks> {
     let (n_layers, n_ff, n_embd, vocab) = (vote.n_layers, vote.n_ff, vote.n_embd, vote.vocab);
@@ -371,8 +371,8 @@ pub fn score_cell(
 /// Full cell run: detector + baselines + scorer over a planted pair
 /// (the bin's `--cell` arm and the fixture gates share this).
 pub fn run_cell(
-    base: &GgufVoteSource<'_>,
-    ft: &GgufVoteSource<'_>,
+    base: &dyn VoteTensors,
+    ft: &dyn VoteTensors,
     manifest: &PlantManifest,
     t2a_passed: Option<bool>,
 ) -> Result<CellReport> {

@@ -227,16 +227,22 @@ pub mod trigger_vote_fixture;
 /// offline by construction (a fixture tool, never a serving path).
 #[cfg(feature = "readout_screen")]
 pub mod trigger_vote_cell;
+/// The cell fixture gates (Issue 1251 T2/T3 G1 — the whole chain on
+/// tiny deterministic GGUFs the fixture writes itself).
+#[cfg(feature = "readout_screen")]
+pub mod trigger_vote_cell_fixture;
 /// The T3 recovery cell (Issue 1251 T3 — the pinned bars): the two
 /// baselines (summed-change over the vote's own statistic family;
 /// embedding-shift) and the scorer (≥⅔ of ≥3 planted triggers in the
 /// vote's top-10, each at ≥2× the better-ranked baseline).
 #[cfg(feature = "readout_screen")]
 pub mod trigger_vote_cell_score;
-/// The cell fixture gates (Issue 1251 T2/T3 G1 — the whole chain on
-/// tiny deterministic GGUFs the fixture writes itself).
+/// The safetensors vote source (Issue 1251 T4 — the detector's native
+/// HF-format lane): the same [`VoteTensors`] trait over a minimal
+/// in-repo safetensors reader (zero new deps), so the supply-chain
+/// screen reads the format third-party checkpoints actually arrive in.
 #[cfg(feature = "readout_screen")]
-pub mod trigger_vote_cell_fixture;
+pub mod trigger_vote_safetensors;
 
 /// KL-vs-anchor ranked-selection census (Issue 1242 T1 — the QDA distill's
 /// anchor-KL instrument): per-token forward-KL from logits slices, the

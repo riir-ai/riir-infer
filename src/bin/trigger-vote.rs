@@ -13,6 +13,8 @@
 //! trigger-vote --plant <t2a|t2b> --base <base.gguf> --out <planted.gguf> \
 //!              [--layer N] [--triggers N] [--fan N] [--noise N] [--seed N]
 //! trigger-vote --cell <planted.gguf> --base <base.gguf> [--t2a-passed]
+//! trigger-vote --cell <organism.safetensors> --base <base.safetensors> \
+//!              --cell-st --cell-triggers <ids> [--out <artifact.vote1>]
 //! ```
 //!
 //! `--plant` builds the Issue-1251 T2 fixture: plans (analysis + the
@@ -29,6 +31,7 @@ use riir_infer_core::trigger_vote::{
     GgufVoteSource, Verdict, VoteTensors, artifact_digest, build_artifact, render_report,
     trigger_vote,
 };
+
 use riir_infer_core::trigger_vote_fixture;
 use std::time::Instant;
 
@@ -47,6 +50,8 @@ fn main() {
     let mut noise = riir_infer_core::trigger_vote_cell::NOISE_NEURONS;
     let mut seed = riir_infer_core::trigger_vote_cell::DEFAULT_SEED;
     let mut t2a_passed = false;
+    let mut cell_st = false;
+    let mut cell_triggers: Option<Vec<u32>> = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--self-test" => self_test = true,
@@ -101,6 +106,24 @@ fn main() {
                 }
             },
             "--t2a-passed" => t2a_passed = true,
+            "--cell-st" => cell_st = true,
+            "--cell-triggers" => {
+                let Some(v) = args.next() else {
+                    eprintln!("trigger-vote: --cell-triggers needs a comma-separated id list");
+                    std::process::exit(2);
+                };
+                match v
+                    .split(',')
+                    .map(|x| x.trim().parse::<u32>())
+                    .collect::<Result<Vec<_>, _>>()
+                {
+                    Ok(list) if !list.is_empty() => cell_triggers = Some(list),
+                    _ => {
+                        eprintln!("trigger-vote: --cell-triggers needs ids like 7147,32963");
+                        std::process::exit(2);
+                    }
+                }
+            }
             "--top" => match args.next().and_then(|v| v.parse::<usize>().ok()) {
                 Some(n) if n > 0 => top = n,
                 _ => {
@@ -172,6 +195,9 @@ fn main() {
             std::path::Path::new(&base_path),
             std::path::Path::new(&planted_path),
             t2a_passed,
+            cell_st,
+            cell_triggers.as_deref(),
+            out.as_deref(),
         ) {
             eprintln!("trigger-vote cell FAIL: {e:#}");
             std::process::exit(1);
@@ -265,47 +291,149 @@ fn run_plant(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_cell(
     base_path: &std::path::Path,
     planted_path: &std::path::Path,
     t2a_passed: bool,
+    safetensors: bool,
+    cell_triggers: Option<&[u32]>,
+    out_cell_artifact: Option<&str>,
 ) -> anyhow::Result<()> {
     use riir_infer_core::trigger_vote_cell::manifest_path;
-    use riir_infer_core::trigger_vote_cell_score::run_cell;
     let t0 = std::time::Instant::now();
-    let mpath = manifest_path(planted_path);
-    let manifest = riir_infer_core::trigger_vote_cell::PlantManifest::load(&mpath)
-        .with_context(|| format!("loading {} (plant first)", mpath.display()))?;
-    // Verify the planted file against the manifest's digest BEFORE any
-    // tensor work (the provenance law).
-    let planted_digest = riir_infer_core::trigger_vote_cell::stream_digest(planted_path)?;
-    anyhow::ensure!(
-        planted_digest == manifest.planted_digest,
-        "planted file digest {} != manifest's {} — re-plant or point --cell at the manifest's file",
-        hex(&planted_digest),
-        hex(&manifest.planted_digest)
-    );
-    let base_gguf =
-        GgufFile::open(base_path).with_context(|| format!("opening {}", base_path.display()))?;
-    let planted_gguf = GgufFile::open(planted_path)
-        .with_context(|| format!("opening {}", planted_path.display()))?;
-    let bs = GgufVoteSource::open(&base_gguf, base_path)?;
-    let fs = GgufVoteSource::open(&planted_gguf, planted_path)?;
+    let (manifest, cell_triggers) = if safetensors {
+        // The safetensors lane carries no manifest: the planted tokens
+        // are the DOCUMENTED triggers (the organism's card), passed via
+        // --cell-triggers.
+        let Some(list) = cell_triggers else {
+            eprintln!(
+                "trigger-vote: --cell-st needs --cell-triggers <comma-separated documented trigger ids>"
+            );
+            std::process::exit(2);
+        };
+        (None, Some(list.to_vec()))
+    } else {
+        let mpath = manifest_path(planted_path);
+        let manifest = riir_infer_core::trigger_vote_cell::PlantManifest::load(&mpath)
+            .with_context(|| format!("loading {} (plant first)", mpath.display()))?;
+        // Verify the planted file against the manifest's digest BEFORE
+        // any tensor work (the provenance law).
+        let planted_digest = riir_infer_core::trigger_vote_cell::stream_digest(planted_path)?;
+        anyhow::ensure!(
+            planted_digest == manifest.planted_digest,
+            "planted file digest {} != manifest's {} — re-plant or point --cell at the manifest's file",
+            hex(&planted_digest),
+            hex(&manifest.planted_digest)
+        );
+        let list = cell_triggers
+            .map(|l| l.to_vec())
+            .unwrap_or_else(|| manifest.planted_tokens());
+        (Some(manifest), Some(list))
+    };
+    let cell_triggers = cell_triggers.as_deref();
+    // The sources borrow their files for 'static: the cell runs to
+    // process end, so the files are leaked deliberately (one mmap each;
+    // the OS reclaims at exit — a CLI one-shot, not a server).
+    let (bs, fs): (Box<dyn VoteTensors>, Box<dyn VoteTensors>) = if safetensors {
+        // The HF-native lane: both sides read as safetensors (the
+        // supply-chain posture — the files arrive in transformers
+        // format, no conversion). The manifest half is skipped; the
+        // planted-token list arrives via --cell-triggers.
+        // --base may name MULTIPLE shards, comma-separated (the
+        // model.safetensors.index.json convention: each tensor lives
+        // wholly in one shard).
+        let base_shards: Vec<std::path::PathBuf> = base_path
+            .to_str()
+            .context("--base path is not valid UTF-8")?
+            .split(',')
+            .map(|p| std::path::PathBuf::from(p.trim()))
+            .collect();
+        let base_st: &'static riir_infer_core::trigger_vote_safetensors::StShardSet =
+            Box::leak(Box::new(
+                riir_infer_core::trigger_vote_safetensors::StShardSet::open(&base_shards)
+                    .with_context(|| format!("opening {} as safetensors", base_path.display()))?,
+            ));
+        let ft_st: &'static riir_infer_core::trigger_vote_safetensors::StShardSet =
+            Box::leak(Box::new(
+                riir_infer_core::trigger_vote_safetensors::StShardSet::open(&[
+                    planted_path.to_path_buf()
+                ])
+                .with_context(|| format!("opening {} as safetensors", planted_path.display()))?,
+            ));
+        (
+            Box::new(
+                riir_infer_core::trigger_vote_safetensors::SafetensorsVoteSource::open(base_st)?,
+            ),
+            Box::new(
+                riir_infer_core::trigger_vote_safetensors::SafetensorsVoteSource::open(ft_st)?,
+            ),
+        )
+    } else {
+        let base_gguf: &'static GgufFile = Box::leak(Box::new(
+            GgufFile::open(base_path)
+                .with_context(|| format!("opening {}", base_path.display()))?,
+        ));
+        let planted_gguf: &'static GgufFile = Box::leak(Box::new(
+            GgufFile::open(planted_path)
+                .with_context(|| format!("opening {}", planted_path.display()))?,
+        ));
+        (
+            Box::new(GgufVoteSource::open(base_gguf, base_path)?),
+            Box::new(GgufVoteSource::open(planted_gguf, planted_path)?),
+        )
+    };
+    let (mode_line, t2a) = match &manifest {
+        Some(m) => (
+            format!(
+                "mode {} seed {:#x} layer {}",
+                m.mode.name(),
+                m.seed,
+                m.layer
+            ),
+            if m.mode == riir_infer_core::trigger_vote_cell::PlantMode::Upstream {
+                Some(t2a_passed)
+            } else {
+                None
+            },
+        ),
+        None => (
+            "safetensors organism (documented triggers)".to_string(),
+            None,
+        ),
+    };
     println!(
-        "cell: base={} planted={} (mode {} seed {:#x} layer {}) t2a_passed={}",
+        "cell: base={} planted={} ({} triggers={cell_triggers:?}) t2a_passed={}",
         base_path.display(),
         planted_path.display(),
-        manifest.mode.name(),
-        manifest.seed,
-        manifest.layer,
+        mode_line,
         t2a_passed
     );
-    let t2a = if manifest.mode == riir_infer_core::trigger_vote_cell::PlantMode::Upstream {
-        Some(t2a_passed)
+    let rep = if let Some(m) = &manifest {
+        riir_infer_core::trigger_vote_cell_score::run_cell(&*bs, &*fs, m, t2a)?
     } else {
-        None
+        // The safetensors organism cell: detector + baselines + the
+        // report scored against the documented trigger list.
+        let vote = riir_infer_core::trigger_vote::trigger_vote(&*bs, &*fs)?;
+        let baselines =
+            riir_infer_core::trigger_vote_cell_score::baseline_rankings(&*bs, &*fs, &vote)?;
+        let rep = riir_infer_core::trigger_vote_cell_score::score_cell(
+            riir_infer_core::trigger_vote_cell::PlantMode::Upstream,
+            cell_triggers.unwrap(),
+            &vote,
+            &baselines,
+            t2a_passed.then_some(true),
+        );
+        if let Some(out_path) = out_cell_artifact {
+            let bytes = riir_infer_core::trigger_vote::build_artifact(&vote);
+            std::fs::write(out_path, &bytes).with_context(|| format!("writing {out_path}"))?;
+            println!(
+                "artifact: {out_path} (blake3 {})",
+                hex(&riir_infer_core::trigger_vote::artifact_digest(&bytes))
+            );
+        }
+        rep
     };
-    let rep = run_cell(&bs, &fs, &manifest, t2a)?;
     print!("{}", rep.text);
     println!("cell pass: {} ms", t0.elapsed().as_millis());
     Ok(())

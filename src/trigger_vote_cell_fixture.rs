@@ -575,6 +575,178 @@ fn gate_planter_refuses_degenerate() -> Result<()> {
     }
 }
 
+/// T4 gate: the safetensors vote source reads a tiny HF-format file
+/// and drives the SAME detector — planted rows recovered, the row-skip
+/// law sees exactly the edited rows (bf16 upcast is exact).
+fn gate_safetensors_source() -> Result<()> {
+    use crate::trigger_vote::trigger_vote as tv;
+    use crate::trigger_vote_safetensors::{SafetensorsVoteSource, StShardSet};
+    let dir = scratch();
+    // Reuse the tiny GGUF base's construction discipline: deterministic
+    // random weights + friendly donor geometry, serialized BOTH ways
+    // (GGUF for the planter, safetensors for the source gate).
+    let base = tiny_base(&dir, 6)?;
+    let gguf = crate::gguf_loader::GgufFile::open(&base.0)?;
+    let cfg = PlantConfig {
+        mode: PlantMode::Upstream,
+        layer: 1,
+        triggers: 3,
+        fan_per_trigger: 8,
+        noise_neurons: 4,
+        seed: 0x1251,
+    };
+    let plan = plan(&gguf, &cfg)?;
+    // The planted GGUF copy (the vote's ft side is read through the
+    // safetensors source, so ALSO materialize a safetensors twin with
+    // the same edits applied to bf16 tensors).
+    let dst = planted_path(&dir, "st");
+    let manifest = materialize(&base.0, &dst, &plan)?;
+    // Build the ft safetensors: dequant the planted GGUF's edited
+    // tensors back to bf16 wire bytes... simpler and MORE honest: build
+    // the ft safetensors directly from the plan (same delta arithmetic
+    // on bf16), which is what a real fine-tune's file would carry.
+    // BOTH sides go through the safetensors container: the diff must
+    // be st-vs-st (a base-GGUF-vs-ft-st diff would drown every row in
+    // the bf16 rounding of the whole table — the container must match,
+    // exactly the supply-chain posture: both files arrive as HF
+    // safetensors).
+    let (base_st, planted) = planted_st_from_plan(&base, &plan, &dir)?;
+    let fst = StShardSet::open(std::slice::from_ref(&planted))?;
+    let fs = SafetensorsVoteSource::open(&fst)?;
+    let bst = StShardSet::open(std::slice::from_ref(&base_st))?;
+    let bsrc = SafetensorsVoteSource::open(&bst)?;
+    let vote = tv(&bsrc, &fs)?;
+    let ranked: Vec<u32> = vote.ranked.iter().take(10).map(|(t, _)| *t).collect();
+    for p in &manifest.triggers {
+        ensure!(
+            ranked.contains(&p.token),
+            "safetensors lane: planted token {} outside the detector's top-10: {ranked:?}",
+            p.token
+        );
+    }
+    remove_artifacts(&dst);
+    let _ = std::fs::remove_file(&planted);
+    let _ = std::fs::remove_file(&base_st);
+    Ok(())
+}
+
+/// Materialize the planted edits as a bf16 safetensors file (the T4
+/// fixture twin: the same gate/up/down delta arithmetic a real
+/// fine-tune's file carries, in the HF container).
+fn planted_st_from_plan(
+    base: &TinyBase,
+    plan: &crate::trigger_vote_cell::PlantPlan,
+    dir: &std::path::Path,
+) -> Result<(PathBuf, PathBuf)> {
+    use crate::gguf_loader::GgmlType;
+    // Read the planted GGUF's edited tensors (dequant → the exact f32
+    // rows the detector will see), then serialize the full tensor set
+    // as bf16 safetensors.
+    let gguf = crate::gguf_loader::GgufFile::open(&base.0)?;
+    let planted_gguf_path = planted_path(dir, "st_base_copy");
+    // A fresh planted copy to read from (the gate deletes it after).
+    crate::trigger_vote_cell::materialize(&base.0, &planted_gguf_path, plan)?;
+    let pg = crate::gguf_loader::GgufFile::open(&planted_gguf_path)?;
+    let bg = crate::gguf_loader::GgufFile::open(&base.0)?;
+    let mut ft_tensors: Vec<(String, Vec<usize>, Vec<u8>)> = Vec::new();
+    let mut base_tensors: Vec<(String, Vec<usize>, Vec<u8>)> = Vec::new();
+    for l in 0..2 {
+        for suffix in ["ffn_gate.weight", "ffn_up.weight"] {
+            let name = format!("blk.{l}.{suffix}");
+            let info = pg.tensor_info(&name).context(name.clone())?;
+            ensure!(info.ggml_type == GgmlType::Q8_0);
+            // HF shape convention: [n_ff, n_embd] — the GGUF ne order
+            // is [n_embd, n_ff]; the DATA layout is identical
+            // (n_ff rows of length n_embd), only the metadata differs.
+            let hf_shape = vec![info.shape[1], info.shape[0]];
+            let ft_vals = pg.dequant_f16_to_f32(&name)?;
+            let base_vals = bg.dequant_f16_to_f32(&name)?;
+            ft_tensors.push((hf_name(l, suffix), hf_shape.clone(), bf16_bytes(&ft_vals)));
+            base_tensors.push((hf_name(l, suffix), hf_shape, bf16_bytes(&base_vals)));
+        }
+    }
+    for (gg, vecs) in [(&pg, &mut ft_tensors), (&bg, &mut base_tensors)] {
+        let name = "token_embd.weight".to_string();
+        let info = gg.tensor_info(&name).context(name.clone())?;
+        let vals = gg.dequant_f16_to_f32(&name)?;
+        // HF: [vocab, n_embd] — the GGUF ne order is [n_embd, vocab];
+        // same data layout, reversed metadata.
+        let hf_shape = vec![info.shape[1], info.shape[0]];
+        vecs.push((
+            "model.embed_tokens.weight".to_string(),
+            hf_shape,
+            bf16_bytes(&vals),
+        ));
+    }
+    let _ = gguf;
+    let out = dir.join(format!("planted_st_{}.safetensors", std::process::id()));
+    let base_out = dir.join(format!("base_st_{}.safetensors", std::process::id()));
+    write_safetensors(&out, &ft_tensors)?;
+    write_safetensors(&base_out, &base_tensors)?;
+    remove_artifacts(&planted_gguf_path);
+    Ok((base_out, out))
+}
+
+/// The HF tensor name for a block tensor suffix.
+fn hf_name(layer: usize, suffix: &str) -> String {
+    match suffix {
+        "ffn_gate.weight" => format!("model.layers.{layer}.mlp.gate_proj.weight"),
+        "ffn_up.weight" => format!("model.layers.{layer}.mlp.up_proj.weight"),
+        other => format!("model.layers.{layer}.{other}"),
+    }
+}
+
+/// f32 → bf16 wire bytes (round-to-nearest-even via the half crate).
+fn bf16_bytes(vals: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(vals.len() * 2);
+    for v in vals {
+        out.extend_from_slice(&half::bf16::from_f32(*v).to_bits().to_le_bytes());
+    }
+    out
+}
+
+/// Write a minimal safetensors file (8-byte header length + JSON
+/// header + blobs, 8-byte-aligned offsets per the spec convention).
+fn write_safetensors(
+    path: &std::path::Path,
+    tensors: &[(String, Vec<usize>, Vec<u8>)],
+) -> Result<()> {
+    use serde_json::json;
+    let mut header = serde_json::Map::new();
+    let mut offset: u64 = 0;
+    let mut blobs: Vec<(String, Vec<usize>, Vec<u8>)> = Vec::new();
+    for (name, shape, data) in tensors {
+        let dt = "BF16";
+        header.insert(
+            name.clone(),
+            json!({
+                "dtype": dt,
+                "shape": shape,
+                "data_offsets": [offset, offset + data.len() as u64],
+            }),
+        );
+        offset += data.len() as u64;
+        // 8-byte align every tensor's start (the transformers writer's
+        // convention; the reader accepts any offsets).
+        offset = offset.div_ceil(8) * 8;
+        blobs.push((name.clone(), shape.clone(), data.clone()));
+    }
+    let header_json = serde_json::to_string(&serde_json::Value::Object(header))?;
+    let header_len = header_json.len() as u64;
+    // The blob region starts at 8 + header_len (no padding between the
+    // header and the data in the official writer).
+    let mut out = Vec::with_capacity((8 + header_len + offset) as usize);
+    out.extend_from_slice(&header_len.to_le_bytes());
+    out.extend_from_slice(header_json.as_bytes());
+    for (_, _, data) in &blobs {
+        while !(out.len() as u64 - 8 - header_len).is_multiple_of(8) {
+            out.push(0);
+        }
+        out.extend_from_slice(data);
+    }
+    std::fs::write(path, &out).with_context(|| format!("writing {}", path.display()))
+}
+
 /// A fixture gate: the zero-arg check returning receipts or a typed
 /// failure (the run_all table's element shape).
 type FixtureGate = fn() -> Result<()>;
@@ -582,7 +754,7 @@ type FixtureGate = fn() -> Result<()>;
 /// Run every gate, returning the receipt lines (the bin's `--self-test`
 /// posture drives the SAME source the cargo tests assert).
 pub fn run_all() -> Result<Vec<String>> {
-    let gates: [(&str, FixtureGate); 7] = [
+    let gates: [(&str, FixtureGate); 8] = [
         (
             "t2b_upstream_recovery",
             gate_t2b_upstream_recovery as FixtureGate,
@@ -596,6 +768,7 @@ pub fn run_all() -> Result<Vec<String>> {
             "planter_refuses_degenerate",
             gate_planter_refuses_degenerate,
         ),
+        ("safetensors_source", gate_safetensors_source),
     ];
     let mut receipts = Vec::with_capacity(gates.len());
     for (name, gate) in gates {
