@@ -614,8 +614,8 @@ impl Cq3HandleCuda {
             self.kernels.launch_quant_x8(
                 stream,
                 &s.x_rot.as_view(),
-                &s.x8.as_view(),
-                &s.s_x.as_view(),
+                &s.x8,
+                &s.s_x,
                 self.g,
                 1,
                 self.groups(),
@@ -695,8 +695,8 @@ impl Cq3HandleCuda {
             self.kernels.launch_quant_x8(
                 stream,
                 &s.x_rot.as_view(),
-                &s.x8.as_view(),
-                &s.s_x.as_view(),
+                &s.x8,
+                &s.s_x,
                 self.g,
                 p,
                 self.groups(),
