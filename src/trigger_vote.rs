@@ -54,6 +54,16 @@
 //! bytes → identical rows). n_active counts only changed rows — the
 //! artifact records the skipped rows as all-`u32::MAX` padding.
 //!
+//! **Reader ablation (Issue-1251 T4+, Bench 1266 finding 1):** the
+//! pinned incumbent reads raw `token_embd` rows, and on a real table
+//! the massive-activation rows (the outlier-norm family) collect votes
+//! in every neuron's top-15 by norm mass alone. [`VoteReader::Unit`]
+//! scales every dot by the row's L2 norm reciprocal — the unit-row
+//! proxy — so vote strength rides direction alignment, never norm.
+//! [`trigger_vote`] stays the pinned Raw arm; [`trigger_vote_with_reader`]
+//! arms the ablation. The VOTE1 artifact format does not encode the
+//! reader: every capture names the arm in its run record.
+//!
 //! Posture: opt-in `readout_screen`, offline by construction — weights
 //! only, no forward pass, no serving path, zero new deps (rayon +
 //! blake3 already in-tree). Parallelism partitions whole neurons; every
@@ -447,7 +457,78 @@ fn pick_band(layers: &[LayerVote]) -> Option<(usize, usize)> {
 /// Run the vote over a (base, finetune) pair. The pair must agree on
 /// the whole geometry (a mismatch refuses loud naming the field — never
 /// a silent partial screen).
+/// The `e_t` reader variant (Issue-1251 T4+ ablation, Bench 1266
+/// finding 1): the pinned incumbent reads raw rows, and on a real table
+/// the massive-activation rows (the outlier-norm family) collect votes
+/// in every neuron's top-15 by norm mass alone — the crowd floor is set
+/// by rows a planter cannot even select as triggers. `Unit` normalizes:
+/// every dot is scaled by `1/‖e_t‖` (f64 reciprocal, computed once per
+/// token), so a token's vote strength rides its DIRECTION alignment,
+/// never its norm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoteReader {
+    /// The pinned incumbent (T1 pin 2): raw `token_embd` rows.
+    Raw,
+    /// T4+ ablation: per-row unit normalization. A zero-norm row scales
+    /// to 0 → never votes (its raw dots are zero too — the same
+    /// no-vote rule both readers already apply).
+    Unit,
+}
+
+impl VoteReader {
+    /// Parse the `--reader` spelling (an unknown value refuses loud at
+    /// the CLI).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "raw" => Some(Self::Raw),
+            "unit" => Some(Self::Unit),
+            _ => None,
+        }
+    }
+
+    /// The run-record spelling (the VOTE1 format does not carry it).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Raw => "raw",
+            Self::Unit => "unit",
+        }
+    }
+
+    /// Per-token dot scale: 1.0 for Raw (the multiply is exact for every
+    /// finite f64 — the Raw path stays byte-identical to the incumbent),
+    /// `1/‖e_t‖` for Unit (f64 sequential fold per Issue-940; the
+    /// reciprocal rounds once per token, the product once per dot).
+    fn dot_scales(self, emb: &[f32], vocab: usize, n_embd: usize) -> Vec<f64> {
+        match self {
+            Self::Raw => vec![1.0; vocab],
+            Self::Unit => (0..vocab)
+                .map(|t| {
+                    let row = &emb[t * n_embd..(t + 1) * n_embd];
+                    let mut s = 0f64;
+                    for &x in row {
+                        let x = x as f64;
+                        s += x * x;
+                    }
+                    let n = s.sqrt();
+                    if n > 0.0 { 1.0 / n } else { 0.0 }
+                })
+                .collect(),
+        }
+    }
+}
+
 pub fn trigger_vote(base: &dyn VoteTensors, ft: &dyn VoteTensors) -> Result<TriggerVote> {
+    trigger_vote_with_reader(base, ft, VoteReader::Raw)
+}
+
+/// [`trigger_vote`] under an explicit [`VoteReader`] (the T4+ ablation
+/// seam; `VoteReader::Raw` is byte-identical to the incumbent — the
+/// `× 1.0` scale is exact).
+pub fn trigger_vote_with_reader(
+    base: &dyn VoteTensors,
+    ft: &dyn VoteTensors,
+    reader: VoteReader,
+) -> Result<TriggerVote> {
     let (n_layers, n_ff, n_embd, vocab) =
         (base.n_layers(), base.n_ff(), base.n_embd(), base.vocab());
     if ft.n_layers() != n_layers {
@@ -534,6 +615,9 @@ pub fn trigger_vote(base: &dyn VoteTensors, ft: &dyn VoteTensors) -> Result<Trig
             bail!("non-finite embedding element at [{i}] — refusing the vote");
         }
     }
+    // The reader's per-token dot scale (computed once; Raw = exact 1.0,
+    // Unit = the row-norm reciprocal).
+    let dot_scale = reader.dot_scales(&emb, vocab, n_embd);
 
     let mut layers_out: Vec<LayerVote> = Vec::with_capacity(n_layers);
     let mut rows: Vec<NeuronVoteRow> = Vec::new();
@@ -608,8 +692,9 @@ pub fn trigger_vote(base: &dyn VoteTensors, ft: &dyn VoteTensors) -> Result<Trig
                     let mut sel = SideK::new(VOTES_PER_NEURON, true);
                     for t in 0..vocab {
                         let e_row = &emb[t * n_embd..(t + 1) * n_embd];
-                        let g = ordered_dot_f64(&dg, e_row);
-                        let u = ordered_dot_f64(&du, e_row);
+                        let inv = dot_scale[t];
+                        let g = ordered_dot_f64(&dg, e_row) * inv;
+                        let u = ordered_dot_f64(&du, e_row) * inv;
                         // Zero scores never vote: a delta the
                         // embeddings cannot see casts no vote.
                         let s = (g.abs() + u.abs()) as f32;

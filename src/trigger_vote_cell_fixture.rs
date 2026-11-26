@@ -12,7 +12,7 @@
 //! end of the battery.
 
 use crate::quant::q8kv::{BlockQ8_0, Q8_BLOCK_SIZE, quantize_row_q8_0};
-use crate::trigger_vote::{GgufVoteSource, trigger_vote};
+use crate::trigger_vote::{GgufVoteSource, VoteReader, trigger_vote_with_reader};
 use crate::trigger_vote_cell::{
     PlantConfig, PlantManifest, PlantMode, manifest_path, materialize, patch_file, plan,
 };
@@ -268,11 +268,12 @@ fn open_pair(
     Ok((bs, fs))
 }
 
-/// Run an Upstream-mode cell end to end on the tiny base; returns the
-/// cell report + the manifest.
+/// Run an Upstream-mode cell end to end on the tiny base under an
+/// explicit vote reader; returns the cell report + the manifest.
 fn run_upstream_cell(
     base: &TinyBase,
     dir: &std::path::Path,
+    reader: VoteReader,
     cfg_overrides: impl FnOnce(&mut PlantConfig),
 ) -> Result<(crate::trigger_vote_cell_score::CellReport, PlantManifest)> {
     let gguf = crate::gguf_loader::GgufFile::open(&base.0)?;
@@ -289,7 +290,7 @@ fn run_upstream_cell(
     let dst = planted_path(dir, "t2b");
     let manifest = materialize(&base.0, &dst, &plan)?;
     let (bs, fs) = open_pair(&base.0, &dst)?;
-    let vote = trigger_vote(&bs, &fs)?;
+    let vote = trigger_vote_with_reader(&bs, &fs, reader)?;
     let bl = baseline_rankings(&bs, &fs, &vote)?;
     let rep = score_cell(
         PlantMode::Upstream,
@@ -314,7 +315,7 @@ fn run_upstream_cell(
 fn gate_t2b_upstream_recovery() -> Result<()> {
     let dir = scratch();
     let base = tiny_base(&dir, 1)?;
-    let (rep, _m) = run_upstream_cell(&base, &dir, |_| {})?;
+    let (rep, _m) = run_upstream_cell(&base, &dir, VoteReader::Raw, |_| {})?;
     ensure!(
         rep.rows.iter().all(|r| r.in_top10),
         "t2b recovery failed (a planted token outside the top-10):\n{}",
@@ -348,7 +349,7 @@ fn gate_t2a_circular_sanity() -> Result<()> {
     let dst = planted_path(&dir, "t2a");
     let manifest = materialize(&base.0, &dst, &plan)?;
     let (bs, fs) = open_pair(&base.0, &dst)?;
-    let vote = trigger_vote(&bs, &fs)?;
+    let vote = trigger_vote_with_reader(&bs, &fs, VoteReader::Raw)?;
     let bl = baseline_rankings(&bs, &fs, &vote)?;
     let rep = score_cell(
         PlantMode::Circular,
@@ -424,7 +425,7 @@ fn gate_row_census_exact() -> Result<()> {
     );
     remove_artifacts(&scratch_copy);
     let (bs, fs) = open_pair(&base.0, &dst)?;
-    let vote = trigger_vote(&bs, &fs)?;
+    let vote = trigger_vote_with_reader(&bs, &fs, VoteReader::Raw)?;
     let fan = manifest.triggers[0].fan_len as u64;
     let want = manifest.noise_neurons as u64 + manifest.triggers.len() as u64 * fan;
     ensure!(
@@ -630,6 +631,157 @@ fn gate_safetensors_source() -> Result<()> {
     Ok(())
 }
 
+/// T4+ ablation arm (Bench 1266 finding 1), wiring + recovery: the
+/// unit-reader vote runs the WHOLE T2b chain end to end and recovers
+/// the planted tokens on the tiny fixture. Row norms there are
+/// homogeneous (√BLOCK-family), so this pins the ARM WORKS — the
+/// wild-norm question (does unit-normalization keep recovery on a real
+/// table whose outlier crowd dominates raw dots?) is the REAL-organism
+/// ablation cell, never assumed from this gate.
+fn gate_t4p_unit_reader_recovers() -> Result<()> {
+    let dir = scratch();
+    let base = tiny_base(&dir, 4)?;
+    let (rep, _m) = run_upstream_cell(&base, &dir, VoteReader::Unit, |_| {})?;
+    ensure!(
+        rep.rows.iter().all(|r| r.in_top10),
+        "unit-reader recovery failed (a planted token outside the top-10):\n{}",
+        rep.text
+    );
+    ensure!(
+        matches!(rep.outcome, CellOutcome::Pass | CellOutcome::Unproven),
+        "unit-reader cell outcome must recover (Pass) or close honestly \
+         (Unproven), never Negative on a well-formed fixture:\n{}",
+        rep.text
+    );
+    Ok(())
+}
+
+/// The norm-mass demotion gate — the analytic core of the T4+
+/// ablation. A delta aligned with token P's row (one-sparse, norm 4)
+/// is read under Raw with token O = 100× P's row riding the SAME delta
+/// at exactly 100× the score: the massive-activation crowd bias,
+/// reproduced analytically (both dots share the one-sparse structure,
+/// so the ratio is the norm ratio ± requant noise, never seed luck).
+/// Under Unit both rows normalize to the same direction, so the ratio
+/// collapses to ~1 — vote strength rides direction, never norm.
+fn gate_unit_reader_demotes_norm_mass() -> Result<()> {
+    const P: usize = 3;
+    const O: usize = 5;
+    const C: f32 = 8.0;
+    let dir = scratch();
+    let mut rng = SplitMix64::new(0xC10DD00D, 7);
+    // Embeddings: random rows; P one-sparse [4,0…); O = [400,0…) — the
+    // same direction at 100× the norm.
+    let mut emb = vec![0f32; VOCAB * EMBD];
+    for v in emb.iter_mut() {
+        *v = rng.f32v();
+    }
+    for (tok, head) in [(P, 4.0f32), (O, 400.0f32)] {
+        emb[tok * EMBD] = head;
+        for v in &mut emb[tok * EMBD + 1..(tok + 1) * EMBD] {
+            *v = 0.0;
+        }
+    }
+    // gate/up: layer 0 neuron 0's ft gate row = base + C at dim 0 (the
+    // aligned delta); every other row quantizes identically (skipped).
+    let mut gate_b = Vec::with_capacity(LAYERS);
+    let mut gate_f = Vec::with_capacity(LAYERS);
+    let mut up = Vec::with_capacity(LAYERS);
+    for l in 0..LAYERS {
+        let mut g = vec![0f32; FF * EMBD];
+        for v in g.iter_mut() {
+            *v = rng.f32v();
+        }
+        let mut u = vec![0f32; FF * EMBD];
+        for v in u.iter_mut() {
+            *v = rng.f32v();
+        }
+        let mut gf = g.clone();
+        if l == 0 {
+            gf[0] = g[0] + C;
+        }
+        gate_b.push(g);
+        gate_f.push(gf);
+        up.push(u);
+    }
+    let tensors = |gate: &[Vec<f32>]| {
+        let mut ts = vec![TinyTensor {
+            name: "token_embd.weight".into(),
+            shape: vec![EMBD, VOCAB],
+            data: q8_vals(&emb),
+        }];
+        for l in 0..LAYERS {
+            ts.push(TinyTensor {
+                name: format!("blk.{l}.ffn_gate.weight"),
+                shape: vec![EMBD, FF],
+                data: q8_vals(&gate[l]),
+            });
+            ts.push(TinyTensor {
+                name: format!("blk.{l}.ffn_up.weight"),
+                shape: vec![EMBD, FF],
+                data: q8_vals(&up[l]),
+            });
+        }
+        ts
+    };
+    let base_path = dir.join(format!("unit_raw_{}.gguf", std::process::id()));
+    let ft_path = dir.join(format!("unit_ft_{}.gguf", std::process::id()));
+    write_tiny_gguf(&base_path, &tensors(&gate_b))?;
+    write_tiny_gguf(&ft_path, &tensors(&gate_f))?;
+    let (bs, fs) = open_pair(&base_path, &ft_path)?;
+    let raw = trigger_vote_with_reader(&bs, &fs, VoteReader::Raw)?;
+    let unit = trigger_vote_with_reader(&bs, &fs, VoteReader::Unit)?;
+    ensure!(
+        raw.rows.len() == 1,
+        "expected exactly one active neuron row, got {}",
+        raw.rows.len()
+    );
+    let (row_raw, row_unit) = (&raw.rows[0], &unit.rows[0]);
+    let find = |row: &crate::trigger_vote::NeuronVoteRow, tok: usize| {
+        row.tokens.iter().position(|&t| t as usize == tok)
+    };
+    // Raw: the norm-mass token WINS the neuron's top-1 at ≥50× P's
+    // score — the bias reproduced (the analytic ratio is exactly 100;
+    // the floor leaves room for requant noise).
+    let oo_raw = find(row_raw, O);
+    ensure!(
+        oo_raw == Some(0),
+        "raw reader: the norm-mass token must win the neuron's top-1 \
+         (tokens {:?})",
+        row_raw.tokens
+    );
+    let p_raw = find(row_raw, P);
+    ensure!(
+        p_raw.is_some(),
+        "raw reader: P fell out of the top-15 (tokens {:?})",
+        row_raw.tokens
+    );
+    let ratio_raw =
+        (row_raw.scores[oo_raw.unwrap()] as f64) / (row_raw.scores[p_raw.unwrap()] as f64);
+    ensure!(
+        ratio_raw >= 50.0,
+        "raw score ratio {ratio_raw} below the 50× norm-mass bias floor"
+    );
+    // Unit: the same two rows normalize to the same direction — the
+    // ratio collapses (analytic ~1.0; the ceiling leaves rounding room).
+    let (p_u, o_u) = (find(row_unit, P), find(row_unit, O));
+    ensure!(
+        p_u.is_some() && o_u.is_some(),
+        "unit reader lost P/O from the top-15 (tokens {:?})",
+        row_unit.tokens
+    );
+    let ratio_unit =
+        (row_unit.scores[o_u.unwrap()] as f64) / (row_unit.scores[p_u.unwrap()] as f64);
+    ensure!(
+        ratio_unit <= 2.0,
+        "unit score ratio {ratio_unit} above 2 — the norm mass survived \
+         normalization"
+    );
+    let _ = std::fs::remove_file(&base_path);
+    let _ = std::fs::remove_file(&ft_path);
+    Ok(())
+}
+
 /// Materialize the planted edits as a bf16 safetensors file (the T4
 /// fixture twin: the same gate/up/down delta arithmetic a real
 /// fine-tune's file carries, in the HF container).
@@ -754,7 +906,7 @@ type FixtureGate = fn() -> Result<()>;
 /// Run every gate, returning the receipt lines (the bin's `--self-test`
 /// posture drives the SAME source the cargo tests assert).
 pub fn run_all() -> Result<Vec<String>> {
-    let gates: [(&str, FixtureGate); 8] = [
+    let gates: [(&str, FixtureGate); 10] = [
         (
             "t2b_upstream_recovery",
             gate_t2b_upstream_recovery as FixtureGate,
@@ -769,6 +921,11 @@ pub fn run_all() -> Result<Vec<String>> {
             gate_planter_refuses_degenerate,
         ),
         ("safetensors_source", gate_safetensors_source),
+        ("t4p_unit_reader_recovers", gate_t4p_unit_reader_recovers),
+        (
+            "unit_reader_demotes_norm_mass",
+            gate_unit_reader_demotes_norm_mass,
+        ),
     ];
     let mut receipts = Vec::with_capacity(gates.len());
     for (name, gate) in gates {

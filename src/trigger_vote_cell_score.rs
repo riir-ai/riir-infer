@@ -369,14 +369,34 @@ pub fn score_cell(
 }
 
 /// Full cell run: detector + baselines + scorer over a planted pair
-/// (the bin's `--cell` arm and the fixture gates share this).
+/// (the bin's `--cell` arm and the fixture gates share this). The
+/// pinned incumbent reader.
 pub fn run_cell(
     base: &dyn VoteTensors,
     ft: &dyn VoteTensors,
     manifest: &PlantManifest,
     t2a_passed: Option<bool>,
 ) -> Result<CellReport> {
-    let vote = crate::trigger_vote::trigger_vote(base, ft)?;
+    run_cell_with_reader(
+        base,
+        ft,
+        manifest,
+        t2a_passed,
+        crate::trigger_vote::VoteReader::Raw,
+    )
+}
+
+/// [`run_cell`] under an explicit [`VoteReader`] (the T4+ ablation
+/// seam). The reader is run-record provenance — the VOTE1 artifact
+/// format does not encode it — so the report carries the arm by name.
+pub fn run_cell_with_reader(
+    base: &dyn VoteTensors,
+    ft: &dyn VoteTensors,
+    manifest: &PlantManifest,
+    t2a_passed: Option<bool>,
+    reader: crate::trigger_vote::VoteReader,
+) -> Result<CellReport> {
+    let vote = crate::trigger_vote::trigger_vote_with_reader(base, ft, reader)?;
     ensure!(
         vote.verdict == Verdict::Voted,
         "the detector did not vote over the planted pair (verdict {:?}) — the \
@@ -394,13 +414,19 @@ pub fn run_cell(
     }
     let baselines =
         baseline_rankings(base, ft, &vote).context("baseline rankings over the planted pair")?;
-    Ok(score_cell(
+    let mut rep = score_cell(
         manifest.mode,
         &manifest.planted_tokens(),
         &vote,
         &baselines,
         t2a_passed,
-    ))
+    );
+    let _ = writeln!(
+        rep.text,
+        "  reader={} (VOTE1 does not encode the reader — record the arm)",
+        reader.name()
+    );
+    Ok(rep)
 }
 
 // ── Tests: direct bar-arithmetic asserts (no files) ─────────────────

@@ -29,7 +29,7 @@ use riir_infer_core::readout_screen::hex;
 use riir_infer_core::tokenizer::BpeTokenizer;
 use riir_infer_core::trigger_vote::{
     GgufVoteSource, Verdict, VoteTensors, artifact_digest, build_artifact, render_report,
-    trigger_vote,
+    trigger_vote_with_reader,
 };
 
 use riir_infer_core::trigger_vote_fixture;
@@ -52,6 +52,7 @@ fn main() {
     let mut t2a_passed = false;
     let mut cell_st = false;
     let mut cell_triggers: Option<Vec<u32>> = None;
+    let mut reader = riir_infer_core::trigger_vote::VoteReader::Raw;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--self-test" => self_test = true,
@@ -107,6 +108,19 @@ fn main() {
             },
             "--t2a-passed" => t2a_passed = true,
             "--cell-st" => cell_st = true,
+            "--reader" => {
+                match args
+                    .next()
+                    .as_deref()
+                    .and_then(riir_infer_core::trigger_vote::VoteReader::parse)
+                {
+                    Some(r) => reader = r,
+                    None => {
+                        eprintln!("trigger-vote: --reader needs raw|unit");
+                        std::process::exit(2);
+                    }
+                }
+            }
             "--cell-triggers" => {
                 let Some(v) = args.next() else {
                     eprintln!("trigger-vote: --cell-triggers needs a comma-separated id list");
@@ -198,6 +212,7 @@ fn main() {
             cell_st,
             cell_triggers.as_deref(),
             out.as_deref(),
+            reader,
         ) {
             eprintln!("trigger-vote cell FAIL: {e:#}");
             std::process::exit(1);
@@ -216,6 +231,7 @@ fn main() {
         std::path::Path::new(&ft_path),
         out.as_deref(),
         top,
+        reader,
     ) {
         eprintln!("trigger-vote FAIL: {e:#}");
         std::process::exit(1);
@@ -231,7 +247,12 @@ fn print_help() {
          \x20 trigger-vote --base <base.gguf> --ft <finetune.gguf> [--out <artifact.vote1>] [--top N]\n\
          \x20 trigger-vote --plant <t2a|t2b> --base <base.gguf> --out <planted.gguf>\n\
          \x20            [--layer N] [--triggers N] [--fan N] [--noise N] [--seed N]\n\
-         \x20 trigger-vote --cell <planted.gguf> --base <base.gguf> [--t2a-passed]\n\
+         \x20 trigger-vote --cell <planted.gguf> --base <base.gguf> [--t2a-passed]
+
+         [--reader raw|unit] — the e_t reader arm (T4+ ablation; the pinned
+         incumbent is raw). unit scales every dot by the row-norm reciprocal,
+         demoting the massive-activation crowd (Bench 1266 finding 1). The
+         VOTE1 artifact does not encode the reader — record the arm.\n\
          \n\
          Weights-only vote over the (base, finetune) pair: every MLP neuron votes\n\
          for its top-15 changed tokens by |Δgate·e_t| + |Δup·e_t| (the C.4 rule;\n\
@@ -299,6 +320,7 @@ fn run_cell(
     safetensors: bool,
     cell_triggers: Option<&[u32]>,
     out_cell_artifact: Option<&str>,
+    reader: riir_infer_core::trigger_vote::VoteReader,
 ) -> anyhow::Result<()> {
     use riir_infer_core::trigger_vote_cell::manifest_path;
     let t0 = std::time::Instant::now();
@@ -403,18 +425,19 @@ fn run_cell(
         ),
     };
     println!(
-        "cell: base={} planted={} ({} triggers={cell_triggers:?}) t2a_passed={}",
+        "cell: base={} planted={} ({} triggers={cell_triggers:?}) t2a_passed={} reader={}",
         base_path.display(),
         planted_path.display(),
         mode_line,
-        t2a_passed
+        t2a_passed,
+        reader.name()
     );
     let rep = if let Some(m) = &manifest {
-        riir_infer_core::trigger_vote_cell_score::run_cell(&*bs, &*fs, m, t2a)?
+        riir_infer_core::trigger_vote_cell_score::run_cell_with_reader(&*bs, &*fs, m, t2a, reader)?
     } else {
         // The safetensors organism cell: detector + baselines + the
         // report scored against the documented trigger list.
-        let vote = riir_infer_core::trigger_vote::trigger_vote(&*bs, &*fs)?;
+        let vote = riir_infer_core::trigger_vote::trigger_vote_with_reader(&*bs, &*fs, reader)?;
         let baselines =
             riir_infer_core::trigger_vote_cell_score::baseline_rankings(&*bs, &*fs, &vote)?;
         let rep = riir_infer_core::trigger_vote_cell_score::score_cell(
@@ -428,8 +451,9 @@ fn run_cell(
             let bytes = riir_infer_core::trigger_vote::build_artifact(&vote);
             std::fs::write(out_path, &bytes).with_context(|| format!("writing {out_path}"))?;
             println!(
-                "artifact: {out_path} (blake3 {})",
-                hex(&riir_infer_core::trigger_vote::artifact_digest(&bytes))
+                "artifact: {out_path} (blake3 {}, reader={})",
+                hex(&riir_infer_core::trigger_vote::artifact_digest(&bytes)),
+                reader.name()
             );
         }
         rep
@@ -445,6 +469,7 @@ fn run_vote(
     ft_path: &std::path::Path,
     out: Option<&str>,
     top: usize,
+    reader: riir_infer_core::trigger_vote::VoteReader,
 ) -> anyhow::Result<()> {
     let t0 = Instant::now();
     let base_gguf =
@@ -463,8 +488,12 @@ fn run_vote(
         base_src.vocab(),
     );
     let tok = BpeTokenizer::from_gguf(&base_gguf).ok();
-    let v = trigger_vote(&base_src, &ft_src)?;
-    println!("vote pass: {} ms", t0.elapsed().as_millis());
+    let v = trigger_vote_with_reader(&base_src, &ft_src, reader)?;
+    println!(
+        "vote pass: {} ms (reader={})",
+        t0.elapsed().as_millis(),
+        reader.name()
+    );
     print!("{}", render_report(&v, tok.as_ref(), top));
     if let Some(out_path) = out {
         let bytes = build_artifact(&v);
