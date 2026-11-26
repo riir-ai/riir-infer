@@ -1,0 +1,141 @@
+# Issue 1254: PoC cell — Plato's Key cross-model key transfer (closed-form rotation, functional recall swap)
+
+**Status:** Open
+**Claimed:** zed-m3-research-lane, 1795663960, expires 2026-11-28T03:32Z
+
+Filing record: `../.research/044_Platos_Key_CrossModel_Key_Transfer.md` (distillation + prior art + falsifiers). This issue is the runnable PoC cell.
+
+## Claim (pinned)
+
+A closed-form orthogonal-Procrustes map (rotation + one global scale, mean-centered,
+fit on paired-recall facts), frozen as a BLAKE3 artifact and applied as a single
+hidden-state REPLACE at the recipient's subject-token layer, transfers factual recall
+across two frozen LLMs — adjudicated on THIS stack's IN-RANGE cross-arch pair against
+the stack's own cross-arch negative (riir-train Benches 424–427
+`424_canon_p3_rust_discrimination` … `427_canon_p4_recipe_d_length_matched`:
+hidden-state agreement structurally ~0 for steering directions; katgpt-rs's own
+424–427 are unrelated benches).
+
+## Why here
+
+riir-infer owns model-based inference substrate (BOUNDARY.md); the cell consumes
+on-disk checkpoints + the CPU/GPU forwards. The generic rotation fit already ships
+upstream (`katgpt_spectral::procrustes`, Bench 562 GOAT) but katgpt-spectral is not
+in this repo's dep allowlist — the cell is TEST-LOCAL first (one-sided Jacobi f64,
+verbatim precedent: `katgpt-attn/tests/issue_925_procrustes_probe.rs`); a production
+promotion adds the allowlist row + BOUNDARY.md edit in the same commit as the dep.
+No new linear algebra, no training, no weight writes anywhere.
+
+⛔ **Scale discipline (verdict round 1):** the paper's validated range is 1.5–27B.
+A below-floor null cannot separate architecture from scale, so it can never extend
+the 424–427 negative — the ADJUDICATION runs on the in-range pair; the small pair
+is a smoke arm with its null pre-registered INCONCLUSIVE-below-floor. The 27B
+forwards are heavy work: they route to the 4090/amo rig queue
+(`agent-mail rig run --est`); m3 never executes them.
+
+## Cell design
+
+⛔ **Architecture law (verdict round 2):** a model's architecture is read from
+`general.architecture` in the GGUF header (probe: `py scripts/plan402_gguf_probe.py
+<file.gguf>` from riir-train), NEVER from the filename. Header-verified 2026-11-26:
+`Qwen3.8-27B-DFlash2` is `dflash` — a 5-block NON-CAUSAL draft head that cannot
+recall facts and has no subject-token layer; `Ternary-Bonsai-2/2.5` are `qwen35`
+(64-block GDN hybrid). DFlash2 / dspark / mtp files are NEVER recipients or donors.
+
+**Arms (in-range primary first; heavy arms route to 4090/amo via the rig queue):**
+
+- **A1 — PRIMARY adjudication (cross-arch, in-range):** recipient
+  `riir-train/data/gemma-2-2b-it-f16.gguf` (dense gemma-2, d=2304) × donor
+  `riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf` (`qwen35` GDN hybrid,
+  packed ternary, d=5120, on disk). Gemma is RESTORE-GATED and the backup row
+  is an ARCHIVE, not an upstream mirror: it is a local `convert_hf_to_gguf` of
+  `google/gemma-2-2b-it@299a8560` marked not-re-downloadable — the backup pull
+  is the ONLY restore path, never an HF re-download (a fresh fetch would be a
+  different snapshot): `cd ../riir-train && ./scripts/data_backup.sh pull
+  data/gemma-2-2b-it-f16.gguf`. Disclosed deviation: the archived checkpoint is
+  IT-tuned, the paper used BASE models — if the paired-recall filter degrades on
+  it, the alternative arm is an HF fetch of an in-range (≥1.5B) non-Qwen BASE
+  model, recorded as a DOWNLOAD step with sha256. Both members sit inside the
+  paper's validated 1.5–27B span (2.6B / 27B). No in-range non-Qwen full LM
+  exists on disk today (verified by header probe, not filenames).
+- **A1 protocol addition — cross-dim fit:** gemma d=2304 ≠ qwen35 d=5120. Fit in
+  a SHARED top-r PC space (r=256 — exactly the paper's compression arm, which
+  retains 74%): PCA each side's keys to r dims, square r×r Procrustes in that
+  space, swap = project → rotate → reconstruct with the recipient's OWN PCs +
+  training mean. Semi-orthogonal full-dim fit is the fallback arm. Layer
+  selection uses DEPTH PERCENTAGE (22–38%), never absolute indices (26 vs 64
+  blocks). ⛔ **Leak law:** the PCs and training means are fit on the TRAIN
+  split of the paired facts ONLY — fitting them on all facts leaks test-set
+  geometry into the swap and inflates transfer.
+- **A1 controls are defined INSIDE the same PC space** (no identity map exists
+  between 2304 and 5120 raw dims): identity control = the r×r identity through
+  the identical project→reconstruct path; random-rotation control = a Haar-random
+  r×r orthogonal matrix through that same path. G1's "≥ 2× identity" compares
+  against the PC-space identity, never a raw-dim one.
+- **A2 — same-architecture in-range control (isolates training variance):**
+  recipient `Ternary-Bonsai-2-27B-PQ2_0.gguf` × donor
+  `Ternary-Bonsai-2.5-27B-PQ2_0.gguf` — both header-verified `qwen35` 64-block,
+  same PrismML Bonsai lineage, different training generations (2.5 = agentic
+  retrain of Qwen3.8-27B per riir-train `data/BASE_MODELS.md`; Bonsai-2's exact
+  base is a cell-time T0 check — if it shares 2.5's base, relabel the arm
+  same-base/different-post-train). Same d=5120, square full-dim fit.
+- **A3 — below-floor smoke (INCONCLUSIVE-below-floor by pre-registration):**
+  recipient `Qwen3.5-0.8B-Base-Q8_0.gguf` × donor `MiniCPM5-1B-F16.gguf` — ⛔ the
+  MiniCPM GGUF is NOT on disk (only `minicpm5-tokenizer/`; the riir-train
+  AGENTS.md LOCAL-KEEP row is stale vs disk, observed 2026-11-26). Restore first:
+  `cd ../riir-train && ./scripts/data_backup.sh pull data/MiniCPM5-1B-F16.gguf`.
+  A3 results never feed the G1 verdict.
+
+**Common protocol:**
+- **Facts:** 16-relation set (capitals / authors / currencies / …), subject-wise
+  train/val/test split; paired-recall filter = both models answer correctly on the
+  direct prompt. Target ≥ 2k pairs (paper used < 5k training facts).
+- **Fit:** mean-center → orthogonal Procrustes (test-local Jacobi, f64 internals,
+  deterministic — tie rule pinned) → global scale s by spread match (NOT
+  least-squares; the paper shows LS scales underperform — verified by the
+  scale-law arm below, since that claim leans on the blog alone).
+- **Swap:** donor key = hidden state at last subject token, layer ℓA; replace the
+  recipient's state at layer ℓB, same position, with s·R·h_donor, then continue the
+  forward. ℓA/ℓB selected on validation transfer over the 22–38% depth band.
+  Test-level forward hook (set-once/clear-after, the `census_column_scale`
+  seam's sibling shape). ⛔ Hook placement is PER-FORWARD-PATH and follows the
+  recipient: A1's replace point is the gemma DENSE path; the Bonsai donor side is
+  CAPTURE-ONLY (qwen35 GDN hidden-state readout — the `HybridForwardScratch`
+  harvest precedent, sink_audit). The optional reverse-direction arm is what
+  puts a hook on the qwen35 packed-ternary path — cost named, not assumed shared.
+- **Arms per pair:** transfer (primary) · controls: identity map, random rotation,
+  shuffled donor keys · self-swap ceiling at ℓB · mKNN-selected-layer contrast ·
+  **scale-law arm** (spread-match scale vs least-squares scale — if LS ≈ spread,
+  record the divergence, no demote) · chained-rotation spot check (one triple,
+  A1 only) · dark-memory report-only arm (donor-recalls/recipient-misses: ICL /
+  paraphrase / rank-1-of-≤50 checks; A1 only).
+
+## Gates (pre-registered)
+
+- **G1 PASS:** A1 (in-range) test-transfer ≥ 15% absolute AND ≥ 3× random-rotation
+  control AND ≥ 2× identity control; controls clean. A2 reported alongside
+  (architecture-vs-training read); A3 smoke, no verdict weight.
+- **G1 NEGATIVE:** A1 transfer ≤ random-rotation control + noise ⇒ the cross-arch
+  negative (riir-train Benches 424–427) EXTENDS to functional key transfer at
+  validated 27B scale — record NEGATIVE in Research 044's PoC Addendum, demote,
+  close. ⛔ A3's null can NEVER drive this (scale-confounded by construction).
+- **G3:** hook-compiled-unarmed forward bit-identical (FNV/argmax walk pins, the
+  env-switch law's shape) — per forward path.
+- **G4:** swap apply alloc-free at serving shape (one d×d matvec + one copy).
+- Dark-memory arm: REPORT-ONLY (paper's 18% is on 1.5–27B pairs; no bar until A1).
+- Execution routing: `agent-mail rig run` to 4090 or amo, `--est` on every job,
+  `--exclusive` for the 27B forward sweeps; m3 authors and adjudicates only.
+
+## Outputs
+
+`.benchmarks/<next>_i1254_*` cell record (verdict + raw tables); PoC Addendum in
+Research 044; tiers re-graded there on the result (the frozen donor-key-table
+serving framing stays unclaimed until a PASS).
+
+## Refs
+
+Research 044 · katgpt-rs `.docs/05_adaptation/canonical_intent_space.md` + Bench 562
+(`562_katgpt_canon_goat.md`, katgpt-rs) · **riir-train** Benches 424–427
+(`424_canon_p3_rust_discrimination` … `427_canon_p4_recipe_d_length_matched`) ·
+riir-infer Issues 1189 (closed_form_write), 1208 (RIMSK artifact law), 1241 (census
+push seam), 1250 (readout_screen) · Hazy Research blog 2026-11-25.
