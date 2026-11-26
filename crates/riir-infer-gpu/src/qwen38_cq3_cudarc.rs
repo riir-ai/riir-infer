@@ -84,7 +84,7 @@ impl<'b, T> Cq3SliceArg<T> for &'b CudaSlice<T> {
         args: &'a mut cudarc::driver::LaunchArgs<'c>,
     ) -> &'a mut cudarc::driver::LaunchArgs<'c>
     where
-        Self: 'a,
+        Self: 'c,
     {
         // SAFETY: the arg impls push the device pointer + sync events (the
         // crate's own unsafe contract, satisfied by construction here).
@@ -98,7 +98,7 @@ impl<'b, 'c, T> Cq3SliceArg<T> for &'b CudaView<'c, T> {
         args: &'a mut cudarc::driver::LaunchArgs<'d>,
     ) -> &'a mut cudarc::driver::LaunchArgs<'d>
     where
-        Self: 'a,
+        Self: 'd,
     {
         // SAFETY: as above.
         unsafe { args.arg(self) }
