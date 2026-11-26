@@ -10,7 +10,17 @@
 //! trigger-vote --self-test
 //! trigger-vote --base <base.gguf> --ft <finetune.gguf> \
 //!              [--out <artifact.vote1>] [--top N]
+//! trigger-vote --plant <t2a|t2b> --base <base.gguf> --out <planted.gguf> \
+//!              [--layer N] [--triggers N] [--fan N] [--noise N] [--seed N]
+//! trigger-vote --cell <planted.gguf> --base <base.gguf> [--t2a-passed]
 //! ```
+//!
+//! `--plant` builds the Issue-1251 T2 fixture: plans (analysis + the
+//! pre-write self-falsifier printed BEFORE any byte moves), materializes
+//! the planted GGUF copy + the PLNT1 manifest beside it. `--cell` runs
+//! the T3 recovery cell over a planted pair: detector → baselines →
+//! pinned bar, printing the pre-registered verdict. Report-only — the
+//! exit code never encodes the verdict.
 
 use riir_infer_core::gguf_loader::GgufFile;
 use riir_infer_core::readout_screen::hex;
@@ -29,12 +39,68 @@ fn main() {
     let mut ft: Option<String> = None;
     let mut out: Option<String> = None;
     let mut top: usize = 30;
+    let mut plant: Option<riir_infer_core::trigger_vote_cell::PlantMode> = None;
+    let mut cell: Option<String> = None;
+    let mut layer = riir_infer_core::trigger_vote_cell::LAYER_MIDDLE;
+    let mut triggers = riir_infer_core::trigger_vote_cell::TRIGGERS_MIN;
+    let mut fan = riir_infer_core::trigger_vote_cell::FAN_PER_TRIGGER;
+    let mut noise = riir_infer_core::trigger_vote_cell::NOISE_NEURONS;
+    let mut seed = riir_infer_core::trigger_vote_cell::DEFAULT_SEED;
+    let mut t2a_passed = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--self-test" => self_test = true,
             "--base" => base = args.next(),
             "--ft" => ft = args.next(),
             "--out" => out = args.next(),
+            "--plant" => match args
+                .next()
+                .as_deref()
+                .and_then(|v| riir_infer_core::trigger_vote_cell::PlantMode::parse(v).ok())
+            {
+                Some(m) => plant = Some(m),
+                None => {
+                    eprintln!("trigger-vote: --plant needs circular|t2a or upstream|t2b");
+                    std::process::exit(2);
+                }
+            },
+            "--cell" => cell = args.next(),
+            "--layer" => match args.next().and_then(|v| v.parse::<usize>().ok()) {
+                Some(n) => layer = n,
+                _ => {
+                    eprintln!("trigger-vote: --layer needs an integer");
+                    std::process::exit(2);
+                }
+            },
+            "--triggers" => match args.next().and_then(|v| v.parse::<usize>().ok()) {
+                Some(n) if n > 0 => triggers = n,
+                _ => {
+                    eprintln!("trigger-vote: --triggers needs a positive integer");
+                    std::process::exit(2);
+                }
+            },
+            "--fan" => match args.next().and_then(|v| v.parse::<usize>().ok()) {
+                Some(n) if n > 0 => fan = n,
+                _ => {
+                    eprintln!("trigger-vote: --fan needs a positive integer");
+                    std::process::exit(2);
+                }
+            },
+            "--noise" => match args.next().and_then(|v| v.parse::<usize>().ok()) {
+                Some(n) => noise = n,
+                _ => {
+                    eprintln!("trigger-vote: --noise needs an integer");
+                    std::process::exit(2);
+                }
+            },
+            "--seed" => match args.next().and_then(|v| v.parse::<u64>().ok()) {
+                Some(n) => seed = n,
+                _ => {
+                    eprintln!("trigger-vote: --seed needs a u64");
+                    std::process::exit(2);
+                }
+            },
+            "--t2a-passed" => t2a_passed = true,
             "--top" => match args.next().and_then(|v| v.parse::<usize>().ok()) {
                 Some(n) if n > 0 => top = n,
                 _ => {
@@ -54,7 +120,10 @@ fn main() {
     }
 
     if self_test {
-        match trigger_vote_fixture::run_all() {
+        match trigger_vote_fixture::run_all().and_then(|mut r| {
+            r.extend(riir_infer_core::trigger_vote_cell_fixture::run_all()?);
+            Ok(r)
+        }) {
             Ok(receipt) => {
                 println!("trigger-vote self-test: {} gate(s) PASS", receipt.len());
                 for line in receipt {
@@ -65,6 +134,47 @@ fn main() {
                 eprintln!("trigger-vote self-test FAIL: {e:#}");
                 std::process::exit(1);
             }
+        }
+        return;
+    }
+
+    if let Some(mode) = plant {
+        let Some(base_path) = base else {
+            eprintln!("trigger-vote: --plant needs --base <base.gguf>");
+            std::process::exit(2);
+        };
+        let Some(dst) = out else {
+            eprintln!("trigger-vote: --plant needs --out <planted.gguf>");
+            std::process::exit(2);
+        };
+        if let Err(e) = run_plant(
+            std::path::Path::new(&base_path),
+            std::path::Path::new(&dst),
+            mode,
+            layer,
+            triggers,
+            fan,
+            noise,
+            seed,
+        ) {
+            eprintln!("trigger-vote plant FAIL: {e:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    if let Some(planted_path) = cell {
+        let Some(base_path) = base else {
+            eprintln!("trigger-vote: --cell needs --base <base.gguf>");
+            std::process::exit(2);
+        };
+        if let Err(e) = run_cell(
+            std::path::Path::new(&base_path),
+            std::path::Path::new(&planted_path),
+            t2a_passed,
+        ) {
+            eprintln!("trigger-vote cell FAIL: {e:#}");
+            std::process::exit(1);
         }
         return;
     }
@@ -93,15 +203,115 @@ fn print_help() {
          USAGE:\n\
          \x20 trigger-vote --self-test\n\
          \x20 trigger-vote --base <base.gguf> --ft <finetune.gguf> [--out <artifact.vote1>] [--top N]\n\
+         \x20 trigger-vote --plant <t2a|t2b> --base <base.gguf> --out <planted.gguf>\n\
+         \x20            [--layer N] [--triggers N] [--fan N] [--noise N] [--seed N]\n\
+         \x20 trigger-vote --cell <planted.gguf> --base <base.gguf> [--t2a-passed]\n\
          \n\
          Weights-only vote over the (base, finetune) pair: every MLP neuron votes\n\
          for its top-15 changed tokens by |Δgate·e_t| + |Δup·e_t| (the C.4 rule;\n\
          e_t = the BASE token-embd row); the layer band admits contiguous layers\n\
          whose top-100 lists share ≥10 tokens, and the pooled band ranking is\n\
-         the trigger candidate list. Writes the canonical VOTE1 artifact + digest."
+         the trigger candidate list. Writes the canonical VOTE1 artifact + digest.\n\
+         --plant builds the T2 synthetic-backdoor fixture (T2a disclosed-circular;\n\
+         T2b non-circular upstream-feature cores); --cell scores the pinned T3 bar."
     );
 }
 
+#[allow(clippy::too_many_arguments)]
+fn run_plant(
+    base_path: &std::path::Path,
+    dst_path: &std::path::Path,
+    mode: riir_infer_core::trigger_vote_cell::PlantMode,
+    layer: usize,
+    triggers: usize,
+    fan: usize,
+    noise: usize,
+    seed: u64,
+) -> anyhow::Result<()> {
+    use riir_infer_core::trigger_vote_cell::{
+        PlantConfig, materialize, plan, render_plan, stream_digest,
+    };
+    let t0 = std::time::Instant::now();
+    let gguf =
+        GgufFile::open(base_path).with_context(|| format!("opening {}", base_path.display()))?;
+    let cfg = PlantConfig {
+        mode,
+        layer,
+        triggers,
+        fan_per_trigger: fan,
+        noise_neurons: noise,
+        seed,
+    };
+    println!("plant: planning ({}) …", mode.name());
+    let p = plan(&gguf, &cfg)?;
+    print!("{}", render_plan(&p));
+    println!("plant: writing {} + manifest …", dst_path.display());
+    let manifest = materialize(base_path, dst_path, &p)?;
+    println!(
+        "planted: {} (blake3 {}) — base digest {}",
+        dst_path.display(),
+        hex(&manifest.planted_digest),
+        hex(&manifest.base_digest)
+    );
+    println!(
+        "manifest: {} (mode {} seed {:#x} layer {})",
+        riir_infer_core::trigger_vote_cell::manifest_path(dst_path).display(),
+        mode.name(),
+        seed,
+        manifest.layer
+    );
+    let _ = stream_digest(base_path)?; // cheap; already computed inside materialize
+    println!("plant pass: {} ms", t0.elapsed().as_millis());
+    Ok(())
+}
+
+fn run_cell(
+    base_path: &std::path::Path,
+    planted_path: &std::path::Path,
+    t2a_passed: bool,
+) -> anyhow::Result<()> {
+    use riir_infer_core::trigger_vote_cell::manifest_path;
+    use riir_infer_core::trigger_vote_cell_score::run_cell;
+    let t0 = std::time::Instant::now();
+    let mpath = manifest_path(planted_path);
+    let manifest = riir_infer_core::trigger_vote_cell::PlantManifest::load(&mpath)
+        .with_context(|| format!("loading {} (plant first)", mpath.display()))?;
+    // Verify the planted file against the manifest's digest BEFORE any
+    // tensor work (the provenance law).
+    let planted_digest = riir_infer_core::trigger_vote_cell::stream_digest(planted_path)?;
+    anyhow::ensure!(
+        planted_digest == manifest.planted_digest,
+        "planted file digest {} != manifest's {} — re-plant or point --cell at the manifest's file",
+        hex(&planted_digest),
+        hex(&manifest.planted_digest)
+    );
+    let base_gguf =
+        GgufFile::open(base_path).with_context(|| format!("opening {}", base_path.display()))?;
+    let planted_gguf = GgufFile::open(planted_path)
+        .with_context(|| format!("opening {}", planted_path.display()))?;
+    let bs = GgufVoteSource::open(&base_gguf, base_path)?;
+    let fs = GgufVoteSource::open(&planted_gguf, planted_path)?;
+    println!(
+        "cell: base={} planted={} (mode {} seed {:#x} layer {}) t2a_passed={}",
+        base_path.display(),
+        planted_path.display(),
+        manifest.mode.name(),
+        manifest.seed,
+        manifest.layer,
+        t2a_passed
+    );
+    let t2a = if manifest.mode == riir_infer_core::trigger_vote_cell::PlantMode::Upstream {
+        Some(t2a_passed)
+    } else {
+        None
+    };
+    let rep = run_cell(&bs, &fs, &manifest, t2a)?;
+    print!("{}", rep.text);
+    println!("cell pass: {} ms", t0.elapsed().as_millis());
+    Ok(())
+}
+
+use anyhow::Context;
 fn run_vote(
     base_path: &std::path::Path,
     ft_path: &std::path::Path,
@@ -147,5 +357,3 @@ fn run_vote(
     }
     Ok(())
 }
-
-use anyhow::Context;

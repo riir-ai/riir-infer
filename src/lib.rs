@@ -219,6 +219,25 @@ pub mod trigger_vote;
 #[cfg(feature = "readout_screen")]
 pub mod trigger_vote_fixture;
 
+/// The planted-fixture lane (Issue 1251 T2 — the synthetic backdoor
+/// planter behind the vote's T3 recovery cell): the in-place Q8_0 GGUF
+/// patcher, the two planters (T2a disclosed-circular; T2b non-circular
+/// upstream-feature cores), the PLNT1 manifest, and the pre-write
+/// self-falsifier. Opt-in under the same `readout_screen` feature;
+/// offline by construction (a fixture tool, never a serving path).
+#[cfg(feature = "readout_screen")]
+pub mod trigger_vote_cell;
+/// The T3 recovery cell (Issue 1251 T3 — the pinned bars): the two
+/// baselines (summed-change over the vote's own statistic family;
+/// embedding-shift) and the scorer (≥⅔ of ≥3 planted triggers in the
+/// vote's top-10, each at ≥2× the better-ranked baseline).
+#[cfg(feature = "readout_screen")]
+pub mod trigger_vote_cell_score;
+/// The cell fixture gates (Issue 1251 T2/T3 G1 — the whole chain on
+/// tiny deterministic GGUFs the fixture writes itself).
+#[cfg(feature = "readout_screen")]
+pub mod trigger_vote_cell_fixture;
+
 /// KL-vs-anchor ranked-selection census (Issue 1242 T1 — the QDA distill's
 /// anchor-KL instrument): per-token forward-KL from logits slices, the
 /// top-k-union variant, the trace-set aggregation. OPT-IN under
