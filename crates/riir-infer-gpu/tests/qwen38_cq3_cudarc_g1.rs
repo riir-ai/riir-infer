@@ -120,7 +120,6 @@ fn g1t_tiled_bit_parity_vs_host() {
         .collect();
 
     let (words, scales, c8) = device_form(&packed);
-    let x8_flat: Vec<i32> = xs.concat();
     let s_x_flat: Vec<f32> = {
         let mut v = Vec::with_capacity(tokens * groups);
         for x in &xs {
@@ -132,14 +131,26 @@ fn g1t_tiled_bit_parity_vs_host() {
         }
         v
     };
-    let params: Vec<f32> = vec![
-        g as f32,
-        f32::from(packed.b),
-        packed.codebook().s_c,
-        tokens as f32,
-        groups as f32,
-        d_out as f32,
-    ];
+    // The HOST staging pin: exactly the rule `gemv_i8_sdot` stages
+    // internally (per-group absmax/127, round-half-away clamp to
+    // [-127, 127], an all-zero group stays zero) — the device dot must
+    // see these codes, never raw f32, or the to_bits parity below is
+    // meaningless.
+    let x8_flat: Vec<i32> = {
+        let mut v = vec![0_i32; tokens * d_in];
+        for (tok, x) in xs.iter().enumerate() {
+            for grp in 0..groups {
+                let s = s_x_flat[tok * groups + grp];
+                if s > 0.0 {
+                    let base = tok * d_in + grp * g;
+                    for (m, &val) in x[grp * g..(grp + 1) * g].iter().enumerate() {
+                        v[base + m] = ((val / s).round() as i32).clamp(-127, 127);
+                    }
+                }
+            }
+        }
+        v
+    };
 
     let w_dev = stream.clone_htod(&words).unwrap();
     let sc_dev = stream.clone_htod(&scales).unwrap();
@@ -147,7 +158,6 @@ fn g1t_tiled_bit_parity_vs_host() {
     let x8_dev = stream.clone_htod(&x8_flat).unwrap();
     let sx_dev = stream.clone_htod(&s_x_flat).unwrap();
     let out_dev = stream.alloc_zeros::<f32>(tokens * d_out).unwrap();
-    let p_dev = stream.clone_htod(&params).unwrap();
 
     unsafe {
         kernels
