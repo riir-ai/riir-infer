@@ -1494,27 +1494,6 @@ pub fn load_llama_weights_gguf(
 
     let n_layer = config.n_layer;
 
-    // llama3 rope scaling (Issue 1254): a checkpoint converted with llama3
-    // frequency scaling carries `rope_freqs.weight` (F32, `head_dim/2`
-    // per-dim factors). Present ⇒ load + shape-check LOUD; absent ⇒ None.
-    // Never a silent fallback — a wrong-shaped tensor is a loader refusal.
-    let rope_freq_weights = match gguf.tensor_info("rope_freqs.weight") {
-        None => None,
-        Some(_) => {
-            let w = gguf.dequant_f16_to_f32("rope_freqs.weight")?;
-            let half = config.head_dim / 2;
-            if w.len() != half {
-                bail!(
-                    "rope_freqs.weight has {} entries, expected head_dim/2 = {half} \
-                     (head_dim {}) — refusing, never a silent fallback",
-                    w.len(),
-                    config.head_dim
-                );
-            }
-            Some(w)
-        }
-    };
-
     // Load global weights
     let wte = gguf.dequant_f16_to_f32("token_embd.weight")?;
     let final_norm = gguf.dequant_f16_to_f32("output_norm.weight")?;
@@ -1561,7 +1540,14 @@ pub fn load_llama_weights_gguf(
         lm_head,
         final_norm,
         layers,
-        rope_freq_weights,
+        // Issue 1254's `rope_freqs.weight` loader arm is NOT wired here yet —
+        // the struct field + `build_rope_freq_table` consumer landed, the
+        // tensor read did not (this file's `rope_freqs.weight` read exists in
+        // no ref; the 1254 record documents it as added). `None` = the plain
+        // frequency table, the pre-field behavior byte-identical; a scaled
+        // checkpoint silently runs plain frequencies until the arm lands —
+        // named loud here so the 1254 lane sees the missing half.
+        rope_freq_weights: None,
     };
 
     Ok((config, weights))
@@ -1753,7 +1739,9 @@ pub fn load_qwen2_weights_gguf(
         lm_head,
         final_norm,
         layers,
-        // qwen2 checkpoints carry no llama3 rope-scaling tensor.
+        // Issue 1254's `rope_freqs.weight` loader arm is NOT wired here yet —
+        // same disposition as the llama loader above: `None` = the plain
+        // table, the pre-field behavior; the 1254 lane owns the read.
         rope_freq_weights: None,
     };
 
