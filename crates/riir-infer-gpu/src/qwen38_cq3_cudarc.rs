@@ -77,8 +77,10 @@ pub struct Cq3CudarcKernels {
     quant_x8: CudaFunction,
     gemv_tiled: CudaFunction,
     /// The functions borrow the module's code image — retained so the
-    /// functions stay valid for the struct's whole life.
-    _module: CudaModule,
+    /// functions stay valid for the struct's whole life. `load_module`
+    /// hands back the `Arc` (cudarc 0.19) and the functions hold clones
+    /// of it, so this field is retention only.
+    _module: Arc<CudaModule>,
 }
 
 impl Cq3CudarcKernels {
@@ -135,7 +137,10 @@ impl Cq3CudarcKernels {
         groups: usize,
     ) -> Result<(), String> {
         let inv = 1.0f32 / (g as f32).sqrt();
-        let params: Vec<f32> = vec![g as f32, smooth_len as f32, inv, tokens as f32];
+        // Fixed-size array, never a Vec: `[T; N]` is the DeviceRepr shape
+        // the launcher accepts (a Vec does not implement it) and the hot
+        // path stays alloc-free.
+        let params: [f32; 4] = [g as f32, smooth_len as f32, inv, tokens as f32];
         let shared = (g * std::mem::size_of::<f32>()) as u32;
         // SAFETY: caller contract above.
         unsafe {
@@ -174,7 +179,7 @@ impl Cq3CudarcKernels {
         tokens: usize,
         groups: usize,
     ) -> Result<(), String> {
-        let params: Vec<f32> = vec![g as f32, tokens as f32];
+        let params: [f32; 2] = [g as f32, tokens as f32];
         // SAFETY: caller contract above.
         unsafe {
             stream
@@ -218,9 +223,11 @@ impl Cq3CudarcKernels {
         groups: usize,
         rows: usize,
     ) -> Result<(), String> {
-        let params: Vec<f32> = vec![
+        // `f32::from(u32)` does not exist — a widening `as` cast, exact
+        // for the b ≤ 8 domain.
+        let params: [f32; 6] = [
             g as f32,
-            f32::from(b),
+            b as f32,
             s_c,
             tokens as f32,
             groups as f32,
