@@ -63,6 +63,18 @@ body_provenance() {
     [ -f "$f" ] || die "missing artifact $f"
   done
   echo "build: $(git rev-parse --short=12 HEAD)"
+  # Tree-state disclosure (measurement honesty): the build compiles the LIVE
+  # worktree, not a pinned checkout — if sibling-session WIP is present it
+  # rides into the measured binary and the HEAD hash alone would misdescribe
+  # it. Record the state beside the provenance; the adjudicator reads it.
+  git --no-optional-locks status --porcelain > "$OUT/tree_state.txt" || true
+  git --no-pager diff --stat >> "$OUT/tree_state.txt" || true
+  if [ -s "$OUT/tree_state.txt" ]; then
+    echo "TREE NOT CLEAN at build time (recorded in tree_state.txt):"
+    cat "$OUT/tree_state.txt"
+  else
+    echo "tree: clean at build time"
+  fi
 }
 
 body_build_ours() {
