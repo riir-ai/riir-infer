@@ -58,6 +58,20 @@ The cell extended with phase F (T1, no SNMF changes — determinism still bit-id
 - Readability rule pinned in-cell: token wordish = trimmed ≥3 chars, all ASCII alphanumeric or ` -'`; feature readable = ≥1 wordish top-8 token. Bands = Y-row-energy quartiles by rank, band 0 = highest energy.
 - Artifact: `SNMFM1\x01` — header (layer/k/d/n/λ-bits/wta u32s + capture-digest blake3 + corpus-digest blake3) + per-feature support (neuron u32 + z f32-bits) + per-feature top-8 (sample u32 + y f32-bits) + BLAKE3 trailer. z/y ride f32-as-bits (the RDMAP1 precedent, precision disclosed by the version byte). 36×4 + 8×8 bytes per feature row + 60-byte header + 32-byte trailer = 1,747,331 B at k=100, d=3584.
 
+## T2 addendum (same day, same cell — the structure cell: recursion + coverage vs control + shared-core)
+
+The cell extended with phase G (T2; no SNMF changes — T0 numbers and both artifact digests byte-identical to the T0/T1 runs):
+
+| layer | recursive SNMF (k 100→50) parent coverage | random-parent control | ratio | verdict | top pair overlap | pairs ≥ half support |
+|---|---|---|---|---|---|---|
+| 0 deltanet | **0.255** over 50 parents | 0.067 over 50 | **3.8×** | HIERARCHY SIGNAL at fixture | 66~72: 14/36 | 0 of 4950 |
+| 3 attention | **0.293** over 50 parents | 0.063 over 50 | **4.6×** | HIERARCHY SIGNAL at fixture | 38~73: 11/36 | 0 of 4950 |
+
+- Pre-stated fixture bar: coverage > control × 1.5 AND coverage − control ≥ 0.05 — BOTH layers pass at 3.8–4.6×. The parent features genuinely cover their top-children's activating tokens: the paper's recursive-SNMF hierarchy is CONSTRUCTIBLE on our checkpoint, not just observable — the constructive half of research 693's F2 facet-accretion claim validated at fixture tier.
+- Shared-core census: the strongest pairs share 10–14 of 36 support neurons (28–39%), while ZERO of 4950 pairs reach ≥half-support — partial shared cores exist (the paper's shared-core shape at lower intensity), wholesale duplication does not. features-per-neuron mean ~2, max 41–46 from T0 backs this.
+- Method notes pinned in-cell: recursion = the SAME Snmf machinery over the child-feature matrix Zᵀ (children as samples, neurons as dims) at K_PARENT=50 — `Z ≈ Zp·M`, parent token scores = M·Y_child composed (no new math); coverage = parent's top-50 samples ∩ union of its top-10 children's top-8 / union; control = random nonnegative parent token-score rows (SplitMix64 domain-folded on the capture digest + fixed domain strings `recursive-k50` / `parent-control-random` — never unseeded-global draws). Recursion-only at the fixture tier — the paper's joint fine-tune (and its steering-quality claim) is NOT this cell's.
+- Coverage verdict recorded regardless of outcome per the issue — it landed SIGNAL.
+
 ## Runbook
 
 ```bash

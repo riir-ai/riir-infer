@@ -34,6 +34,16 @@
 //!      census in the 1250 T1 shape (readable-features count + per-band
 //!      rollups over Y-energy quartiles), and the `SNMFM1` artifact
 //!      (canonical bytes + BLAKE3 trailer, digest printed)
+//!   G. T2 structure cell — recursive SNMF (the child-feature matrix
+//!      `Z ≈ Zp·M` re-factored at k_parent=50 through the SAME
+//!      machinery), the parent-coverage metric (parent's top-50 samples
+//!      covering the union of its top-children's top-8) against the
+//!      MANDATORY random-parent control, and the shared-core census
+//!      (binarized-Z pair-overlap bands). The verdict is recorded
+//!      regardless of outcome — it doubles as the research-693 F2
+//!      facet-accretion validator on OUR checkpoint. Recursion-only at
+//!      the fixture tier: no joint fine-tune (the paper's steering
+//!      quality claim is not this cell's)
 //!
 //! Determinism posture: every cross-cell float reduction folds chunk
 //! partials COLLECTED IN ORDER (rayon `collect` is order-preserving, the
@@ -557,6 +567,13 @@ fn act_stats(rows: &[Vec<f64>]) -> (f64, f64, f64, f64, f64) {
 
 /// Top samples named per feature in the input map.
 const TOP_TOKENS_PER_FEATURE: usize = 8;
+/// Parent top-sample set size for the coverage metric (the paper's
+/// top-50 promoted-token rule).
+const PARENT_TOP_SAMPLES: usize = 50;
+/// Children considered per parent (top |M| coefficients).
+const CHILDREN_PER_PARENT: usize = 10;
+/// Parent feature count for the recursive SNMF.
+const K_PARENT: usize = 50;
 
 /// The T1 artifact: `SNMFM1` canonical bytes — header + per-feature
 /// support (neuron u32 + z f32-bits) + per-feature top samples (sample
@@ -1073,6 +1090,167 @@ fn main() -> Result<()> {
         )?;
         println!("# SNMFM1: {} ({})", art_path.display(), art_digest);
 
+        // ── T2: the structure cell — recursive SNMF + coverage vs control ──
+        // The child-feature matrix Z [d × k] re-factored at K_PARENT: the
+        // SAME Snmf machinery over Zᵀ rows (children as samples, neurons as
+        // dims) — the struct's z becomes the parent features, its y the
+        // child-to-parent coefficients.
+        let d2 = snmf.d;
+        let k2 = snmf.k;
+        let zt_rows: Vec<Vec<f64>> = (0..k2)
+            .map(|j| (0..d2).map(|r| snmf.z[r * k2 + j]).collect())
+            .collect();
+        let rec_digest =
+            blake3::hash(format!("{}|recursive-k{K_PARENT}", c.capture_digest).as_bytes())
+                .to_hex()
+                .to_string();
+        let rec_seed =
+            u64::from_le_bytes(blake3::hash(rec_digest.as_bytes()).as_bytes()[..8].try_into()?);
+        let mut rec = Snmf::new(&zt_rows, K_PARENT, args.lambda, args.wta_pct, rec_seed);
+        rec.run(args.iters);
+        // Parent token scores: tok[p][s] = Σ_j M[j][p]·y_child[j][s], where
+        // M[j][p] = rec.y[p·k2+j] (the struct's y is [kp × k_child]).
+        let n2 = snmf.n;
+        let y_child = &snmf.y;
+        let mut parent_toks: Vec<Vec<f64>> = Vec::with_capacity(K_PARENT);
+        for p in 0..K_PARENT {
+            let m_row = &rec.y[p * k2..(p + 1) * k2];
+            let mut row = vec![0.0f64; n2];
+            for (j, &m) in m_row.iter().enumerate() {
+                if m == 0.0 {
+                    continue;
+                }
+                let yc = &y_child[j * n2..(j + 1) * n2];
+                for (s, yc_v) in yc.iter().enumerate() {
+                    row[s] += m * yc_v;
+                }
+            }
+            parent_toks.push(row);
+        }
+        // Coverage: parent's top-50 samples ∩ (union of its top-children's
+        // top-8) / union. Children = top |M| per parent.
+        let coverage_of = |ptoks: &[Vec<f64>]| -> (f64, usize) {
+            let mut covered_parents = 0usize;
+            let mut total = 0.0f64;
+            for (p, ptok) in ptoks.iter().enumerate() {
+                // top children by |M[j][p]|
+                let m_col: Vec<(f64, usize)> =
+                    (0..k2).map(|j| (rec.y[p * k2 + j].abs(), j)).collect();
+                let mut m_ord = m_col.clone();
+                m_ord.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+                let kids: Vec<usize> = m_ord
+                    .iter()
+                    .take(CHILDREN_PER_PARENT)
+                    .map(|&(_, j)| j)
+                    .collect();
+                // union of children's top-8 samples
+                let mut union: std::collections::BTreeSet<usize> =
+                    std::collections::BTreeSet::new();
+                for &j in &kids {
+                    for &(s, _) in &top_samples[j] {
+                        union.insert(s);
+                    }
+                }
+                if union.is_empty() {
+                    continue;
+                }
+                // parent's top-50 samples
+                let mut ord: Vec<(f64, usize)> = ptok
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(s, v)| (v, s))
+                    .collect();
+                ord.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+                let top: std::collections::BTreeSet<usize> = ord
+                    .iter()
+                    .take(PARENT_TOP_SAMPLES)
+                    .map(|&(_, s)| s)
+                    .collect();
+                let hit = top.intersection(&union).count();
+                total += hit as f64 / union.len() as f64;
+                covered_parents += 1;
+            }
+            if covered_parents == 0 {
+                (0.0, 0)
+            } else {
+                (total / covered_parents as f64, covered_parents)
+            }
+        };
+        let (cov, cov_n) = coverage_of(&parent_toks);
+        // Random-parent control: the same coverage over RANDOM nonnegative
+        // parent token-score rows (SplitMix64 domain-folded on the capture
+        // digest — never an unseeded-global draw).
+        let ctl_digest =
+            blake3::hash(format!("{}|parent-control-random", c.capture_digest).as_bytes())
+                .to_hex()
+                .to_string();
+        let mut ctl_rng = SplitMix64(u64::from_le_bytes(
+            blake3::hash(ctl_digest.as_bytes()).as_bytes()[..8].try_into()?,
+        ));
+        let rand_toks: Vec<Vec<f64>> = (0..K_PARENT)
+            .map(|_| (0..n2).map(|_| ctl_rng.next_unit()).collect())
+            .collect();
+        let (ctl, ctl_n) = coverage_of(&rand_toks);
+        // Pre-stated fixture verdict: coverage materially above control =
+        // coverage_mean > control_mean × 1.5 AND coverage_mean − control ≥
+        // 0.05. Either way RECORDED.
+        let signal = cov > ctl * 1.5 && (cov - ctl) >= 0.05;
+        println!(
+            "# T2 hierarchy (layer {layer}): coverage {cov:.3} over {cov_n} parents | random-parent control {ctl:.3} over {ctl_n} | {}",
+            if signal {
+                "HIERARCHY SIGNAL at fixture"
+            } else {
+                "no signal at fixture (recorded)"
+            }
+        );
+
+        // Shared-core census: binarized-Z pair overlaps.
+        let mut pair_hist: std::collections::BTreeMap<usize, usize> =
+            std::collections::BTreeMap::new();
+        let mut top_pairs: Vec<(usize, usize, usize)> = Vec::new();
+        for a in 0..k2 {
+            let sa: Vec<usize> = (0..d2).filter(|&r| snmf.z[r * k2 + a] != 0.0).collect();
+            for b in (a + 1)..k2 {
+                let inter = sa.iter().filter(|&&r| snmf.z[r * k2 + b] != 0.0).count();
+                *pair_hist.entry(inter).or_insert(0) += 1;
+                top_pairs.push((inter, a, b));
+            }
+        }
+        top_pairs.sort_by(|x, y| y.0.cmp(&x.0).then(x.1.cmp(&y.1)).then(x.2.cmp(&y.2)));
+        let ge_half: usize = pair_hist
+            .iter()
+            .filter(|(k, _)| **k >= snmf.wta / 2)
+            .map(|(_, v)| *v)
+            .sum();
+        println!(
+            "# T2 shared-core (layer {layer}): pairs sharing >= half support ({} of {}): {ge_half} | top pairs: {}",
+            snmf.wta / 2,
+            k2 * (k2 - 1) / 2,
+            top_pairs
+                .iter()
+                .take(3)
+                .map(|(i, a, b)| format!("{a}~{b}:{i}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+
+        // receipt additions
+        let receipt_t2 = format!(
+            "  - T2 hierarchy: coverage {cov:.3}/{cov_n} parents vs random control {ctl:.3}/{ctl_n} — {}\n  - T2 shared-core: pairs >= half support {ge_half} | top {}\n",
+            if signal {
+                "HIERARCHY SIGNAL at fixture"
+            } else {
+                "no signal at fixture (recorded)"
+            },
+            top_pairs
+                .iter()
+                .take(3)
+                .map(|(i, a, b)| format!("{a}~{b}:{i}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+
         let (first_it, first_r) = trace.first().copied().unwrap_or((0, f64::NAN));
         let (last_it, last_r) = trace.last().copied().unwrap_or((0, f64::NAN));
         receipt.push_str(&format!(
@@ -1083,7 +1261,8 @@ fn main() -> Result<()> {
              - support: {} neurons/feature | union {} | features-per-neuron max {max_overlap} mean {mean_overlap:.2}\n\
              - determinism: bit-identical re-run ({det})\n\n\
              - readable features: {readable_features}/{k} | band readable [Q0..Q3] = {band_readable:?}\n\
-             - artifact: SNMFM1 {art_digest}\n\n\
+             - artifact: SNMFM1 {art_digest}\n\
+             {receipt_t2}\n\
              ### support sample\n{support_sample}\n\
              ### input map (top-8 samples per feature)\n{input_map_lines}\n",
             snmf.wta,
