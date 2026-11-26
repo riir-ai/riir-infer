@@ -511,7 +511,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
         queue.submit([enc.finish()]);
         submitted += 1;
-        if submitted % stride == 0 {
+        if submitted.is_multiple_of(stride) {
             let t = Instant::now();
             queue.write_buffer(&target, 0, &payload);
             samples.push(t.elapsed().as_nanos());

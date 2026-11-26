@@ -210,14 +210,163 @@ fn deltanet_recurrence_multi_token_mr_f32(
     state[row_off + c3] = s3;
 }
 
-/// Dispatches through the multi-plane arm so far — the vacuous guard (the
-/// Bench-768 lesson: a toggle that silently never reaches the kernel would
-/// otherwise read as a tie).
+/// The chunked multi-token recurrence (Issue 1236 T2) — the MR kernel's
+/// per-element chain, chunked across dispatches.
+///
+/// One launch processes `chunk_len` consecutive tokens of the full stream
+/// (token offset `t0` into the caller's `qkvx`/`beta`/`decay`/`output`
+/// buffers); the state handle is READ + WRITTEN IN PLACE, so consecutive
+/// chunk launches carry the chain on-device with no host round-trip. The
+/// per-token op sequence inside a chunk is the incumbent multi-token
+/// kernel's VERBATIM (same lane-owned columns, same `plane_sum` trees,
+/// same per-row order) — the T1 fold-order contract's control shape:
+/// chunk bookkeeping around unchanged per-element chains, bit-identity to
+/// the unchunked kernel BY CONSTRUCTION (the G1 sweep still pins it).
+///
+/// `planes`/`q_defer` ride the same comptime specialization discipline as
+/// [`DeltanetRecurrenceMultiTokenMRCubeCL`].
 #[cfg(all(
     feature = "cubecl_runtime",
     feature = "ternary_deltanet_chunked_prefill"
 ))]
-static REC_MR_LAUNCHES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cube(launch_unchecked)]
+fn deltanet_recurrence_multi_token_chunk_f32(
+    qkvx: &[f32],
+    beta: &[f32],
+    decay: &[f32],
+    params: &[f32],
+    state: &mut [f32],
+    output: &mut [f32],
+    #[comptime] planes: usize,
+    #[comptime] q_defer: bool,
+) {
+    // params: [head_dim, n_head, chunk_len, v_dim, t0] — the same shape the
+    // MR kernel passes plus the chunk window's absolute token offset. The
+    // window's qkvx/beta/decay/output slices are passed PRE-OFFSET by the
+    // launcher (`BufferArg::from_raw_parts` with the byte offset), so the
+    // kernel body indexes tokens LOCALLY (0..chunk_len) exactly like the
+    // incumbent, and only `t0` shifts the OUTPUT addressing (output rows
+    // live in the caller's full-stream buffer).
+    let head_dim_f32 = params[0usize];
+    let head_dim = head_dim_f32 as u32;
+    let n_head = params[1usize] as u32;
+    let p = params[2usize] as u32; // chunk_len for this launch
+    let v_dim = params[3usize] as u32;
+    let t0 = params[4usize] as u32; // absolute token offset of this chunk
+
+    let planes_u = planes as u32;
+
+    // One cube per (head, block of `planes` rows); one plane per row — the
+    // MR geometry verbatim.
+    let head = CUBE_POS_X;
+    let row = CUBE_POS_Y * planes_u + PLANE_POS;
+
+    if head >= n_head {
+        terminate!();
+    }
+    if row >= head_dim {
+        terminate!();
+    }
+
+    let lane = UNIT_POS_PLANE;
+    let stride = PLANE_DIM;
+
+    let qkvx_stride = 3u32 * v_dim;
+    let head_off = head * head_dim;
+    let k_base = v_dim + head_off;
+    let v_base = 2u32 * v_dim + head_off;
+    let row_off = (head * head_dim * head_dim + row * head_dim) as usize;
+
+    let c0 = lane as usize;
+    let c1 = (lane + stride) as usize;
+    let c2 = (lane + 2u32 * stride) as usize;
+    let c3 = (lane + 3u32 * stride) as usize;
+
+    // Load the carried state row — the PREVIOUS chunk's write pass left it
+    // here (the in-place carry; wgpu queues are in-order, so the read sees
+    // the prior chunk's final state with no explicit sync).
+    let mut s0 = state[row_off + c0];
+    let mut s1 = state[row_off + c1];
+    let mut s2 = state[row_off + c2];
+    let mut s3 = state[row_off + c3];
+
+    let scale = f32::new(1.0f32) / head_dim_f32.sqrt();
+
+    let mut pending_q = f32::new(0.0f32);
+    let mut pending_t = 0u32;
+    let mut q_pending = false;
+
+    let mut t = 0u32;
+    while t < p {
+        let t_row = (t * qkvx_stride) as usize;
+        let scalar_idx = (t * n_head + head) as usize;
+        let beta_val = beta[scalar_idx];
+        let decay_val = decay[scalar_idx];
+
+        let k0 = qkvx[t_row + k_base as usize + c0];
+        let k1 = qkvx[t_row + k_base as usize + c1];
+        let k2 = qkvx[t_row + k_base as usize + c2];
+        let k3 = qkvx[t_row + k_base as usize + c3];
+
+        if q_defer && q_pending {
+            let prev_dot = plane_sum(pending_q);
+            if lane == 0u32 {
+                output[((t0 + pending_t) * v_dim + head * head_dim + row) as usize] =
+                    prev_dot * scale;
+            }
+        }
+
+        // Steps 1–5: the incumbent MR chain, VERBATIM (the T1 contract —
+        // decay, retrieval dot, delta, rank-1 update, output dot AFTER the
+        // update; no reassociation anywhere).
+        s0 *= decay_val;
+        s1 *= decay_val;
+        s2 *= decay_val;
+        s3 *= decay_val;
+
+        let acc_k = s0 * k0 + s1 * k1 + s2 * k2 + s3 * k3;
+        let kv_mem_row = plane_sum(acc_k);
+
+        let v_row = qkvx[t_row + v_base as usize + row as usize];
+        let delta_row = beta_val * (v_row - kv_mem_row);
+
+        s0 += k0 * delta_row;
+        s1 += k1 * delta_row;
+        s2 += k2 * delta_row;
+        s3 += k3 * delta_row;
+
+        let q0 = qkvx[t_row + head_off as usize + c0];
+        let q1 = qkvx[t_row + head_off as usize + c1];
+        let q2 = qkvx[t_row + head_off as usize + c2];
+        let q3 = qkvx[t_row + head_off as usize + c3];
+        let acc_q = s0 * q0 + s1 * q1 + s2 * q2 + s3 * q3;
+        if q_defer {
+            pending_q = acc_q;
+            pending_t = t;
+            q_pending = true;
+        } else {
+            let dot = plane_sum(acc_q);
+            if lane == 0u32 {
+                output[((t0 + t) * v_dim + head * head_dim + row) as usize] = dot * scale;
+            }
+        }
+
+        t += 1;
+    }
+
+    if q_defer && q_pending {
+        let last_dot = plane_sum(pending_q);
+        if lane == 0u32 {
+            output[((t0 + pending_t) * v_dim + head * head_dim + row) as usize] = last_dot * scale;
+        }
+    }
+
+    // The in-place carry: the NEXT chunk launch reads this state.
+    state[row_off + c0] = s0;
+    state[row_off + c1] = s1;
+    state[row_off + c2] = s2;
+    state[row_off + c3] = s3;
+}
 
 /// The q-defer arm's own vacuous guard (issue 1235) — the same lesson, one
 /// counter per arm: a fused launch that never reaches the kernel must not
@@ -227,6 +376,32 @@ static REC_MR_LAUNCHES: std::sync::atomic::AtomicUsize = std::sync::atomic::Atom
     feature = "ternary_deltanet_chunked_prefill"
 ))]
 static REC_QDEFER_LAUNCHES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The chunked arm's own vacuous guard (Issue 1236 T2) — the same lesson,
+/// one counter per arm: a chunked launch sequence that never reaches the
+/// kernel must not read as a tie in the T2 price cell.
+#[cfg(all(
+    feature = "cubecl_runtime",
+    feature = "ternary_deltanet_chunked_prefill"
+))]
+static REC_CHUNK_LAUNCHES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Total chunked-recurrence dispatches in this process (Issue 1236 T2).
+#[cfg(all(
+    feature = "cubecl_runtime",
+    feature = "ternary_deltanet_chunked_prefill"
+))]
+#[must_use]
+pub fn rec_chunk_launch_count() -> usize {
+    REC_CHUNK_LAUNCHES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Total multi-plane-recurrence dispatches in this process.
+#[cfg(all(
+    feature = "cubecl_runtime",
+    feature = "ternary_deltanet_chunked_prefill"
+))]
+static REC_MR_LAUNCHES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Total multi-plane-recurrence dispatches in this process.
 #[cfg(all(
@@ -473,6 +648,241 @@ impl DeltanetRecurrenceMultiTokenMRCubeCL {
     }
 }
 
+/// Launcher for the chunked multi-token recurrence (Issue 1236 T2).
+#[cfg(all(
+    feature = "cubecl_runtime",
+    feature = "ternary_deltanet_chunked_prefill"
+))]
+pub struct DeltanetRecurrenceMultiTokenChunkCubeCL;
+
+#[cfg(all(
+    feature = "cubecl_runtime",
+    feature = "ternary_deltanet_chunked_prefill"
+))]
+impl DeltanetRecurrenceMultiTokenChunkCubeCL {
+    /// Geometry constants — the MR kernel's verbatim (the chunked arm
+    /// shares its cube geometry; only the token window differs).
+    pub const PLANE: usize = DeltanetRecurrenceMultiTokenMRCubeCL::PLANE;
+    pub const COLS_PER_LANE: usize = DeltanetRecurrenceMultiTokenMRCubeCL::COLS_PER_LANE;
+
+    #[inline]
+    #[must_use]
+    pub fn supports(head_dim: usize) -> bool {
+        DeltanetRecurrenceMultiTokenMRCubeCL::supports(head_dim)
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn valid_planes(planes: usize) -> bool {
+        DeltanetRecurrenceMultiTokenMRCubeCL::valid_planes(planes)
+    }
+
+    /// Launch ONE chunk: tokens `[t0, t0 + chunk_len)` of the full stream.
+    ///
+    /// The window's qkvx/beta/decay slices are passed as PRE-OFFSET raw
+    /// buffer parts (no copy — `from_raw_parts` with the element offset),
+    /// so the kernel body indexes tokens locally while `t0` rides the
+    /// params for the OUTPUT addressing (the output buffer is the
+    /// caller's full-stream one). The state handle is read AND written in
+    /// place — the on-device carry across chunk launches (wgpu queues are
+    /// in-order, so chunk `c+1`'s read sees chunk `c`'s write with no
+    /// explicit sync).
+    ///
+    /// Bit-identity to the unchunked kernel: by construction (the T1
+    /// contract's control shape — per-element chains unchanged; the G1
+    /// sweep still pins it) — EXCEPT the q_defer drain timing: the
+    /// pending q-dot of a chunk's LAST token drains inside the SAME
+    /// launch (after the loop), whereas the unchunked arm may drain it
+    /// one token later. The drain is off the chain and its inputs are
+    /// unchanged, so the bits are the same (the G1 sweep covers the
+    /// boundary case explicitly at chunk_len ∈ {1, 7} etc.).
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure:
+    /// - `head_dim` satisfies [`Self::supports`], `valid_planes(planes)`
+    /// - the full-stream `qkvx` has `p_total * 3 * n_head * head_dim`
+    ///   elements and the window `[t0, t0 + chunk_len)` is in range
+    /// - `beta`/`decay` have `p_total * n_head` elements, window in range
+    /// - `state` has `n_head * head_dim * head_dim` elements
+    /// - `output` has `p_total * n_head * head_dim` elements
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "GPU kernel launch/dispatch: many buffer handles are inherent to the fused-kernel interface"
+    )]
+    pub unsafe fn launch_chunk_with_gpu_handles<R: Runtime>(
+        client: &ComputeClient<R>,
+        qkvx_handle: Handle,
+        beta_handle: Handle,
+        decay_handle: Handle,
+        state_handle: Handle,
+        output_handle: Handle,
+        n_head: usize,
+        head_dim: usize,
+        p_total: usize,
+        t0: usize,
+        chunk_len: usize,
+        planes: usize,
+        q_defer: bool,
+    ) {
+        debug_assert!(
+            Self::supports(head_dim),
+            "chunked recurrence requires head_dim == {}, got {head_dim}",
+            Self::PLANE * Self::COLS_PER_LANE
+        );
+        debug_assert!(
+            Self::valid_planes(planes),
+            "chunked recurrence requires a REC_MR_PLANES_LADDER arm, got {planes}"
+        );
+        debug_assert!(t0 + chunk_len <= p_total, "chunk window past end of stream");
+
+        let v_dim = n_head * head_dim;
+        let qkvx_row_elems = 3 * v_dim;
+        let scalar_row_elems = n_head;
+        // Window offsets in BYTES (the handles are the full-stream buffers;
+        // `Handle::offset_start` is additive in bytes). ⚠ The offset must
+        // respect wgpu's `min_storage_buffer_offset_alignment` (32 B on
+        // Metal): the QKVX row (384 f32 = 1536 B at head_dim 128, n_head 4)
+        // is a multiple of any power-of-two alignment, but the SCALAR row
+        // (n_head f32 = 16 B at n_head 4) is NOT — scalar offsets need
+        // their own law. Enforce both loud at launch; the scalar offset is
+        // ROUNDED UP to the alignment and the window LENGTH extended to
+        // cover the padding rows (they read past the chunk's scalars only
+        // if the kernel indexes them — it never does: the body indexes
+        // tokens 0..chunk_len, and chunk_len stays the true window; the
+        // pad rows exist only so the BINDING range covers the bytes the
+        // offset law consumes).
+        const OFFSET_ALIGN_BYTES: u64 = 32; // wgpu min_storage_buffer_offset_alignment
+        debug_assert!(
+            ((qkvx_row_elems * std::mem::size_of::<f32>()) as u64)
+                .is_multiple_of(OFFSET_ALIGN_BYTES),
+            "qkvx row must be offset-alignment sized"
+        );
+        debug_assert!(
+            (t0 * scalar_row_elems * std::mem::size_of::<f32>())
+                .is_multiple_of(OFFSET_ALIGN_BYTES as usize),
+            "scalar offset misaligned at t0={t0} — the chunk grid must keep \
+             scalar-row boundaries on the alignment"
+        );
+        debug_assert!(
+            (t0 * qkvx_row_elems * std::mem::size_of::<f32>())
+                .is_multiple_of(OFFSET_ALIGN_BYTES as usize),
+            "qkvx offset misaligned at t0={t0} — the chunk grid must keep \
+             qkvx-row boundaries on the alignment"
+        );
+        let qkvx_off = (t0 * qkvx_row_elems * std::mem::size_of::<f32>()) as u64;
+        let scalar_off_raw = (t0 * scalar_row_elems * std::mem::size_of::<f32>()) as u64;
+        // Pad the scalar window forward to the alignment (the length must
+        // cover the true chunk rows + the pad bytes the offset consumed).
+        let scalar_pad = scalar_off_raw % OFFSET_ALIGN_BYTES;
+        let scalar_off = scalar_off_raw - scalar_pad;
+        let scalar_window_elems = chunk_len * scalar_row_elems
+            + (scalar_pad / std::mem::size_of::<f32>() as u64) as usize;
+        let _ = scalar_window_elems;
+        let params: [f32; 5] = [
+            head_dim as f32,
+            n_head as f32,
+            chunk_len as f32,
+            v_dim as f32,
+            t0 as f32,
+        ];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(&params));
+        let state_len = n_head * head_dim * head_dim;
+        let output_len = p_total * v_dim;
+
+        REC_CHUNK_LAUNCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if q_defer {
+            REC_QDEFER_LAUNCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        unsafe {
+            deltanet_recurrence_multi_token_chunk_f32::launch_unchecked::<R>(
+                client,
+                // The MR geometry verbatim.
+                CubeCount::Static(n_head as u32, (head_dim / planes) as u32, 1),
+                CubeDim::new_1d((Self::PLANE * planes) as u32),
+                BufferArg::from_raw_parts(
+                    qkvx_handle.clone().offset_start(qkvx_off),
+                    chunk_len * qkvx_row_elems,
+                ),
+                BufferArg::from_raw_parts(
+                    beta_handle.clone().offset_start(scalar_off),
+                    scalar_window_elems,
+                ),
+                BufferArg::from_raw_parts(
+                    decay_handle.clone().offset_start(scalar_off),
+                    scalar_window_elems,
+                ),
+                BufferArg::from_raw_parts(params_handle, 5),
+                BufferArg::from_raw_parts(state_handle.clone(), state_len),
+                BufferArg::from_raw_parts(output_handle.clone(), output_len),
+                planes,
+                q_defer,
+            );
+        }
+    }
+
+    /// Launch the WHOLE stream as `ceil(p / chunk_len)` chunks — the T2
+    /// cell's one-call entry (and the G1 sweep's chunked arm). The state
+    /// handle carries the chain across the in-order chunk launches.
+    ///
+    /// # Safety
+    ///
+    /// Same buffer contract as the MR launcher (full-stream windows), plus
+    /// `chunk_len >= 1`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "GPU kernel launch/dispatch: many buffer handles are inherent to the fused-kernel interface"
+    )]
+    pub unsafe fn launch_chunked_with_gpu_handles<R: Runtime>(
+        client: &ComputeClient<R>,
+        qkvx_handle: Handle,
+        beta_handle: Handle,
+        decay_handle: Handle,
+        state_handle: Handle,
+        output_handle: Handle,
+        n_head: usize,
+        head_dim: usize,
+        p: usize,
+        chunk_len: usize,
+        planes: usize,
+        q_defer: bool,
+    ) {
+        assert!(chunk_len >= 1, "chunk_len must be >= 1");
+        // `Handle` is not Copy — the per-chunk launcher clones its views.
+        // ⚠ chunk boundaries land at t0 multiples of chunk_len, so the
+        // scalar-row offset alignment binds CHUNK_LEN too: the scalar row
+        // is n_head f32 wide, so chunk boundaries must keep t0·n_head·4 B
+        // on the 32-B alignment — with n_head a multiple of 8, any
+        // chunk_len works; with n_head 4 the boundaries must be even
+        // multiples (chunk_len 32/2/16/64/128/512/1024 all qualify;
+        // odd chunk_len with odd boundaries would refuse loud in debug).
+        // The ragged TAIL chunk is exempt from the LENGTH law (it reads
+        // from an aligned boundary and only shortens the window).
+        let mut t0 = 0usize;
+        while t0 < p {
+            let len = chunk_len.min(p - t0);
+            unsafe {
+                Self::launch_chunk_with_gpu_handles::<R>(
+                    client,
+                    qkvx_handle.clone(),
+                    beta_handle.clone(),
+                    decay_handle.clone(),
+                    state_handle.clone(),
+                    output_handle.clone(),
+                    n_head,
+                    head_dim,
+                    p,
+                    t0,
+                    len,
+                    planes,
+                    q_defer,
+                );
+            }
+            t0 += len;
+        }
+    }
+}
+
 #[cfg(all(
     test,
     feature = "cubecl_runtime",
@@ -545,7 +955,10 @@ mod tests {
     }
 
     /// Run one arm; `mr = None` is the shipping multi-token kernel. `q_defer`
-    /// composes with any planes value (issue 1235).
+    /// composes with any planes value (issue 1235). `chunk = Some(len)` runs
+    /// the ISSUE-1236 T2 chunked arm instead (the chunked-carry kernel over
+    /// ceil(p/len) in-order chunk launches; the MR geometry rides along) —
+    /// `mr` is ignored in that posture.
     fn run(
         client: &ComputeClient<ActiveRuntime>,
         c: &Case,
@@ -553,6 +966,7 @@ mod tests {
         p: usize,
         mr: Option<usize>,
         q_defer: bool,
+        chunk: Option<usize>,
     ) -> (Vec<u32>, Vec<u32>) {
         let qkvx = client.create_from_slice(f32::as_bytes(&c.qkvx));
         let beta = client.create_from_slice(f32::as_bytes(&c.beta));
@@ -560,8 +974,29 @@ mod tests {
         let state = client.create_from_slice(f32::as_bytes(&c.state));
         let output = client.create_from_slice(f32::as_bytes(&vec![0.0f32; p * n_head * 128]));
         unsafe {
-            match mr {
-                None => {
+            match (chunk, mr) {
+                (Some(chunk_len), _) => {
+                    DeltanetRecurrenceMultiTokenChunkCubeCL::launch_chunked_with_gpu_handles::<
+                        ActiveRuntime,
+                    >(
+                        client,
+                        qkvx,
+                        beta,
+                        decay,
+                        state.clone(),
+                        output.clone(),
+                        n_head,
+                        128,
+                        p,
+                        chunk_len,
+                        // The chunked arm rides the MR geometry at the
+                        // DEFAULT ladder arm (the promoted posture; the
+                        // planes axis is the MR sweep's business).
+                        REC_MR_PLANES_LADDER[3],
+                        q_defer,
+                    )
+                }
+                (None, None) => {
                     DeltanetRecurrenceMultiTokenCubeCL::launch_with_gpu_handles::<ActiveRuntime>(
                         client,
                         qkvx,
@@ -574,7 +1009,7 @@ mod tests {
                         p,
                     )
                 }
-                Some(planes) => {
+                (None, Some(planes)) => {
                     DeltanetRecurrenceMultiTokenMRCubeCL::launch_with_gpu_handles::<ActiveRuntime>(
                         client,
                         qkvx,
@@ -629,7 +1064,7 @@ mod tests {
         for adversarial in [false, true] {
             for &p in &[1usize, 7, 16, 63, 64, 130] {
                 let c = case(n_head, p, 0x607 + p as u64, adversarial);
-                let (ref_out, ref_state) = run(&client, &c, n_head, p, None, false);
+                let (ref_out, ref_state) = run(&client, &c, n_head, p, None, false, None);
                 assert!(
                     ref_out.iter().any(|&b| b != 0),
                     "reference output is all zero at p={p} adversarial={adversarial}"
@@ -638,7 +1073,7 @@ mod tests {
                     // Issue 1235: the q-defer fusion arm is in the same sweep —
                     // its reordering may not move one bit, at any planes value.
                     for q_defer in [false, true] {
-                        let (out, st) = run(&client, &c, n_head, p, Some(planes), q_defer);
+                        let (out, st) = run(&client, &c, n_head, p, Some(planes), q_defer, None);
                         let out_diff = out.iter().zip(&ref_out).filter(|(a, b)| a != b).count();
                         let st_diff = st.iter().zip(&ref_state).filter(|(a, b)| a != b).count();
                         assert_eq!(
@@ -665,6 +1100,71 @@ mod tests {
         );
         launches_before = launches_after;
         let _ = launches_before;
+    }
+
+    /// G1 (Issue 1236 T2): the chunked-carry kernel is bit-identical to the
+    /// shipping multi-token kernel at every chunk boundary — the T1
+    /// fold-order contract's control shape proven on the Metal lane.
+    /// The chunk grid covers: single-token chunks (max boundary count),
+    /// ragged tails (chunk ∤ p), one-chunk-covers-all (chunk ≥ p), and the
+    /// serving chunk 512 with a ragged tail (513 = 512 + 1). The
+    /// adversarial arm × the q-defer arm compose. Bit-identity is BY
+    /// CONSTRUCTION (the kernel body is the incumbent's chain verbatim);
+    /// the sweep exists because construction claims are exactly what G1
+    /// gates exist to check (the 8829247b lesson).
+    #[test]
+    fn chunk_rec_is_bit_identical_to_multi_token() {
+        let ctx = CubeCLContext::new().expect("CubeCL should initialize");
+        let client = ctx.client();
+        let n_head = 4;
+        let launches_before = rec_chunk_launch_count();
+        let mut cases_checked = 0usize;
+        for adversarial in [false, true] {
+            for &p in &[1usize, 7, 16, 63, 64, 130, 512, 513] {
+                let c = case(n_head, p, 0x1236_0000 + p as u64, adversarial);
+                let (ref_out, ref_state) = run(&client, &c, n_head, p, None, false, None);
+                assert!(
+                    ref_out.iter().any(|&b| b != 0),
+                    "reference output is all zero at p={p} adversarial={adversarial}"
+                );
+                // The chunk grid: every value keeps every chunk boundary on
+                // the 32-B bind-group offset alignment (scalar row = 4 f32
+                // = 16 B at n_head 4, so boundaries must be EVEN token
+                // counts; qkvx rows are 1536 B — always aligned). Values:
+                // 32 (the aligned max-boundary control), 2, 16, 64, 128,
+                // 512 (the serving chunk), 1024 (chunk ≥ p for the short
+                // streams). The ragged TAIL chunk only SHORTENS the window
+                // from an aligned boundary (7→2 at p=7? — no: chunk=2 at
+                // p=7 gives boundaries 0,2,4,6 then tail len 1 — every
+                // BOUNDARY stays even; the tail never creates one).
+                for &chunk_len in &[32usize, 2, 16, 64, 128, 512, 1024] {
+                    for q_defer in [false, true] {
+                        let (out, st) = run(&client, &c, n_head, p, None, q_defer, Some(chunk_len));
+                        let out_diff = out.iter().zip(&ref_out).filter(|(a, b)| a != b).count();
+                        let st_diff = st.iter().zip(&ref_state).filter(|(a, b)| a != b).count();
+                        assert_eq!(
+                            (out_diff, st_diff),
+                            (0, 0),
+                            "chunk={chunk_len} q_defer={q_defer} p={p} adversarial={adversarial}: \
+                             {out_diff} output / {st_diff} state words differ"
+                        );
+                        cases_checked += 1;
+                    }
+                }
+            }
+        }
+        // Population floor: 8 p-values × 7 chunk-lengths × 2 q_defer × 2
+        // adversarial = 224 chunked comparisons must have RUN (the
+        // green-zero rule — a silently-empty grid would read as a pass).
+        assert_eq!(
+            cases_checked, 224,
+            "the chunk G1 grid must run in full (got {cases_checked})"
+        );
+        // The vacuous guard: the sweep must have dispatched the chunk kernel.
+        assert!(
+            rec_chunk_launch_count() > launches_before,
+            "the vacuous guard: the chunk G1 sweep must have dispatched the chunked kernel"
+        );
     }
 
     /// G2 (Plan 607 D2, isolated-kernel half): the incumbent multi-token
@@ -758,9 +1258,11 @@ mod tests {
             // fusion arm composed with every ladder arm (issue 1235 — the
             // bar reads the SERVING posture, planes=8 ± defer).
             let arms: Vec<(Option<usize>, bool)> = std::iter::once((None, false))
-                .chain(REC_MR_PLANES_LADDER.iter().flat_map(|&pl| {
-                    [(Some(pl), false), (Some(pl), true)]
-                }))
+                .chain(
+                    REC_MR_PLANES_LADDER
+                        .iter()
+                        .flat_map(|&pl| [(Some(pl), false), (Some(pl), true)]),
+                )
                 .collect();
 
             // Warmup: every arm once, then the baseline hard (JIT + caches).
