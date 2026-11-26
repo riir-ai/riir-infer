@@ -220,6 +220,32 @@ fit is offline-per-pair, not runtime-adaptive; no EMA/refinement loop is claimed
 
 ## 6. Game-context and consumer-context reframes (honest, thin)
 
+**⚠ Challenge Addendum (2026-11-26, owner challenge: "closed form should hit
+modelless way too?") — the game-reframe grade below was WRONG and is corrected
+to MODERATE.** The first sweep missed the closest modelless-stack cousin
+because the code-vocab grep explicitly FILTERED OUT `cross_game` hits (meant to
+exclude false positives, it excluded the real one — the same tool-trust failure
+as the rg zero-hits). `riir-ai/crates/riir-engine/src/latent_functor/cross_game.rs`
+(shipped, Super-GOAT-gated, Plan 303 T5.5) ALREADY implements the paper's
+pattern on the modelless game stack: paired cross-domain latents → estimate a
+transfer functor → apply to held-out latents → evaluate. Signal-diff at
+estimator granularity: its `estimate_cross_game_functor` is a MEAN-DISPLACEMENT
++ cosine-coherence fit (ONE direction vector; per-pair displacements must share
+one direction), while Plato's Key's estimator is orthogonal Procrustes + global
+scale (a full rotation map, one thin SVD, deterministic) — strictly more
+expressive exactly where the paper says the shared space is a ROTATED view
+(per-pair displacements point in many directions related by one rotation;
+mean-displacement coherence ≈ 0 there, Procrustes residual tiny). The paper's
+chaining law (A→B→C ≈ 99% of A→C) also collapses an N² pairwise functor table
+to N rotations into one shared functor space. Upgrade cell filed as
+**riir-ai Issue 1264** (three arms on the module's own existing gate + the
+discriminating rotated-view fixture). The rulewright/consumer half below STAYS
+thin — grep-confirmed: no embedder-version/seed machinery exists in
+reflex+refine src (one embedder, shared by all corpora), and the determinism
+law (BLAKE3 byte-identity pins on frozen picks) fights an approximate
+rotation-ported corpus; auth fingerprints carry no versioning surface either.
+The original thin-grade text is kept below for the record.
+
 - **Game:** the stack's NPC cognition is modelless latent belief kernels, not LLM
   forwards — the analog (two environment variants' belief geometries aligned by
   one rotation into a shared KG space) exists conceptually but no consumer asks
