@@ -105,6 +105,8 @@ pub mod closed_form_write;
 /// -off law); the observe path is zero-alloc (fixture-pinned G4).
 #[cfg(feature = "implants")]
 pub mod implants;
+#[cfg(feature = "implants")]
+pub mod implants_cell;
 
 /// The katgpt-rs issue-988 T2b real-activation cell (riir-infer Issue
 /// 1206): the capture seam + the offline graft fit/eval harness over the

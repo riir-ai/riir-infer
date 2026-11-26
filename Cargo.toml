@@ -473,6 +473,14 @@ grafts_cell = ["katgpt-core/grafts", "deltanet_inference"]
 # the lib tests at this feature.
 implants = []
 
+# implants_cell (riir-infer Issue 1256 T1, 2026-11-26): the decode-seam
+# cell — fixture tier (SyntheticSource, CI-runnable) + real tier (league
+# checkpoint, CPU same-device scope, the bench-971 host shape): G1 silent
+# identity, G1b false fire, G2 fired exactness, G3 composition through the
+# SAME walk code. Forwards implants + deltanet_inference (the real host);
+# zero new deps.
+implants_cell = ["implants", "deltanet_inference"]
+
 
 
 # fitted_v_tables (riir-infer Issue 013 T1, 2026-09-28): the model-bound P1
@@ -658,6 +666,14 @@ required-features = ["deltanet_ternary_inference"]
 name = "grafts_cell"
 path = "src/bin/grafts_cell.rs"
 required-features = ["grafts_cell"]
+
+# riir-infer Issue 1256 T1 — the implant decode-seam cell bin (fixture
+# tier + real tier over the league checkpoint; G1/G1b/G2/G3 → BLAKE3-
+# pinned report). Reader protection row (the green-zero law).
+[[bin]]
+name = "implants_cell"
+path = "src/bin/implants_cell.rs"
+required-features = ["implants_cell"]
 
 # riir-infer Issue 1206 (katgpt-rs issue 988 T4) — the GOAT bench's
 # frozen-read fixture exporter: sample cache → the exact sealed-cell fit
@@ -1461,6 +1477,15 @@ required-features = ["dory"]
 [[test]]
 name = "implants_g4_alloc"
 path = "tests/implants_g4_alloc.rs"
+required-features = ["implants"]
+
+# riir-infer Issue 1256 T1 — the fixture-tier cell gates (G1/G1b/G2/G3
+# through the lib module's SyntheticSource; the repo-birth gate
+# discipline: the row rides the SAME commit as the gated target). Reader
+# protection row: a default build skips the gate loudly.
+[[test]]
+name = "implants_cell_gates"
+path = "tests/implants_cell_gates.rs"
 required-features = ["implants"]
 
 # katgpt-rs Issue 999 T3 — the real-corpus R/S lens fit (offline, compute-bound;

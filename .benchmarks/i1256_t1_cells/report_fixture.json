@@ -1,0 +1,120 @@
+{
+  "issue": "riir-infer issue 1256 T1",
+  "tier": "fixture",
+  "model_path": "../riir-train/data/Qwen3.5-0.8B-Base-Q8_0.gguf",
+  "model_blake3": "none",
+  "device_scope": "synthetic (no checkpoint)",
+  "box_state": "cpus=24 tier-posture=cpu gpu(busy,other-lane-context)=8 %, 596 MiB",
+  "max_new": 8,
+  "cells": [
+    {
+      "name": "G1_silent_identity",
+      "pass": true,
+      "counts": [
+        [
+          "silent_rows",
+          14
+        ],
+        [
+          "silent_fires",
+          0
+        ],
+        [
+          "gen_diverged_disclosed",
+          0
+        ],
+        [
+          "demote_row_digest_equal",
+          1
+        ]
+      ],
+      "notes": []
+    },
+    {
+      "name": "G1b_false_fire",
+      "pass": true,
+      "counts": [
+        [
+          "lookalike_prose_rows",
+          14
+        ],
+        [
+          "rows_fired",
+          0
+        ],
+        [
+          "total_fires",
+          0
+        ]
+      ],
+      "notes": []
+    },
+    {
+      "name": "G2_fired_exactness",
+      "pass": true,
+      "counts": [
+        [
+          "table_rows",
+          29
+        ],
+        [
+          "exact_forced",
+          29
+        ],
+        [
+          "lookalike_rows",
+          10
+        ],
+        [
+          "lookalike_identical",
+          10
+        ],
+        [
+          "chained_fires_disclosed",
+          0
+        ],
+        [
+          "fires_without_emission",
+          0
+        ]
+      ],
+      "notes": []
+    },
+    {
+      "name": "G3_composition",
+      "pass": true,
+      "counts": [
+        [
+          "table_rows",
+          29
+        ],
+        [
+          "solo_co_fire_ok",
+          29
+        ],
+        [
+          "no_interference",
+          29
+        ],
+        [
+          "combined_exact",
+          29
+        ],
+        [
+          "silent_rows_ok",
+          14
+        ],
+        [
+          "best_single_exact_ceiling",
+          15
+        ],
+        [
+          "post_emission_diverged_disclosed",
+          0
+        ]
+      ],
+      "notes": []
+    }
+  ],
+  "payload_blake3": "fa774c8c4624228d577d4a499dcf7c438b4b665b5bca36ffd4a67ce2ac60c60f"
+}
