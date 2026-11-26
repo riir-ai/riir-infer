@@ -3,7 +3,7 @@
 **Status:** Open — filed 2026-11-25 with the retarget landing (riir-infer Research 043)
 **Lease closed:** zed-i1253t3@amo, 1795719635, was expires 2026-11-28T12:00:00+00:00 — T3 cheap half LANDED 2026-11-26 (bin `i1253_t3_metal_sanity` + Bench [1272](.benchmarks/1272_i1253_t3_metal_sanity.md): " Paris" rank 1 on 2.5 (margin 3.75 logits, wider than the predecessor's 2.94), clean decode walks, finiteness guards, FNV receipts reproduced across runs; production Metal posture, load+non-claim walls disclosed. The 4090 fork-logits-parity G1 half stays OPEN with the GPU lane; T5's dependency pair (T2+T3) is satisfied for the Metal side.
 **Lease closed:** zed-77b3f327@m3, 1795623876, was expires 2026-11-27T16:24:36Z — T1 landed with the filing; the routing note stands (T2–T6 unclaimed per-box).
-**Lane routing (not part of the claim):** T1 rides this commit; T2–T6 are unclaimed work — route to amo/bmo/4090 per box law
+**Lane routing (not part of the claim):** T1 rides this commit; T2–T6 are unclaimed work — route to amo/bmo/4090 per box law. **T5's lane breakdown + pre-registered bars: [`.plans/639_i1253_t5_mtp_draft_block_lane.md`](.plans/639_i1253_t5_mtp_draft_block_lane.md)** (filed 2026-11-26; slices T5.1–T5.5 claim individually; T5.4/T5.5 measured cells are quiet-window-only by the plan's own law).
 
 **Lease closed:** zed-c133e475@4090, epoch 1795706388, was expires 2026-11-28T15:20:00Z — T2 DISCHARGED same session (`5d1e2cf` + Bench 1271: the typed census + declare-or-refuse/disclosure classes, real-twin proof cell GREEN 119.67 s at release). T5's intake path is unblocked (the twin loads; the disclosure names the lane); T3/T4 remain with riir-ai 1263's GPU-leg lane; T6 untouched.
 
