@@ -885,6 +885,14 @@ required-features = ["mtp_draft_block"]
 name = "mtp_draft_step_gates"
 required-features = ["mtp_draft_block", "deltanet_ternary_inference", "bonsai2_hadamard"]
 
+# Issue 1253 T5.2 G4 (plan 639 bar (c)'s precursor) — the draft step's
+# allocation gate in its OWN binary (the counting allocator is
+# process-global; one measured test per binary, the twt_g4_alloc lesson).
+# Pins the verdict-defect fix (the per-call inp_sa to_vec is gone).
+[[test]]
+name = "mtp_draft_step_g4_alloc"
+required-features = ["mtp_draft_block", "deltanet_ternary_inference", "bonsai2_hadamard"]
+
 # Issue 1249 — the two-cell GDN erase-stability gate (pure-CPU; the shipped
 # scalar-beta step + the MemT channel-wise sweep; no GPU, no other features).
 [[test]]

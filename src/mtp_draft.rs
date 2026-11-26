@@ -18,17 +18,28 @@
 //!
 //! ## Basis contract (the crux, pinned before any run)
 //!
+//! **Which hidden the fork hands over — the verdict's open question,
+//! resolved by source read 2026-11-27:** `qwen35.cpp`'s main graph norms
+//! FIRST, then publishes BOTH consumers from the SAME normed tensor —
+//! `cur = build_norm(cur, model.output_norm, …, LLM_NORM_RMS, -1);
+//! cb(cur, "h_nextn", -1); res->t_h_nextn = cur; … res->t_embd = cur;` —
+//! so `t_h_nextn` (the MTP block's `inp->h`) is the hidden AFTER
+//! `output_norm`, and the MTP graph's `hnorm` then applies ON TOP (two
+//! norms with different gammas — by design, not a bias; the same shape
+//! the embed side carries: `enorm` norms the already-token-embedding
+//! vector). This module's `h_prev` contract (post-final-norm, primal) is
+//! the fork's own; the hidden variant's rotated copy recovers it with
+//! `rotate_inverse_inplace` (the Issue-1111 recipe).
+//!
 //! The Hadamard fold stores `W_f = W·D·H` and applies `H·D` at each folded
 //! matmul's input locally — the RESIDUAL STREAM IS PRIMAL everywhere
 //! (`tests/bonsai2_rotation_load.rs::hidden_variant_returns_head_basis`
 //! pins the one visible exception: the hidden variant returns the rotated
 //! head-basis copy). This module therefore consumes `h_prev` in the
-//! PRIMAL basis: a caller holding the hidden variant's `hidden_copy`
-//! recovers it with `rotate_inverse_inplace(signs_for_width(n))` — the
-//! Issue-1111 doc's own recipe. The draft block's own tensors are NOT
-//! folded (verified: the real twin's `prism.hadamard.weight_names` carries
-//! zero `nextn`/`blk.64` entries), so steps 2–3 run primal-in/primal-out
-//! with no rotation; only the head matvec (step 4) rotates.
+//! PRIMAL basis. The draft block's own tensors are NOT folded (verified:
+//! the real twin's `prism.hadamard.weight_names` carries zero
+//! `nextn`/`blk.64` entries), so steps 2–3 run primal-in/primal-out with
+//! no rotation; only the head matvec (step 4) rotates.
 //!
 //! The CPU reference is the ORACLE (the reference-keeps-the-job law): a
 //! GPU/Metal arm (T5.5) is admissible only against this step's numbers.
@@ -54,6 +65,9 @@ pub struct MtpDraftStepScratch {
     pub embed_primal: Vec<f32>,
     /// The compose input `concat(enorm(embed), hnorm(h))` (`[2·n_embd]`).
     pub concat: Vec<f32>,
+    /// The attention-leg residual anchor `[n_embd]` — the eh_proj output
+    /// (the fork's `inpSA`; the attention residual adds onto it).
+    pub inp_sa: Vec<f32>,
     /// Gated-Q output `[2·q_dim]` (q ‖ gate interleaved per head, Issue 594).
     pub qg: Vec<f32>,
     /// Q after the split `[q_dim]`.
@@ -88,6 +102,7 @@ impl MtpDraftStepScratch {
         Self {
             embed_primal: vec![0.0; n],
             concat: vec![0.0; 2 * n],
+            inp_sa: vec![0.0; n],
             qg: vec![0.0; 2 * q_dim],
             q: vec![0.0; q_dim],
             gate: vec![0.0; q_dim],
@@ -178,8 +193,10 @@ pub fn mtp_draft_step(
 
     // 3. The block: gated attention → residual → post-attn norm → SwiGLU
     //    → residual. `inpSA` = the eh_proj output (the fork's residual
-    //    anchor for the attention leg).
-    let inp_sa: Vec<f32> = h_prev[..n].to_vec();
+    //    anchor for the attention leg) — saved in the SCRATCH (a per-call
+    //    `to_vec` here allocated every step; the verdict defect, fixed —
+    //    bar (c) is a pre-registered gate, not a doc aspiration).
+    scratch.inp_sa[..n].copy_from_slice(&h_prev[..n]);
 
     // 3a. Gated Q projection + split (the Issue-594 per-head interleave).
     dense_matvec(&block.attn_q, 2 * q_dim, n, &h_prev[..n], &mut scratch.qg);
@@ -262,8 +279,15 @@ pub fn mtp_draft_step(
         &scratch.attn_out[..q_dim],
         h_prev,
     );
-    // 3f. The attention residual (onto inpSA).
-    for (xi, r) in h_prev[..n].iter_mut().zip(&inp_sa) {
+    dense_matvec(
+        &block.attn_output,
+        n,
+        q_dim,
+        &scratch.attn_out[..q_dim],
+        h_prev,
+    );
+    // 3f. The attention residual (onto the saved inpSA).
+    for (xi, r) in h_prev[..n].iter_mut().zip(&scratch.inp_sa[..n]) {
         *xi += *r;
     }
 
