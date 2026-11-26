@@ -4294,7 +4294,7 @@ impl Qwen38DenseForward {
         if let Some(h) = w.cq3.as_ref() {
             // The whole-buffer slices ride as views (the kernel args are
             // view-typed; PushKernelArg<&CudaView> is the inherent impl).
-            return h.gemv_decode(&self.stream, x_f32.as_view(), y.as_view());
+            return h.gemv_decode(&self.stream, &x_f32.as_view(), &y.as_view());
         }
         #[cfg(not(feature = "cq3_cuda"))]
         let _ = x_f32;
@@ -7858,7 +7858,7 @@ impl Qwen38DenseForward {
         // one entry, disclosed — a second p re-grows it).
         #[cfg(feature = "cq3_cuda")]
         if let Some(h) = w.cq3.as_ref() {
-            return h.gemv_batched(&self.stream, x_f32.as_view(), y.as_view(), p);
+            return h.gemv_batched(&self.stream, &x_f32.as_view(), &y.as_view(), p);
         }
         #[cfg(not(feature = "cq3_cuda"))]
         let _ = x_f32;
