@@ -292,13 +292,6 @@ pub fn mtp_draft_step(
         &scratch.attn_out[..q_dim],
         h_prev,
     );
-    dense_matvec(
-        &block.attn_output,
-        n,
-        q_dim,
-        &scratch.attn_out[..q_dim],
-        h_prev,
-    );
     // 3f. The attention residual (onto the saved inpSA).
     for (xi, r) in h_prev[..n].iter_mut().zip(&scratch.inp_sa[..n]) {
         *xi += *r;

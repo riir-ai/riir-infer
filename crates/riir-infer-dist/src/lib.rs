@@ -45,6 +45,10 @@ pub mod runner;
 pub mod sockopts;
 pub mod spec_fill;
 pub mod spec_mtp;
+/// Issue 1253 T5.3 (plan 639) — the GGUF-embedded MTP draft block's
+/// drafter seat (`mtp_draft_block` + the ternary lane it serves).
+#[cfg(feature = "mtp_draft_block")]
+pub mod spec_mtp_block;
 pub mod stage;
 #[cfg(feature = "gpu")]
 pub mod stage_gpu;

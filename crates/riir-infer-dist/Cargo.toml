@@ -85,6 +85,10 @@ rdma_metal = ["dep:metal", "rdma"]
 # The folded (Hadamard-rotated) Bonsai-2 loader — the real PQ2_0 artifact
 # needs it; the synthetic G1 fixture does not.
 bonsai2_hadamard = ["riir-infer-core/bonsai2_hadamard"]
+# Issue 1253 T5.3 (plan 639) — the GGUF-embedded MTP draft block's drafter
+# seat (spec_mtp_block). Forwards the root crate's opt-in admission
+# feature; the ternary lane the step serves rides the dep row above.
+mtp_draft_block = ["riir-infer-core/mtp_draft_block"]
 # The GPU stage (Metal on macOS / CubeCL elsewhere) over the T1.5 range
 # seams — TernaryGpuStage.
 # T2.3b (promoted 2026-10-27 — G1 bit-identical to the production prefill,
@@ -187,3 +191,12 @@ required-features = ["gpu"]
 [[test]]
 name = "verbs_layout"
 required-features = ["rdma"]
+
+# Issue 1253 T5.3 (plan 639) — the GGUF-embedded draft block's drafter-seat
+# gates over the synthetic twin (the root crate's mtp_draft fixture kit,
+# textually included; the synthetic twin is FOLDED, hence the hadamard row
+# — the same posture the T5.2 gates carry; the feature-off posture
+# compiles to nothing — the green-zero law).
+[[test]]
+name = "mtp_draft_block_drafter_gates"
+required-features = ["mtp_draft_block", "bonsai2_hadamard"]
