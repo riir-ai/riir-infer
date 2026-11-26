@@ -263,6 +263,18 @@ fn mtp_draft_block_real_file_admits() {
         eprintln!("SKIP: the 2.5 -mtp GGUF is not on this box (MTP_GGUF names it)");
         return;
     };
+    // The torn-DOWNLOAD class (the 2026-11-27 real-arm lesson): a partial
+    // file sizes like a twin but truncates the tensor data — the loader
+    // opens it and fails mid-dequant ("data out of bounds"), an opaque
+    // verdict. Size-check FIRST (the T2 byte count of record).
+    let len = std::fs::metadata(&path).expect("stat the twin").len();
+    assert_eq!(
+        len,
+        7_492_338_944,
+        "the twin at {} is {len} bytes — a partial/torn download (the full file is \
+         7,492,338,944; sha256 ededc9fc…): refusing rather than failing mid-dequant",
+        path.display()
+    );
     let gguf = GgufFile::open(&path).expect("open the real 2.5 -mtp file");
     let census = mtp_twin_census(&gguf);
     assert_eq!(census.n_main, 64);
