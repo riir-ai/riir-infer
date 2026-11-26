@@ -13,6 +13,7 @@
 ///
 /// Frequencies depend only on `theta` and `head_dim`, which are model constants.
 /// Pre-computing eliminates `powf` calls from the hot path (Issue 024).
+#[derive(Clone)]
 pub struct RopeFreqTable {
     /// `freq[i] = 1.0 / theta.powf(2.0 * i / head_dim)` for i in `0..head_dim/2`
     freq: Vec<f32>,
@@ -26,6 +27,31 @@ impl RopeFreqTable {
             .map(|i| 1.0 / theta.powf(2.0 * i as f32 / head_dim as f32))
             .collect();
         Self { freq }
+    }
+
+    /// Build a frequency table with **per-dimension frequency factors** —
+    /// the llama3 rope-scaling shape (GGUF tensor `rope_freqs.weight`,
+    /// llama.cpp semantics: `freq[i] = theta^(-2i/head_dim) · w[i]`).
+    ///
+    /// `weights` must hold exactly `head_dim / 2` factors; anything else is a
+    /// loud panic naming both counts (the Issue-1254 disposition: the
+    /// scaling is baked into the TABLE at load time, never into the rope
+    /// kernel, so every forward that reads [`RopeFreqTable::as_slice`] —
+    /// CPU or GPU-uploaded — sees the scaled frequencies unchanged; an
+    /// absent tensor or all-ones factors build a table bit-identical to
+    /// [`RopeFreqTable::new`]).
+    pub fn new_weighted(theta: f32, head_dim: usize, weights: &[f32]) -> Self {
+        let half = head_dim / 2;
+        assert!(
+            weights.len() == half,
+            "rope frequency factors: expected head_dim/2 = {half} entries, got {}",
+            weights.len()
+        );
+        let mut table = Self::new(theta, head_dim);
+        for (f, w) in table.freq.iter_mut().zip(weights) {
+            *f *= w;
+        }
+        table
     }
 
     /// Build a **partial-positional** (`pp-RoPE`) frequency table: pairs whose

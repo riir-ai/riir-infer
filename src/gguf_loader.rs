@@ -17,19 +17,19 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::gemma_layer::{
     GemmaLayerWeights, GemmaLayerWeightsF16, GemmaTransformerWeights, GemmaTransformerWeightsF16,
 };
-use crate::quant::ptq1_0::{dequantize_row_ptq1_0, BlockPtq1_0};
-use crate::quant::q2_0::{dequantize_row_q2_0, BlockQ2_0};
-use crate::quant::q2k::{dequantize_row_q2_k, BlockQ2K};
-use crate::quant::q3k::{dequantize_row_q3_k, BlockQ3K};
-use crate::quant::q4k::{dequantize_row_q4_k, BlockQ4K};
-use crate::quant::q5k::{dequantize_row_q5_k, BlockQ5K};
-use crate::quant::q6k::{dequantize_row_q6_k, BlockQ6K};
-use crate::quant::q8kv::{dequantize_row_q8_0, BlockQ8_0};
+use crate::quant::ptq1_0::{BlockPtq1_0, dequantize_row_ptq1_0};
+use crate::quant::q2_0::{BlockQ2_0, dequantize_row_q2_0};
+use crate::quant::q2k::{BlockQ2K, dequantize_row_q2_k};
+use crate::quant::q3k::{BlockQ3K, dequantize_row_q3_k};
+use crate::quant::q4k::{BlockQ4K, dequantize_row_q4_k};
+use crate::quant::q5k::{BlockQ5K, dequantize_row_q5_k};
+use crate::quant::q6k::{BlockQ6K, dequantize_row_q6_k};
+use crate::quant::q8kv::{BlockQ8_0, dequantize_row_q8_0};
 use crate::safetensors_loader::bf16_to_f32;
 #[cfg(feature = "deltanet_inference")]
 use crate::types::DeltaNetLayerType;
@@ -1494,6 +1494,27 @@ pub fn load_llama_weights_gguf(
 
     let n_layer = config.n_layer;
 
+    // llama3 rope scaling (Issue 1254): a checkpoint converted with llama3
+    // frequency scaling carries `rope_freqs.weight` (F32, `head_dim/2`
+    // per-dim factors). Present ⇒ load + shape-check LOUD; absent ⇒ None.
+    // Never a silent fallback — a wrong-shaped tensor is a loader refusal.
+    let rope_freq_weights = match gguf.tensor_info("rope_freqs.weight") {
+        None => None,
+        Some(_) => {
+            let w = gguf.dequant_f16_to_f32("rope_freqs.weight")?;
+            let half = config.head_dim / 2;
+            if w.len() != half {
+                bail!(
+                    "rope_freqs.weight has {} entries, expected head_dim/2 = {half} \
+                     (head_dim {}) — refusing, never a silent fallback",
+                    w.len(),
+                    config.head_dim
+                );
+            }
+            Some(w)
+        }
+    };
+
     // Load global weights
     let wte = gguf.dequant_f16_to_f32("token_embd.weight")?;
     let final_norm = gguf.dequant_f16_to_f32("output_norm.weight")?;
@@ -1540,6 +1561,7 @@ pub fn load_llama_weights_gguf(
         lm_head,
         final_norm,
         layers,
+        rope_freq_weights,
     };
 
     Ok((config, weights))
@@ -1731,6 +1753,8 @@ pub fn load_qwen2_weights_gguf(
         lm_head,
         final_norm,
         layers,
+        // qwen2 checkpoints carry no llama3 rope-scaling tensor.
+        rope_freq_weights: None,
     };
 
     Ok((config, weights))
@@ -3473,7 +3497,7 @@ mod tests {
     /// new arm reads the right bytes and dispatches correctly.
     #[test]
     fn test_dequant_q4_k_via_gguf_round_trip() {
-        use crate::quant::q4k::{dequantize_row_q4_k, quantize_row_q4_k, BlockQ4K, QK_K};
+        use crate::quant::q4k::{BlockQ4K, QK_K, dequantize_row_q4_k, quantize_row_q4_k};
         use bytemuck::Zeroable;
 
         // Source: a single Q4_K super-block (256 elements) with a mix of values
@@ -3503,7 +3527,7 @@ mod tests {
         buf.extend_from_slice(&2u32.to_le_bytes()); // version 2
         buf.extend_from_slice(&1u64.to_le_bytes()); // 1 tensor
         buf.extend_from_slice(&0u64.to_le_bytes()); // 0 metadata entries
-                                                    // Tensor info: name + n_dims + shape + type_id + offset
+        // Tensor info: name + n_dims + shape + type_id + offset
         let name = "test_q4k_tensor.weight";
         buf.extend_from_slice(&(name.len() as u64).to_le_bytes());
         buf.extend_from_slice(name.as_bytes());
@@ -3511,7 +3535,7 @@ mod tests {
         buf.extend_from_slice(&(QK_K as u64).to_le_bytes()); // 256 elements
         buf.extend_from_slice(&12u32.to_le_bytes()); // Q4_K type id
         buf.extend_from_slice(&0u64.to_le_bytes()); // offset 0
-                                                    // Align to GGUF_DEFAULT_ALIGNMENT (32) for tensor data start.
+        // Align to GGUF_DEFAULT_ALIGNMENT (32) for tensor data start.
         let alignment: usize = 32;
         let cursor = buf.len();
         let padding = (alignment - (cursor % alignment)) % alignment;
@@ -3594,7 +3618,7 @@ mod tests {
     /// the output matches the in-memory `dequantize_row_q2_0` reference.
     #[test]
     fn test_dequant_q2_0_via_gguf_round_trip() {
-        use crate::quant::q2_0::{dequantize_row_q2_0, BlockQ2_0, Q2_0_BLOCK_SIZE};
+        use crate::quant::q2_0::{BlockQ2_0, Q2_0_BLOCK_SIZE, dequantize_row_q2_0};
         use bytemuck::Zeroable;
 
         // Build one Q2_0 block with a known pattern: the first 4 weights hit

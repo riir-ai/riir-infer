@@ -179,6 +179,7 @@ fn make_pair(seed: u64) -> (Config, TernaryTransformerWeights, LlamaTransformerW
         lm_head,
         final_norm,
         layers: dense_layers,
+        rope_freq_weights: None,
     };
     (config, ternary, dense)
 }

@@ -257,8 +257,10 @@ allowlist row + BOUNDARY.md edit in the same commit as the dep.
 **Falsifiers (pre-registered, full gates in Issue 1254):**
 - PASS: swap transfer ≥ 15% absolute AND ≥ 3× the random-rotation control AND ≥ 2×
   the identity control, controls clean (no NaN, no all-flip pathology) — measured
-  on the PRIMARY in-range pair (Bonsai-2.5-27B × Gemma-2-2B, cross-dim fit in the
-  shared top-256-PC space per the paper's compression protocol).
+  on the PRIMARY in-range pair (Ternary-Bonsai-2.5-27B × Llama-3.2-3B BASE,
+  cross-dim fit in the shared top-256-PC space per the paper's compression
+  protocol; recipient amended from gemma-2-2b to the llama BASE model by the
+  delegated verdict below).
 - FAIL/NEGATIVE: in-range transfer ≤ random-rotation control + noise ⇒ the
   cross-arch negative (riir-train Benches 424–427) extends to functional key
   transfer at validated scale; record NEGATIVE, demote, close. The below-floor
@@ -270,6 +272,23 @@ allowlist row + BOUNDARY.md edit in the same commit as the dep.
   walk pins). G4: swap apply alloc-free at serving shape.
 - mKNN contrast arm expected to underperform transfer-selected layers (~4.5%
   paper) — adjudicates geometric-vs-functional on our pair.
+
+### PoC decision addendum (2026-11-26)
+
+Delegated verdict (session `5b062d19`, round 1 AGREE, closed round 2): A1's
+recipient of record is **Llama-3.2-3B BASE** (F16 GGUF, HF-fetched, sha256 +
+source URL recorded, Llama 3.2 Community License — LOCAL USE ONLY, never a
+shipped artifact), not the archived gemma-2-2b-it checkpoint. Reason: the
+riir-infer owner law (2026-10-26) — "no new gemma-2-2b execution cells
+anywhere" — forbids the gemma arm under its text (the offline-research-cell
+reading is exactly what it was written to stop); arm B also removes the
+IT-vs-BASE protocol deviation. Reviewer findings folded into the cell: the
+llama path needs its own `PostLayerHook` fork (the Issue-395 seam shape, G3
+tested); llama3 RoPE scaling (`rope_freqs.weight`) must be loaded and applied
+(per-dim freq factors, fail-loud on shape mismatch — never a silent fallback);
+the A1 run is gated on a recipient baseline recall floor before any transfer
+number. A is rejected, not deferred — the gemma archive stays unrestored.
+Full amendment: `../.issues/1254` (the runnable cell of record).
 
 ## References
 

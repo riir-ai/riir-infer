@@ -30,6 +30,36 @@ pub struct LlamaTransformerWeights {
     pub lm_head: Vec<f32>,              // [vocab_size, n_embd] (separate from wte)
     pub final_norm: Vec<f32>,           // [n_embd] (final RMSNorm)
     pub layers: Vec<LlamaLayerWeights>, // [n_layer]
+    /// Per-dimension RoPE frequency factors (llama3 rope scaling; the GGUF
+    /// tensor `rope_freqs.weight`, Issue 1254). `Some` iff the checkpoint
+    /// carries the tensor; `None` (or all-ones factors) means the plain
+    /// [`crate::rope::RopeFreqTable`] is byte-identical to the weighted one.
+    /// The ONE consumer is [`LlamaTransformerWeights::build_rope_freq_table`]
+    /// — callers build the ctx table through it, never through
+    /// `RopeFreqTable::new` directly, or a scaled checkpoint silently runs
+    /// wrong frequencies (the functional tripwire is the cell's baseline
+    /// recall gate, but construction-time correctness is the contract).
+    pub rope_freq_weights: Option<Vec<f32>>,
+}
+
+impl LlamaTransformerWeights {
+    /// The ONE RoPE-table constructor for llama-family weights (Issue 1254):
+    /// plain table when no factors are carried, the per-dim-weighted table
+    /// (`freq[i] = theta^(-2i/head_dim) · w[i]`, llama.cpp semantics) when
+    /// they are. Forward passes read `ctx.rope_freq_table` — a scaled
+    /// checkpoint whose ctx table was built through `RopeFreqTable::new`
+    /// runs WRONG frequencies, so route every construction through here.
+    pub fn build_rope_freq_table(
+        &self,
+        config: &crate::types::Config,
+    ) -> crate::rope::RopeFreqTable {
+        match &self.rope_freq_weights {
+            None => crate::rope::RopeFreqTable::new(config.rope_theta, config.head_dim),
+            Some(w) => {
+                crate::rope::RopeFreqTable::new_weighted(config.rope_theta, config.head_dim, w)
+            }
+        }
+    }
 }
 
 impl LlamaTransformerWeights {

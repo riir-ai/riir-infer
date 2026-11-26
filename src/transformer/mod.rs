@@ -175,16 +175,15 @@ pub use gemma2::forward_gemma2_block_causal;
 // Issue 022 T5.1 lane 1: the gemma-2 capture driver (`twt_gemma2`) names the
 // same trait for its S-matrix capture hook (the trait is wasm-safe; the
 // gate follows its consumers).
-#[cfg(any(
-    all(not(target_arch = "wasm32"), feature = "causal_validation"),
-    feature = "twt_gemma2"
-))]
+// The Issue-395 post-layer seam is ALWAYS exported (Issue 1254's llama fork
+// consumes it; the former causal_validation/twt-gated re-export became
+// redundant — the ungated one covers every posture).
 pub use gemma2::PostLayerHook;
 #[cfg(feature = "multi_host")]
 pub use gemma2::forward_gemma2_range;
 #[cfg(all(not(target_arch = "wasm32"), feature = "causal_validation"))]
 pub use gemma2::{NoLora, forward_gemma2_layers};
-pub use llama::{forward_llama, forward_llama_attn_capture, generate_llama};
+pub use llama::{forward_llama, forward_llama_attn_capture, forward_llama_hooked, generate_llama};
 pub use mtp::{
     MtpProjection, cluster_map_from_embeddings, cluster_map_round_robin, load_mtp_projection,
     project_target_activation, select_topk_indices_into_buf,

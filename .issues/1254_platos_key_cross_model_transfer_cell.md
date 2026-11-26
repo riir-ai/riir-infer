@@ -5,16 +5,29 @@
 
 Filing record: `../.research/044_Platos_Key_CrossModel_Key_Transfer.md` (distillation + prior art + falsifiers). This issue is the runnable PoC cell.
 
+## Verdict record (2026-11-26)
+
+Delegated verdict, session `5b062d19-6a0c-4e89-a0a2-ae7c7477416d` (2 rounds,
+final AGREE): the owner-law text decides it — "no new gemma-2-2b execution
+cells anywhere" was written to stop the offline-research-cell reading; the
+carve-out covers gemma2 architecture lanes serving live products (laya,
+clef-ANE), not the retired checkpoint. Arm B taken in full with the reviewer's
+additions (RoPE-scaling disposition above, the baseline recall gate, download
+provenance + license note). A rejected, not deferred. Unchanged: A2, A3,
+G1/G3/G4 thresholds, PC-space controls, rig routing (`--exclusive --est`).
+
 ## Claim (pinned)
 
-A closed-form orthogonal-Procrustes map (rotation + one global scale, mean-centered,
-fit on paired-recall facts), frozen as a BLAKE3 artifact and applied as a single
-hidden-state REPLACE at the recipient's subject-token layer, transfers factual recall
-across two frozen LLMs — adjudicated on THIS stack's IN-RANGE cross-arch pair against
-the stack's own cross-arch negative (riir-train Benches 424–427
+A closed-form orthogonal-Procrustes map (rotation + one global scale,
+mean-centered, fit on paired-recall facts), frozen as a BLAKE3 artifact and
+applied as a single hidden-state REPLACE at the recipient's subject-token
+layer, transfers factual recall across two frozen LLMs — adjudicated on THIS
+stack's IN-RANGE cross-arch pair (Llama-3.2-3B BASE recipient ×
+Ternary-Bonsai-2.5-27B donor) against the stack's own cross-arch negative
+(riir-train Benches 424–427
 `424_canon_p3_rust_discrimination` … `427_canon_p4_recipe_d_length_matched`:
-hidden-state agreement structurally ~0 for steering directions; katgpt-rs's own
-424–427 are unrelated benches).
+hidden-state agreement structurally ~0 for steering directions; katgpt-rs's
+own 424–427 are unrelated benches).
 
 ## Why here
 
@@ -44,31 +57,32 @@ recall facts and has no subject-token layer; `Ternary-Bonsai-2/2.5` are `qwen35`
 
 **Arms (in-range primary first; heavy arms route to 4090/amo via the rig queue):**
 
-- **A1 — PRIMARY adjudication (cross-arch, in-range):** recipient
-  `riir-train/data/gemma-2-2b-it-f16.gguf` (dense gemma-2, d=2304) × donor
+- **A1 — PRIMARY adjudication (cross-arch, in-range): AMENDED 2026-11-26,
+  delegated-verdict session `5b062d19` round 1 AGREE — the recipient of record
+  is `Llama-3.2-3B` BASE (dense llama, d=3072, 28 blocks, GQA 8 kv heads,
+  F16 GGUF, HF-fetched with sha256 + source URL recorded — the pre-registered
+  download arm). The originally-adjudicated recipient
+  (`riir-train/data/gemma-2-2b-it-f16.gguf`) is REJECTED, not deferred: it is a
+  new gemma-2-2b execution cell, which the riir-infer owner law (2026-10-26,
+  "no new gemma-2-2b execution cells anywhere") forbids under its text, and
+  the gemma archive stays unrestored. Arm B also fixes the IT-vs-BASE protocol
+  deviation (the paper used BASE models). × donor
   `riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0.gguf` (`qwen35` GDN hybrid,
-  packed ternary, d=5120, on disk). Gemma is RESTORE-GATED and the backup row
-  is an ARCHIVE, not an upstream mirror: it is a local `convert_hf_to_gguf` of
-  `google/gemma-2-2b-it@299a8560` marked not-re-downloadable — the backup pull
-  is the ONLY restore path, never an HF re-download (a fresh fetch would be a
-  different snapshot): `cd ../riir-train && ./scripts/data_backup.sh pull
-  data/gemma-2-2b-it-f16.gguf`. Disclosed deviation: the archived checkpoint is
-  IT-tuned, the paper used BASE models — if the paired-recall filter degrades on
-  it, the alternative arm is an HF fetch of an in-range (≥1.5B) non-Qwen BASE
-  model, recorded as a DOWNLOAD step with sha256. Both members sit inside the
-  paper's validated 1.5–27B span (2.6B / 27B). No in-range non-Qwen full LM
-  exists on disk today (verified by header probe, not filenames).
-- **A1 protocol addition — cross-dim fit:** gemma d=2304 ≠ qwen35 d=5120. Fit in
+  packed ternary, d=5120, on disk). Both members sit inside the paper's
+  validated 1.5–27B span (3B / 27B). License: Llama 3.2 Community License —
+  LOCAL USE ONLY, never a shipped artifact (the license note rides Research
+  044).
+- **A1 protocol addition — cross-dim fit:** llama d=3072 ≠ qwen35 d=5120. Fit in
   a SHARED top-r PC space (r=256 — exactly the paper's compression arm, which
   retains 74%): PCA each side's keys to r dims, square r×r Procrustes in that
   space, swap = project → rotate → reconstruct with the recipient's OWN PCs +
   training mean. Semi-orthogonal full-dim fit is the fallback arm. Layer
-  selection uses DEPTH PERCENTAGE (22–38%), never absolute indices (26 vs 64
+  selection uses DEPTH PERCENTAGE (22–38%), never absolute indices (28 vs 64
   blocks). ⛔ **Leak law:** the PCs and training means are fit on the TRAIN
   split of the paired facts ONLY — fitting them on all facts leaks test-set
   geometry into the swap and inflates transfer.
 - **A1 controls are defined INSIDE the same PC space** (no identity map exists
-  between 2304 and 5120 raw dims): identity control = the r×r identity through
+  between 3072 and 5120 raw dims): identity control = the r×r identity through
   the identical project→reconstruct path; random-rotation control = a Haar-random
   r×r orthogonal matrix through that same path. G1's "≥ 2× identity" compares
   against the PC-space identity, never a raw-dim one.
@@ -97,12 +111,33 @@ recall facts and has no subject-token layer; `Ternary-Bonsai-2/2.5` are `qwen35`
 - **Swap:** donor key = hidden state at last subject token, layer ℓA; replace the
   recipient's state at layer ℓB, same position, with s·R·h_donor, then continue the
   forward. ℓA/ℓB selected on validation transfer over the 22–38% depth band.
-  Test-level forward hook (set-once/clear-after, the `census_column_scale`
-  seam's sibling shape). ⛔ Hook placement is PER-FORWARD-PATH and follows the
-  recipient: A1's replace point is the gemma DENSE path; the Bonsai donor side is
-  CAPTURE-ONLY (qwen35 GDN hidden-state readout — the `HybridForwardScratch`
-  harvest precedent, sink_audit). The optional reverse-direction arm is what
-  puts a hook on the qwen35 packed-ternary path — cost named, not assumed shared.
+  Forward hook (the Issue-395 `PostLayerHook` shape): the recipient REPLACE and
+  the recipient-side key CAPTURE both ride one seam — the harness drives the
+  token loop, so it arms the hook per call (armed only at `pos ==` subject
+  position; `NoHook` monomorphizes away). A1's replace/capture point is the
+  llama DENSE path (the `forward_llama_hooked` fork, this cell's own seam);
+  the Bonsai donor side is CAPTURE-ONLY (qwen35 GDN hidden-state readout —
+  the `HybridForwardScratch` harvest precedent, sink_audit; the ternary-path
+  capture seam is its own G3-gated commit — the harness refuses loud at the
+  donor step until it lands, never a silent half-run). The optional
+  reverse-direction arm is what puts a MUTATE hook on the qwen35
+  packed-ternary path — cost named, not assumed shared.
+- ⛔ **RoPE-scaling disposition (verdict round 1 finding):** llama3 GGUFs may
+  carry `rope_freqs.weight` (per-dim frequency factors). The loader handles it
+  — load + bake into the recipient's RoPE frequency table (`freq[i] · w[i]`,
+  llama.cpp semantics; absent tensor or all-ones weights ⇒ byte-identical
+  table) — and a shape mismatch REFUSES LOUD, never a silent fallback. The
+  A1 run also clamps the recipient KV-cache context to the actual sequence
+  budget (`--ctx`, default 512) — llama-3.2-3B's GGUF `context_length`
+  (131072) must never size the cache.
+- ⛔ **Baseline recall gate (verdict round 1 addition):** before ANY transfer
+  number, the recipient must answer the direct prompts on its own at ≥ the
+  paired-recall floor (the paired pool ≥ the run's min-pairs); a recipient
+  whose baseline recall is broken (tokenizer mismatch, rope mis-applied) is a
+  REFUSAL naming the phase, never a transfer table.
+- **Download provenance:** the recipient GGUF records source URL + sha256 in
+  the run report (the pre-registered DOWNLOAD step); ungated mirror acceptable;
+  Llama 3.2 Community License noted; local use only.
 - **Arms per pair:** transfer (primary) · controls: identity map, random rotation,
   shuffled donor keys · self-swap ceiling at ℓB · mKNN-selected-layer contrast ·
   **scale-law arm** (spread-match scale vs least-squares scale — if LS ≈ spread,
@@ -138,4 +173,7 @@ Research 044 · katgpt-rs `.docs/05_adaptation/canonical_intent_space.md` + Benc
 (`562_katgpt_canon_goat.md`, katgpt-rs) · **riir-train** Benches 424–427
 (`424_canon_p3_rust_discrimination` … `427_canon_p4_recipe_d_length_matched`) ·
 riir-infer Issues 1189 (closed_form_write), 1208 (RIMSK artifact law), 1241 (census
-push seam), 1250 (readout_screen) · Hazy Research blog 2026-11-25.
+push seam), 1250 (readout_screen) · Hazy Research blog 2026-11-25 · the llama
+cell seam: `src/transformer/llama.rs` (`forward_llama_hooked`) +
+`src/rope.rs` (`RopeFreqTable::new_weighted`) + the `rope_freqs.weight`
+loader arm in `src/gguf_loader.rs`.
