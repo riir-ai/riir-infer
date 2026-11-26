@@ -135,6 +135,12 @@ pub mod dflash;
 /// GGUF weight loading.
 pub mod gguf_loader;
 
+/// Issue 1253 T5.2 (plan 639) — the MTP draft block's CPU reference
+/// forward (`mtp_draft_block` + the ternary lane it serves; the admission
+/// half lives in `gguf_loader`).
+#[cfg(all(feature = "mtp_draft_block", feature = "deltanet_ternary_inference"))]
+pub mod mtp_draft;
+
 /// Issue 028 — the dual-PTQ disaggregated container (`.pf` one-file law +
 /// two-file pair) and the in-process prefill→decode phase handoff over the
 /// shared `HybridCache`. Opt-in with the ternary lane it serves.

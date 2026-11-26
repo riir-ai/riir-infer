@@ -876,6 +876,15 @@ required-features = ["deltanet_ternary_inference"]
 name = "mtp_draft_block_gates"
 required-features = ["mtp_draft_block"]
 
+# Issue 1253 T5.2 (plan 639) - the CPU-reference draft-step gates:
+# end-to-end determinism over the synthetic folded twin, the primal-basis
+# contract (rotated vs primal hand-off observable), the enorm/hnorm compose
+# order (the one-hot probe), and the real teacher-forced agreement cell
+# (--ignored at release with MTP_GGUF; the T5.2 falsifier's posture).
+[[test]]
+name = "mtp_draft_step_gates"
+required-features = ["mtp_draft_block", "deltanet_ternary_inference", "bonsai2_hadamard"]
+
 # Issue 1249 — the two-cell GDN erase-stability gate (pure-CPU; the shipped
 # scalar-beta step + the MemT channel-wise sweep; no GPU, no other features).
 [[test]]

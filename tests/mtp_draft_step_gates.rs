@@ -1,0 +1,405 @@
+//! Issue 1253 T5.2 (plan 639) — the MTP draft-block CPU-reference gates
+//! (synthetic, pure-CPU; the real teacher-forced cell rides `MTP_GGUF` at
+//! `--ignored` release, the T5.2 falsifier's posture).
+//!
+//! Pins the reference step's wiring + determinism + basis contract on the
+//! synthetic folded twin (the T5.1 fixture's 15-tensor draft block + the
+//! kit's folded ternary main stack):
+//! 1. END-TO-END runs — main-stack forward → hidden → primal recovery →
+//!    draft step → logits: finite, right width, deterministic (bit-identical
+//!    twice).
+//! 2. THE BASIS CONTRACT — feeding the rotated head-basis copy (the
+//!    hidden variant's shipped form) produces DIFFERENT logits from the
+//!    primal hand-off on a folded fixture: the step consumes primal and
+//!    the recovery step the caller owes is load-bearing, not cosmetic.
+//! 3. THE COMPOSE ORDER — enorm embeds FIRST, hnorm(h) SECOND (the concat
+//!    order): a probe block whose eh_proj one-hot selects one coordinate
+//!    per half reads the halves in the pinned order (with the zeroed
+//!    block adding nothing).
+//! 4. The REAL teacher-forced arm (SKIP loud without MTP_GGUF, --ignored):
+//!    draft-vs-main greedy agreement on the real twin — the T5.2
+//!    falsifier's cell, never a default gate ride.
+
+#[path = "common/mtp_draft_fixture.rs"]
+mod fixture;
+
+use riir_infer_core::deltanet::forward::{HybridCache, HybridForwardScratch, effective_rotary_dim};
+use riir_infer_core::deltanet::rotation::rotate_inverse_inplace;
+use riir_infer_core::deltanet::ternary_forward::forward_qwen_deltanet_ternary;
+use riir_infer_core::deltanet::ternary_weights::QwenDeltaNetTernaryWeights;
+use riir_infer_core::gguf_loader::{
+    GgufFile, load_mtp_draft_block, load_qwen_deltanet_ternary_from_gguf, mtp_twin_census,
+};
+use riir_infer_core::mtp_draft::{MtpDraftStepScratch, mtp_draft_step};
+use riir_infer_core::rope::RopeFreqTable;
+use riir_infer_core::transformer::KVCache;
+use riir_infer_core::types::{Config, rmsnorm_with_gamma_eps};
+
+use std::io::Write as _;
+
+fn write_tmp(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("{name}_{}.gguf", std::process::id()));
+    let mut f = std::fs::File::create(&path).expect("create temp gguf");
+    f.write_all(bytes).expect("write temp gguf");
+    path
+}
+
+fn rope_table(config: &Config) -> RopeFreqTable {
+    let rotary_dim = effective_rotary_dim(config);
+    RopeFreqTable::new(config.rope_theta, rotary_dim)
+}
+
+/// Land `toks` on the synthetic main stack; return (cache, scratch, the
+/// primal hidden of the LAST position).
+fn land_main_stack(
+    config: &Config,
+    weights: &QwenDeltaNetTernaryWeights,
+    toks: &[usize],
+) -> (HybridCache, HybridForwardScratch, Vec<f32>) {
+    let n = config.n_embd;
+    let v = config.vocab_size;
+    let rope = rope_table(config);
+    let mut cache = HybridCache::with_layer_types(config, &weights.layer_types);
+    let mut scratch = HybridForwardScratch::new(config);
+    let mut x = vec![0.0f32; v.max(n)];
+    for (pos, tok) in toks.iter().enumerate() {
+        forward_qwen_deltanet_ternary(
+            &mut x,
+            weights,
+            &mut cache,
+            *tok,
+            pos,
+            config,
+            &mut scratch,
+            &rope,
+        );
+    }
+    // The hidden variant's shipped form is the ROTATED head-basis copy —
+    // recover the primal h the draft step consumes (the Issue-1111
+    // recipe; the module basis contract).
+    let mut h = scratch.hidden_copy[..n].to_vec();
+    if let Some(rot) = &weights.rotation {
+        let signs = rot.signs_for_width(n).map(|s| s.to_vec());
+        if let Some(s) = &signs {
+            rotate_inverse_inplace(&mut h[..n], Some(s), rot.block_size);
+        }
+    }
+    (cache, scratch, h)
+}
+
+fn load_twin(
+    unique: &str,
+) -> (
+    std::path::PathBuf,
+    Config,
+    QwenDeltaNetTernaryWeights,
+    riir_infer_core::gguf_loader::MtpDraftBlock,
+) {
+    let path = write_tmp(unique, &fixture::declared_twin_bytes());
+    let gguf = GgufFile::open(&path).expect("open twin");
+    let census = mtp_twin_census(&gguf);
+    assert!(census.draft_admittable());
+    let (config, weights): (Config, QwenDeltaNetTernaryWeights) =
+        load_qwen_deltanet_ternary_from_gguf(&gguf, "").expect("main stack loads");
+    let block = load_mtp_draft_block(&gguf, &config).expect("draft block admits");
+    (path, config, weights, block)
+}
+
+/// Arm 1 — the end-to-end synthetic walk: finite logits, right width,
+/// deterministic (bit-identical twice over the same inputs).
+#[test]
+fn draft_step_end_to_end_deterministic() {
+    let (path, config, weights, block) = load_twin("riir_1253_t52_det");
+    assert!(
+        weights.rotation.is_some(),
+        "the synthetic fixture is folded (the basis arms need it)"
+    );
+    let rope = rope_table(&config);
+    let n = config.n_embd;
+    let v = config.vocab_size;
+
+    let (_cache, _scratch, h) = land_main_stack(&config, &weights, &[7, 11, 23]);
+
+    let mut ds = MtpDraftStepScratch::new(&config);
+    let mut logits_a = vec![0.0f32; v];
+    let mut logits_b = vec![0.0f32; v];
+    let mut h_a = h.clone();
+    mtp_draft_step(
+        &block,
+        &weights,
+        &mut KVCache::new(&config),
+        3,
+        &mut h_a,
+        23,
+        &config,
+        &rope,
+        &mut ds,
+        &mut logits_a,
+    )
+    .expect("draft step a");
+    let mut h_b = h.clone();
+    mtp_draft_step(
+        &block,
+        &weights,
+        &mut KVCache::new(&config),
+        3,
+        &mut h_b,
+        23,
+        &config,
+        &rope,
+        &mut ds,
+        &mut logits_b,
+    )
+    .expect("draft step b");
+
+    assert_eq!(logits_a.len(), v);
+    assert!(
+        logits_a.iter().all(|l| l.is_finite()),
+        "draft logits finite"
+    );
+    assert_eq!(
+        logits_a, logits_b,
+        "the step is deterministic (bit-identical)"
+    );
+    assert_eq!(h_a[..n], h_b[..n], "h_draft deterministic too");
+
+    let pick = logits_a
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| katgpt_core::float_order::cmp_for_max(**a, **b))
+        .map_or(0, |(i, _)| i);
+    assert!(pick < v, "the greedy draft pick is well-defined");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Arm 2 — the basis contract: the primal hand-off and the raw rotated
+/// copy give DIFFERENT draft logits on a folded fixture.
+#[test]
+fn draft_step_consumes_primal_basis() {
+    let (path, config, weights, block) = load_twin("riir_1253_t52_basis");
+    let rope = rope_table(&config);
+    let n = config.n_embd;
+    let v = config.vocab_size;
+
+    let (_cache, scratch, primal) = land_main_stack(&config, &weights, &[5, 9]);
+    let rotated = scratch.hidden_copy[..n].to_vec();
+    assert_ne!(primal[..n], rotated[..n], "the fixture folds non-trivially");
+
+    let mut ds = MtpDraftStepScratch::new(&config);
+    let mut lg_primal = vec![0.0f32; v];
+    let mut lg_rotated = vec![0.0f32; v];
+    let mut hp = primal.clone();
+    let mut hr = rotated;
+    mtp_draft_step(
+        &block,
+        &weights,
+        &mut KVCache::new(&config),
+        2,
+        &mut hp,
+        9,
+        &config,
+        &rope,
+        &mut ds,
+        &mut lg_primal,
+    )
+    .expect("primal step");
+    mtp_draft_step(
+        &block,
+        &weights,
+        &mut KVCache::new(&config),
+        2,
+        &mut hr,
+        9,
+        &config,
+        &rope,
+        &mut ds,
+        &mut lg_rotated,
+    )
+    .expect("rotated step");
+    assert_ne!(
+        lg_primal, lg_rotated,
+        "the basis the step consumes is observable — primal ≠ rotated"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Arm 3 — the compose order: a probe block whose eh_proj one-hot selects
+/// concat[0] (the enorm half) and concat[n] (the hnorm half) reads the
+/// halves enorm-first / hnorm-second; the zeroed attention/FFN adds
+/// nothing.
+#[test]
+fn draft_step_compose_order_enorm_first() {
+    let (path, config, weights, mut block) = load_twin("riir_1253_t52_probe");
+    let rope = rope_table(&config);
+    let n = config.n_embd;
+    let v = config.vocab_size;
+    let eps = config.rms_norm_eps;
+
+    // Probe block: attention + FFN projections zero; eh_proj rows 0/1
+    // select concat[0] (enorm half) / concat[n] (hnorm half).
+    for field in [
+        &mut block.attn_q,
+        &mut block.attn_k,
+        &mut block.attn_v,
+        &mut block.attn_output,
+        &mut block.ffn_gate,
+        &mut block.ffn_up,
+        &mut block.ffn_down,
+    ] {
+        field.fill(0.0);
+    }
+    block.eh_proj.fill(0.0);
+    let cols = 2 * n;
+    block.eh_proj[0] = 1.0; // row 0 ← concat[0]
+    block.eh_proj[cols + n] = 1.0; // row 1 ← concat[n]
+    block.enorm.fill(0.0);
+    block.enorm[0] = 3.0;
+    block.hnorm.fill(1.0);
+
+    // The primal embed of token 0 (the same recovery the step performs).
+    let mut emb = vec![0.0f32; n];
+    weights.wte.dequant_row_into(0, &mut emb);
+    if let Some(rot) = &weights.rotation {
+        let signs = rot.signs_for_width(n).map(|s| s.to_vec());
+        if let Some(s) = &signs {
+            rotate_inverse_inplace(&mut emb[..n], Some(s), rot.block_size);
+        }
+    }
+    // Expected halves via the SAME norm fn (the probe pins the ORDER and
+    // the wiring, never a second norm implementation):
+    let mut e_normed = emb.clone();
+    rmsnorm_with_gamma_eps(&mut e_normed[..n], &block.enorm, eps);
+    let h_const = 2.0f32;
+    let mut h = vec![h_const; n];
+    let mut h_normed = h.clone();
+    rmsnorm_with_gamma_eps(&mut h_normed[..n], &block.hnorm, eps);
+    let expect0 = e_normed[0];
+    let expect1 = h_normed[0];
+
+    let mut ds = MtpDraftStepScratch::new(&config);
+    let mut lg = vec![0.0f32; v];
+    mtp_draft_step(
+        &block,
+        &weights,
+        &mut KVCache::new(&config),
+        0,
+        &mut h,
+        0,
+        &config,
+        &rope,
+        &mut ds,
+        &mut lg,
+    )
+    .expect("probe step");
+
+    let tol = 1e-4;
+    assert!(
+        (h[0] - expect0).abs() < tol,
+        "row 0 reads the ENORM half first: {} vs {expect0}",
+        h[0]
+    );
+    assert!(
+        (h[1] - expect1).abs() < tol,
+        "row 1 reads the HNORM half second: {} vs {expect1}",
+        h[1]
+    );
+    assert!(
+        h[2..n].iter().all(|v| v.abs() < tol),
+        "the zeroed block adds nothing"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Arm 4 — the REAL teacher-forced cell (SKIP loud without MTP_GGUF;
+/// `--ignored` at release, the twin on disk). The T5.2 falsifier: the
+/// draft step teacher-forces the MAIN stack's own greedy continuation;
+/// its top-1 agreement is plan 639 bar (a)'s input (≥ 0.4353, the 924
+/// trained-head chat per-slot rate, or the block intake is wrong).
+#[test]
+#[ignore]
+fn draft_step_real_teacher_forced_agreement() {
+    let path = std::path::PathBuf::from(
+        std::env::var("MTP_GGUF")
+            .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0-mtp.gguf".into()),
+    );
+    let Some(path) = path.canonicalize().ok() else {
+        eprintln!("SKIP: the 2.5 -mtp GGUF is not on this box (MTP_GGUF names it)");
+        return;
+    };
+    let gguf = GgufFile::open(&path).expect("open the real twin");
+    let (config, weights) =
+        load_qwen_deltanet_ternary_from_gguf(&gguf, "").expect("main stack loads");
+    let block = load_mtp_draft_block(&gguf, &config).expect("draft block admits");
+    let rope = rope_table(&config);
+    let n = config.n_embd;
+    let v = config.vocab_size;
+
+    let seed_tokens: Vec<usize> = (0..24).map(|i| (i * 7919 + 13) % v).collect();
+    let mut cache = HybridCache::with_layer_types(&config, &weights.layer_types);
+    let mut scratch = HybridForwardScratch::new(&config);
+    let mut x = vec![0.0f32; v.max(n)];
+    let rot = weights
+        .rotation
+        .as_ref()
+        .expect("the league twin is folded");
+    let signs = rot.signs_for_width(n).map(|s| s.to_vec());
+
+    let mut draft_cache = KVCache::new(&config);
+    let mut ds = MtpDraftStepScratch::new(&config);
+    let mut lg = vec![0.0f32; v];
+    let mut agree = 0usize;
+    let mut total = 0usize;
+    let mut h_prev: Option<Vec<f32>> = None;
+
+    for (pos, &tok) in seed_tokens.iter().enumerate() {
+        forward_qwen_deltanet_ternary(
+            &mut x,
+            &weights,
+            &mut cache,
+            tok,
+            pos,
+            &config,
+            &mut scratch,
+            &rope,
+        );
+        let main_pick = x[..v]
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| katgpt_core::float_order::cmp_for_max(**a, **b))
+            .map_or(0, |(i, _)| i);
+        if let Some(mut h) = h_prev.take() {
+            if let Some(s) = &signs {
+                rotate_inverse_inplace(&mut h[..n], Some(s), rot.block_size);
+            }
+            mtp_draft_step(
+                &block,
+                &weights,
+                &mut draft_cache,
+                pos,
+                &mut h,
+                tok,
+                &config,
+                &rope,
+                &mut ds,
+                &mut lg,
+            )
+            .expect("real draft step");
+            let draft_pick = lg[..v]
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| katgpt_core::float_order::cmp_for_max(**a, **b))
+                .map_or(0, |(i, _)| i);
+            if draft_pick == main_pick {
+                agree += 1;
+            }
+            total += 1;
+        }
+        h_prev = Some(scratch.hidden_copy[..n].to_vec());
+    }
+    let rate = agree as f64 / total.max(1) as f64;
+    println!(
+        "draft-vs-main greedy top-1 agreement: {agree}/{total} = {rate:.4} (bar (a) >= 0.4353, \
+         the 924 trained-head chat per-slot rate)"
+    );
+    assert!(total > 0, "the walk produced no draft positions");
+}
