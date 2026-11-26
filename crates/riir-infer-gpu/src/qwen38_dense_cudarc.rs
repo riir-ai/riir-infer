@@ -2294,12 +2294,23 @@ impl Qwen38DenseConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A quantized GEMV weight tensor resident on device (verbatim bytes).
+///
+/// Issue 1186 T3-prep (a2): when the optional cq3 sidecar is `Some`, the
+/// tensor SERVES through the [`crate::qwen38_cq3_cudarc::Cq3HandleCuda`]
+/// never-unpack chain and `dev` is a length-0 placeholder (the incumbent
+/// bytes are not uploaded — the routed form is ~half the VRAM). The funnel
+/// arms branch on the handle BEFORE any incumbent field read, so the
+/// placeholder bytes are never launched on (the size-0 corrupt-launch trap
+/// stays unreachable). Unarmed = `None` = the incumbent route,
+/// byte-identical (G3).
 pub struct QuantW {
     pub dev: CudaSlice<u8>,
     pub rows: usize,
     pub n: usize,
     pub blocks_per_row: usize,
     pub q4: bool,
+    #[cfg(feature = "cq3_cuda")]
+    pub cq3: Option<std::sync::Arc<crate::qwen38_cq3_cudarc::Cq3HandleCuda>>,
 }
 
 /// A small f32 tensor resident on device.
@@ -2478,7 +2489,128 @@ fn upload_quant(
         n,
         blocks_per_row,
         q4,
+        #[cfg(feature = "cq3_cuda")]
+        cq3: None,
     })
+}
+
+/// Issue 1186 T3-prep (a2) — the CQ3 cudarc load route (the `qwen38_dense_cubecl`
+/// `154159ef` mirror's new_impl block, adapted to the cudarc module's
+/// struct-based `QuantW`). Built ONCE per `load_weights_gpu` from the env;
+/// each quantized upload consults it.
+///
+/// - `RIIR_QWEN38_CQ3` = the `.cq3` artifact path — armed; sidecar blake3
+///   verified ONCE at load, never per tensor. Unset = the incumbent route
+///   (byte-identical, G3).
+/// - `RIIR_QWEN38_CQ3_FAMILIES` = a csv of `family_census` slugs; presence
+///   arms the mask, unset/empty = every artifact tensor routes. Under a
+///   mask, a name the census grammar does not classify is DEFAULT-DENY
+///   (incumbent route) — a mask isolating one family never lets an
+///   unclassifiable name through silently. Set without an artifact is a
+///   loud refusal (the ineffective-arm false-green class).
+/// - Globals (`token_embd.weight` / `output.weight`) are skipped + named
+///   loud this half: the embedding gather and the ingest single-row tails
+///   read the incumbent bytes directly (the per-layer-family scope; the
+///   Metal twin carries the global routing).
+#[cfg(feature = "cq3_cuda")]
+struct Cq3Route {
+    artifact: crate::qwen38_cq3_serving::Cq3Artifact,
+    kernels: std::sync::Arc<crate::qwen38_cq3_cudarc::Cq3CudarcKernels>,
+    mask: Option<std::collections::HashSet<String>>,
+}
+
+#[cfg(feature = "cq3_cuda")]
+impl Cq3Route {
+    /// The routing predicate: no mask = every artifact tensor routes; under
+    /// a mask, only names the census classifies INTO the mask's families
+    /// route — everything else falls through to the incumbent weight route.
+    fn routes(&self, name: &str) -> bool {
+        match &self.mask {
+            None => true,
+            Some(set) => riir_infer_core::family_census::classify(name)
+                .is_some_and(|c| set.contains(c.family.slug())),
+        }
+    }
+
+    /// Route one named quantized upload: `Ok(Some(w))` = the CQ3 device
+    /// form (dims asserted vs the plan), `Ok(None)` = incumbent upload.
+    /// # Errors
+    /// Artifact/mask config errors + dim mismatches name the tensor loud.
+    fn try_route(
+        &self,
+        stream: &Arc<CudaStream>,
+        name: &str,
+        rows: usize,
+        n: usize,
+    ) -> Result<Option<QuantW>, String> {
+        let Ok(t) = self.artifact.tensor(name) else {
+            return Ok(None);
+        };
+        if !self.routes(name) {
+            return Ok(None);
+        }
+        // The globals carve (see the struct doc): the embedding gather + the
+        // ingest tails read the incumbent bytes directly this half.
+        if matches!(name, "token_embd.weight" | "output.weight") {
+            eprintln!(
+                "[cq3-serving-cuda] {name}: global stays incumbent this half (per-layer families only; the Metal twin carries globals)"
+            );
+            return Ok(None);
+        }
+        if t.d_out != rows || t.d_in != n {
+            return Err(format!(
+                "cq3: {name} is {}x{} in the artifact, the plan says {rows}x{n}",
+                t.d_out, t.d_in
+            ));
+        }
+        let handle = crate::qwen38_cq3_cudarc::Cq3HandleCuda::from_packed_cuda(
+            std::sync::Arc::clone(&self.kernels),
+            stream,
+            t,
+        )?;
+        Ok(Some(QuantW {
+            // Length-0 placeholder — the incumbent bytes never upload (the
+            // routed form is the VRAM win); the funnel arms branch on the
+            // handle before any `dev` read, so it is never launched on.
+            dev: stream
+                .null::<u8>()
+                .map_err(|e| format!("cq3 null dev: {e}"))?,
+            rows,
+            n,
+            blocks_per_row: 0,
+            q4: false,
+            cq3: Some(std::sync::Arc::new(handle)),
+        }))
+    }
+}
+
+/// Which half of a possibly-armed route an upload consults. A cfg-neutral
+/// enum so `upload_quant_for`'s signature compiles at every posture.
+#[derive(Clone, Copy)]
+enum Cq3RouteRef<'a> {
+    Off,
+    #[cfg(feature = "cq3_cuda")]
+    On(&'a Cq3Route),
+}
+
+/// The routed quantized upload: consult the CQ3 route first (armed builds
+/// only), then the incumbent GGUF upload. Unarmed = `upload_quant`
+/// verbatim (byte-identical, G3).
+fn upload_quant_for(
+    route: Cq3RouteRef<'_>,
+    stream: &Arc<CudaStream>,
+    gguf: &GgufFile,
+    name: &str,
+    rows: usize,
+    n: usize,
+) -> Result<QuantW, String> {
+    #[cfg(feature = "cq3_cuda")]
+    if let Cq3RouteRef::On(r) = route {
+        if let Some(w) = r.try_route(stream, name, rows, n)? {
+            return Ok(w);
+        }
+    }
+    upload_quant(stream, gguf, name, rows, n)
 }
 
 /// Load all decode-path weights from the GGUF mmap onto the device.
@@ -2488,8 +2620,106 @@ fn upload_quant(
 pub fn load_weights_gpu(
     gguf: &GgufFile,
     cfg: &Qwen38DenseConfig,
+    ctx: &Arc<CudaContext>,
     stream: &Arc<CudaStream>,
 ) -> Result<Qwen38DenseWeightsGpu, String> {
+    #[cfg(not(feature = "cq3_cuda"))]
+    let _ = ctx;
+    // Issue 1186 T3-prep (a2) — the CQ3 route (the env reads + sidecar
+    // verify + mask parse + the one nvrtc kernel compile, ONCE per load).
+    #[cfg(feature = "cq3_cuda")]
+    let cq3_owned: Option<Cq3Route> = {
+        let artifact = match std::env::var("RIIR_QWEN38_CQ3") {
+            Ok(path) if !path.is_empty() => {
+                let artifact =
+                    crate::qwen38_cq3_serving::Cq3Artifact::read(std::path::Path::new(&path))
+                        .map_err(|e| format!("cq3 artifact: {e}"))?;
+                let digest =
+                    crate::qwen38_cq3_serving::verify_blake3_sidecar(std::path::Path::new(&path))
+                        .map_err(|e| format!("cq3 sidecar: {e}"))?;
+                let count = artifact.tensors.len();
+                eprintln!(
+                    "[cq3-serving-cuda] RIIR_QWEN38_CQ3 armed: {count} tensors from {path}, \
+                     blake3 {digest} — mixed posture: artifact tensors serve CQ3, \
+                     the rest keep the incumbent route"
+                );
+                Some(artifact)
+            }
+            _ => {
+                eprintln!(
+                    "[cq3-serving-cuda] RIIR_QWEN38_CQ3 unset — the incumbent weight route (byte-identical)"
+                );
+                None
+            }
+        };
+        let mask: Option<std::collections::HashSet<String>> = {
+            let raw = std::env::var("RIIR_QWEN38_CQ3_FAMILIES").unwrap_or_default();
+            if raw.is_empty() {
+                None
+            } else {
+                if artifact.is_none() {
+                    return Err(
+                        "RIIR_QWEN38_CQ3_FAMILIES set but RIIR_QWEN38_CQ3 is unset — \
+                                the mask can never take effect"
+                            .into(),
+                    );
+                }
+                let mut set = std::collections::HashSet::new();
+                for slug in raw.split(',') {
+                    let slug = slug.trim();
+                    if riir_infer_core::family_census::Family::parse(slug).is_none() {
+                        return Err(format!(
+                            "RIIR_QWEN38_CQ3_FAMILIES: unknown family slug '{slug}' \
+                             (see family_census::Family::ALL)"
+                        ));
+                    }
+                    set.insert(slug.to_string());
+                }
+                let (admitted, unclassified) = match &artifact {
+                    Some(a) => {
+                        let mut admitted = 0usize;
+                        let mut unclassified = 0usize;
+                        for t in &a.tensors {
+                            match riir_infer_core::family_census::classify(&t.name) {
+                                Some(c) => {
+                                    if set.contains(c.family.slug()) {
+                                        admitted += 1;
+                                    }
+                                }
+                                None => unclassified += 1,
+                            }
+                        }
+                        (admitted, unclassified)
+                    }
+                    None => (0, 0),
+                };
+                eprintln!(
+                    "[cq3-serving-cuda] RIIR_QWEN38_CQ3_FAMILIES armed: {raw} — routed {admitted} \
+                     of the artifact tensors, {unclassified} unclassified names default-denied"
+                );
+                Some(set)
+            }
+        };
+        match artifact {
+            Some(artifact) => {
+                let kernels = crate::qwen38_cq3_cudarc::Cq3CudarcKernels::new(ctx)
+                    .map_err(|e| e.to_string())?;
+                Some(Cq3Route {
+                    artifact,
+                    kernels,
+                    mask,
+                })
+            }
+            None => None,
+        }
+    };
+    #[cfg(feature = "cq3_cuda")]
+    let cq3_route: Cq3RouteRef<'_> = match &cq3_owned {
+        Some(r) => Cq3RouteRef::On(r),
+        None => Cq3RouteRef::Off,
+    };
+    #[cfg(not(feature = "cq3_cuda"))]
+    let cq3_route = Cq3RouteRef::Off;
     let n = cfg.n_embd;
     let q_dim = cfg.n_head * cfg.head_dim;
     let kvd = cfg.n_kv_head * cfg.head_dim;
@@ -2500,9 +2730,16 @@ pub fn load_weights_gpu(
     let l_qkv_out = 2 * cfg.n_k_heads * cfg.head_k_dim + cfg.n_v_heads * cfg.head_v_dim;
     let l_z_out = cfg.n_v_heads * cfg.head_v_dim;
 
-    let token_embd = upload_quant(stream, gguf, "token_embd.weight", cfg.vocab_size, n)?;
+    let token_embd = upload_quant_for(
+        cq3_route,
+        stream,
+        gguf,
+        "token_embd.weight",
+        cfg.vocab_size,
+        n,
+    )?;
     let output_norm = upload_f32(stream, gguf, "output_norm.weight")?;
-    let lm_head = upload_quant(stream, gguf, "output.weight", cfg.vocab_size, n)?;
+    let lm_head = upload_quant_for(cq3_route, stream, gguf, "output.weight", cfg.vocab_size, n)?;
 
     let mut layers = Vec::with_capacity(cfg.n_layer);
     for i in 0..cfg.n_layer {
@@ -2510,21 +2747,24 @@ pub fn load_weights_gpu(
         let blk = format!("blk.{i}.");
         let input_norm = upload_f32(stream, gguf, &format!("{blk}attn_norm.weight"))?;
         let post_attn_norm = upload_f32(stream, gguf, &format!("{blk}post_attention_norm.weight"))?;
-        let ffn_gate = upload_quant(
+        let ffn_gate = upload_quant_for(
+            cq3_route,
             stream,
             gguf,
             &format!("{blk}ffn_gate.weight"),
             cfg.mlp_hidden,
             n,
         )?;
-        let ffn_up = upload_quant(
+        let ffn_up = upload_quant_for(
+            cq3_route,
             stream,
             gguf,
             &format!("{blk}ffn_up.weight"),
             cfg.mlp_hidden,
             n,
         )?;
-        let ffn_down = upload_quant(
+        let ffn_down = upload_quant_for(
+            cq3_route,
             stream,
             gguf,
             &format!("{blk}ffn_down.weight"),
@@ -2535,28 +2775,32 @@ pub fn load_weights_gpu(
             Qwen38LayerGpu {
                 input_norm,
                 post_attn_norm,
-                qkv: Some(upload_quant(
+                qkv: Some(upload_quant_for(
+                    cq3_route,
                     stream,
                     gguf,
                     &format!("{blk}attn_qkv.weight"),
                     l_qkv_out,
                     n,
                 )?),
-                z: Some(upload_quant(
+                z: Some(upload_quant_for(
+                    cq3_route,
                     stream,
                     gguf,
                     &format!("{blk}attn_gate.weight"),
                     l_z_out,
                     n,
                 )?),
-                alpha: Some(upload_quant(
+                alpha: Some(upload_quant_for(
+                    cq3_route,
                     stream,
                     gguf,
                     &format!("{blk}ssm_alpha.weight"),
                     cfg.n_v_heads,
                     n,
                 )?),
-                beta: Some(upload_quant(
+                beta: Some(upload_quant_for(
+                    cq3_route,
                     stream,
                     gguf,
                     &format!("{blk}ssm_beta.weight"),
@@ -2571,7 +2815,8 @@ pub fn load_weights_gpu(
                 a_log: Some(upload_f32(stream, gguf, &format!("{blk}ssm_a"))?),
                 dt_bias: Some(upload_f32(stream, gguf, &format!("{blk}ssm_dt.bias"))?),
                 ssm_norm: Some(upload_f32(stream, gguf, &format!("{blk}ssm_norm.weight"))?),
-                ssm_out: Some(upload_quant(
+                ssm_out: Some(upload_quant_for(
+                    cq3_route,
                     stream,
                     gguf,
                     &format!("{blk}ssm_out.weight"),
@@ -2601,28 +2846,32 @@ pub fn load_weights_gpu(
                 dt_bias: None,
                 ssm_norm: None,
                 ssm_out: None,
-                wq: Some(upload_quant(
+                wq: Some(upload_quant_for(
+                    cq3_route,
                     stream,
                     gguf,
                     &format!("{blk}attn_q.weight"),
                     2 * q_dim,
                     n,
                 )?),
-                wk: Some(upload_quant(
+                wk: Some(upload_quant_for(
+                    cq3_route,
                     stream,
                     gguf,
                     &format!("{blk}attn_k.weight"),
                     kvd,
                     n,
                 )?),
-                wv: Some(upload_quant(
+                wv: Some(upload_quant_for(
+                    cq3_route,
                     stream,
                     gguf,
                     &format!("{blk}attn_v.weight"),
                     kvd,
                     n,
                 )?),
-                wo: Some(upload_quant(
+                wo: Some(upload_quant_for(
+                    cq3_route,
                     stream,
                     gguf,
                     &format!("{blk}attn_output.weight"),
@@ -3137,6 +3386,12 @@ pub struct Qwen38DenseForward {
     /// Requires n_embd == 5120 (the constexpr-specialized kernel; all
     /// decode/verify norm sites are n_embd=5120 on this model).
     res_nq_fused: bool,
+    /// Issue 1186 T3-prep (a2) — the CQ3 rows scratch: the f32 normed rows
+    /// the rows-path boundary fallback materializes (`cq3_norm_rows`) and
+    /// the zgate rows form writes (`[p·n_v]` heads of `head_v_dim`). Sized
+    /// `QWEN38_VERIFY_MAX_P · max(n_embd, d_inner)` so every fed site fits.
+    #[cfg(feature = "cq3_cuda")]
+    cq3_xn: CudaSlice<f32>,
     /// Issue 742 T9.9 - the p-row verify scratch + GDN snapshots.
     verify: Qwen38VerifyScratch,
     /// Issue 755 T2 — the verify-chunk feature taps (the DFlash2 ring feed):
@@ -3356,7 +3611,7 @@ impl Qwen38DenseForward {
         stream: Arc<CudaStream>,
         ctx_len: usize,
     ) -> Result<Self, String> {
-        let weights = load_weights_gpu(gguf, &cfg, &stream)?;
+        let weights = load_weights_gpu(gguf, &cfg, &ctx, &stream)?;
 
         // Issue 753 — the KV dtype hatch: resolved ONCE per process (the PTX
         // module selection and the KV buffer sizing both bake it; a captured
@@ -3567,12 +3822,28 @@ impl Qwen38DenseForward {
         // to recurrence_parallel (resolved ONCE here, never per dispatch).
         let dn_fused = std::env::var("QWEN38_DN_FUSED").map_or(true, |v| v != "0")
             && cfg.head_k_dim.is_multiple_of(32);
+        // Issue 1186 T3-prep (a2) — the CQ3 serving arm's boundary hatches:
+        // when RIIR_QWEN38_CQ3 is armed, the fused boundaries DEMOTE — CQ3's
+        // chain consumes the f32 normed x the fused kernels never
+        // materialize, and every unfused arm already produces BOTH forms
+        // (launch_rmsnorm → x_norm + quantize → xq/xs/xsum), so mixed
+        // cq3/incumbent consumer sets share one boundary. The armed posture
+        // is the opt-in experimental one (its own weights are ~3 bpw — the
+        // memory win dominates the boundary cost); the unarmed build keeps
+        // every env resolution byte-identical (G3). The env is MANDATORY
+        // under an armed route — an explicit fuse request cannot re-fuse a
+        // boundary a cq3 consumer needs f32 from.
+        #[cfg(feature = "cq3_cuda")]
+        let cq3_armed = std::env::var("RIIR_QWEN38_CQ3").is_ok();
+        #[cfg(not(feature = "cq3_cuda"))]
+        let cq3_armed = false;
         // Issue 742 rmsnorm→quant fusion (Bench 734 ranked lever 1): one
         // kernel for the rmsnorm + q8-quantize pair at every plain-rmsnorm
         // site, bit-identical by construction. Requires n_embd % 16 == 0
         // (5120 ✓). Resolved ONCE here, never per dispatch.
         let rnq_fused = std::env::var("QWEN38_RNQ_FUSED").map_or(true, |v| v != "0")
-            && cfg.n_embd.is_multiple_of(16);
+            && cfg.n_embd.is_multiple_of(16)
+            && !cq3_armed;
         // Issue 742 T9.7c (Bench 736): the constexpr-specialized fused kernel
         // at n_embd==5120 — fully-unrolled data loops (the generic fused
         // kernel's rolled loops serialize the strided loads; its 7.36 µs/site
@@ -3588,13 +3859,21 @@ impl Qwen38DenseForward {
         // dispatch.
         let zgq_fused = std::env::var("QWEN38_ZGQ_FUSED").map_or(true, |v| v != "0")
             && cfg.head_v_dim.is_multiple_of(16)
-            && cfg.head_v_dim <= 256;
+            && cfg.head_v_dim <= 256
+            && !cq3_armed;
         // Issue 755: the fused layer-boundary chain (residual + snapshot +
         // next site's norm+quant). Resolved ONCE here, never per dispatch
         // (the env-once lesson). Requires n_embd == 5120 (the constexpr
         // twin; every decode/verify norm site is 5120 on this model).
-        let res_nq_fused =
-            std::env::var("QWEN38_RES_NQ_FUSED").map_or(true, |v| v != "0") && cfg.n_embd == 5120;
+        let res_nq_fused = std::env::var("QWEN38_RES_NQ_FUSED").map_or(true, |v| v != "0")
+            && cfg.n_embd == 5120
+            && !cq3_armed;
+        // The CQ3 rows scratch: the f32 normed rows the rows-path boundary
+        // fallback materializes (the rows twins are unconditional-fused and
+        // write no f32). [p · max(n_embd, d_inner)] covers every fed site
+        // (the boundary norms are n-dim; the zgate rows form is d_inner-dim).
+        #[cfg(feature = "cq3_cuda")]
+        let cq3_xn = alloc_f32!(QWEN38_VERIFY_MAX_P * cfg.d_inner.max(cfg.n_embd));
         let attn_part_m = alloc_f32!(cfg.n_head * attn_n_chunks);
         let attn_part_l = alloc_f32!(cfg.n_head * attn_n_chunks);
         let attn_part_out = alloc_f32!(cfg.n_head * attn_n_chunks * cfg.head_dim);
@@ -3672,6 +3951,8 @@ impl Qwen38DenseForward {
             rnq_fast,
             zgq_fused,
             res_nq_fused,
+            #[cfg(feature = "cq3_cuda")]
+            cq3_xn,
             verify,
             wide_scratch: None,
             wide_ingest_active: false,
@@ -3738,6 +4019,84 @@ impl Qwen38DenseForward {
                     block_dim: (256, 1, 1),
                     shared_mem_bytes: 0,
                 })
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    /// `quantize_x` skipped when `w` rides the cq3 chain (the f32 source
+    /// stays the cq3 consumer's input; the incumbent xq has no reader at
+    /// that site — wo/ffn_down are single-consumer mid-sites).
+    fn quantize_x_for(&self, w: &QuantW, x: &CudaSlice<f32>, n: usize) -> Result<(), String> {
+        #[cfg(feature = "cq3_cuda")]
+        if w.cq3.is_some() {
+            return Ok(());
+        }
+        #[cfg(not(feature = "cq3_cuda"))]
+        let _ = w;
+        self.quantize_x(x, n)
+    }
+
+    /// The rows-path input boundary: the fused rows twin when no cq3 weight
+    /// consumes this norm; otherwise the cq3 fallback — per-row
+    /// `launch_rmsnorm` into `cq3_xn` (per-row bit-identical f32 — the same
+    /// chain the fused twin derives from) + the flat incumbent quantize so
+    /// mixed cq3/incumbent consumer sets keep their xq/xs/xsum.
+    fn rows_boundary(
+        &self,
+        x: &CudaSlice<f32>,
+        gamma: &CudaSlice<f32>,
+        n: usize,
+        eps: f32,
+        p: usize,
+        cq3_fed: bool,
+    ) -> Result<(), String> {
+        #[cfg(feature = "cq3_cuda")]
+        if cq3_fed {
+            self.cq3_norm_rows(x, gamma, n, eps, p)?;
+            let v = &self.verify;
+            // SAFETY: cq3_xn covers p*n; v.xq/xs/xsum are sized for
+            // p*mlp_hidden ⊇ p*n; n*p % 16 == 0 (every site dim is).
+            unsafe {
+                self.dense.launch_quant_x_q8(
+                    &self.stream,
+                    &self.cq3_xn.slice(0..p * n),
+                    &v.xq,
+                    &v.xs,
+                    &v.xsum,
+                    n * p,
+                )?;
+            }
+            return Ok(());
+        }
+        #[cfg(not(feature = "cq3_cuda"))]
+        let _ = (cq3_fed, n, p);
+        self.rmsnorm_quant_x_rows(x, gamma, n, eps, p)
+    }
+
+    /// The f32 normed rows (`cq3 fallback`): per-row
+    /// `ElementwiseKernels::launch_rmsnorm` into `cq3_xn` — the same norm
+    /// kernel the fused twins derive from, so the f32 the cq3 quantizer
+    /// consumes is bit-identical to what the incumbent path would have read.
+    #[cfg(feature = "cq3_cuda")]
+    fn cq3_norm_rows(
+        &self,
+        x: &CudaSlice<f32>,
+        gamma: &CudaSlice<f32>,
+        n: usize,
+        eps: f32,
+        p: usize,
+    ) -> Result<(), String> {
+        for r in 0..p {
+            self.ew
+                .launch_rmsnorm(
+                    &self.stream,
+                    &x.slice(r * n..(r + 1) * n),
+                    gamma,
+                    &self.cq3_xn.slice(r * n..(r + 1) * n),
+                    n,
+                    eps,
+                )
                 .map_err(|e| e.to_string())?;
         }
         Ok(())
@@ -3924,7 +4283,21 @@ impl Qwen38DenseForward {
         }
     }
 
-    fn gemv_quant(&self, w: &QuantW, y: &CudaSlice<f32>) -> Result<(), String> {
+    fn gemv_quant(
+        &self,
+        w: &QuantW,
+        x_f32: &CudaSlice<f32>,
+        y: &CudaSlice<f32>,
+    ) -> Result<(), String> {
+        // Issue 1186 T3-prep (a2) — the CQ3 arm: rotate → stage → never-unpack
+        // dot straight off the f32 normed activation (the incumbent xq/xs path
+        // is not touched; the engagement proof rides the handle's counters).
+        #[cfg(feature = "cq3_cuda")]
+        if let Some(h) = w.cq3.as_ref() {
+            return h.gemv_decode(&self.stream, x_f32, y);
+        }
+        #[cfg(not(feature = "cq3_cuda"))]
+        let _ = x_f32;
         let stream = &self.stream;
         let (m_i, n_i, bpr_i) = (w.rows as i32, w.n as i32, w.blocks_per_row as i32);
         let grid = w.rows.div_ceil(8).max(1) as u32;
@@ -4010,10 +4383,10 @@ impl Qwen38DenseForward {
         }
         // fused path: the leading norm was done by the previous site's
         // Issue-755 fused boundary kernel (run_layer_stack's site B).
-        self.gemv_quant(lw.qkv.as_ref().unwrap(), &self.qkv)?;
-        self.gemv_quant(lw.z.as_ref().unwrap(), &self.z_buf)?;
-        self.gemv_quant(lw.alpha.as_ref().unwrap(), &self.a_raw)?;
-        self.gemv_quant(lw.beta.as_ref().unwrap(), &self.b_raw)?;
+        self.gemv_quant(lw.qkv.as_ref().unwrap(), &self.x_norm, &self.qkv)?;
+        self.gemv_quant(lw.z.as_ref().unwrap(), &self.x_norm, &self.z_buf)?;
+        self.gemv_quant(lw.alpha.as_ref().unwrap(), &self.x_norm, &self.a_raw)?;
+        self.gemv_quant(lw.beta.as_ref().unwrap(), &self.x_norm, &self.b_raw)?;
         self.dn
             .launch_beta_decay(
                 stream,
@@ -4090,7 +4463,7 @@ impl Qwen38DenseForward {
             cfg.head_v_dim,
             cfg.rms_norm_eps,
         )?;
-        self.gemv_quant(lw.ssm_out.as_ref().unwrap(), &self.y)?;
+        self.gemv_quant(lw.ssm_out.as_ref().unwrap(), &self.rec_normed, &self.y)?;
         if !self.res_nq_fused {
             // fused path: the residual is folded into the next site's
             // Issue-755 fused boundary kernel (run_layer_stack's site A).
@@ -4120,7 +4493,7 @@ impl Qwen38DenseForward {
         }
         // fused path: norm done by the previous site's fused boundary
         // kernel; residual folded into the next site's.
-        self.gemv_quant(lw.wq.as_ref().unwrap(), &self.qg)?;
+        self.gemv_quant(lw.wq.as_ref().unwrap(), &self.x_norm, &self.qg)?;
         self.attn
             .launch_split_qg(
                 stream,
@@ -4131,8 +4504,8 @@ impl Qwen38DenseForward {
                 cfg.n_head,
             )
             .map_err(|e| e.to_string())?;
-        self.gemv_quant(lw.wk.as_ref().unwrap(), &self.k)?;
-        self.gemv_quant(lw.wv.as_ref().unwrap(), &self.v)?;
+        self.gemv_quant(lw.wk.as_ref().unwrap(), &self.x_norm, &self.k)?;
+        self.gemv_quant(lw.wv.as_ref().unwrap(), &self.x_norm, &self.v)?;
         self.attn
             .launch_rmsnorm_batched(
                 stream,
@@ -4321,8 +4694,8 @@ impl Qwen38DenseForward {
         self.attn
             .launch_output_gate(stream, &self.attn_out, &self.gate, q_dim)
             .map_err(|e| e.to_string())?;
-        self.quantize_x(&self.attn_out, q_dim)?;
-        self.gemv_quant(lw.wo.as_ref().unwrap(), &self.y)?;
+        self.quantize_x_for(&lw.wo, &self.attn_out, q_dim)?;
+        self.gemv_quant(lw.wo.as_ref().unwrap(), &self.attn_out, &self.y)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel.
@@ -4344,8 +4717,8 @@ impl Qwen38DenseForward {
         // fused path: norm done by the previous site's fused boundary
         // kernel (run_layer_stack's site A); residual folded into the
         // next site's.
-        self.gemv_quant(&lw.ffn_gate, &self.mlp_gate)?;
-        self.gemv_quant(&lw.ffn_up, &self.mlp_up)?;
+        self.gemv_quant(&lw.ffn_gate, &self.x_norm, &self.mlp_gate)?;
+        self.gemv_quant(&lw.ffn_up, &self.x_norm, &self.mlp_up)?;
         self.ew
             .launch_swiglu(
                 stream,
@@ -4355,8 +4728,8 @@ impl Qwen38DenseForward {
                 cfg.mlp_hidden,
             )
             .map_err(|e| e.to_string())?;
-        self.quantize_x(&self.mlp_hidden, cfg.mlp_hidden)?;
-        self.gemv_quant(&lw.ffn_down, &self.y)?;
+        self.quantize_x_for(&lw.ffn_down, &self.mlp_hidden, cfg.mlp_hidden)?;
+        self.gemv_quant(&lw.ffn_down, &self.mlp_hidden, &self.y)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel (or the plain last-layer add).
@@ -4451,7 +4824,7 @@ impl Qwen38DenseForward {
         self.run_layer_stack(token, pos)?;
         let stream = &self.stream;
         self.rmsnorm_quant_x(&self.x, &self.weights.output_norm.dev, n, eps)?;
-        self.gemv_quant(&self.weights.lm_head, &self.logits)?;
+        self.gemv_quant(&self.weights.lm_head, &self.x_norm, &self.logits)?;
         stream
             .memcpy_htod(ZERO_U64.as_slice(), &mut self.argmax_res)
             .map_err(|e| e.to_string())?;
@@ -4571,7 +4944,7 @@ impl Qwen38DenseForward {
         }
 
         self.rmsnorm_quant_x(&self.x, &self.weights.output_norm.dev, n, cfg.rms_norm_eps)?;
-        self.gemv_quant(&self.weights.lm_head, &self.logits)?;
+        self.gemv_quant(&self.weights.lm_head, &self.x_norm, &self.logits)?;
         stream
             .memcpy_htod(ZERO_U64.as_slice(), &mut self.argmax_res)
             .map_err(|e| e.to_string())?;
@@ -4735,7 +5108,7 @@ impl Qwen38DenseForward {
         }
 
         self.rmsnorm_quant_x(&self.x, &self.weights.output_norm.dev, n, cfg.rms_norm_eps)?;
-        self.gemv_quant(&self.weights.lm_head, &self.logits)?;
+        self.gemv_quant(&self.weights.lm_head, &self.x_norm, &self.logits)?;
         stream
             .memcpy_htod(ZERO_U64.as_slice(), &mut self.argmax_res)
             .map_err(|e| e.to_string())?;
@@ -4793,11 +5166,10 @@ impl Qwen38DenseForward {
             stream
                 .memcpy_htod(&hidden_rows[r * n..(r + 1) * n], &mut self.x)
                 .map_err(|e| e.to_string())?;
-            unsafe {
-                self.dense
-                    .launch_quant_x_q8(stream, &self.x, &self.xq, &self.xs, &self.xsum, n)?;
-            }
-            self.gemv_quant(&self.weights.lm_head, &self.logits)?;
+            // The uploaded row IS the normed f32 (the DFlash2 contract) — the
+            // cq3 arm consumes it directly, the incumbent quantize is skipped.
+            self.quantize_x_for(&self.weights.lm_head, &self.x, n)?;
+            self.gemv_quant(&self.weights.lm_head, &self.x, &self.logits)?;
             stream.synchronize().map_err(|e| e.to_string())?;
             let row = stream.clone_dtoh(&self.logits).map_err(|e| e.to_string())?;
             out.extend_from_slice(&row[..vocab]);
@@ -4837,20 +5209,16 @@ impl Qwen38DenseForward {
         stream
             .memcpy_htod(hidden_rows, &mut self.verify.xb)
             .map_err(|e| e.to_string())?;
-        // SAFETY: xb covers p*n f32 (p<=16); xq/xs/xsum are sized for
-        // p*mlp_hidden ⊇ p*n; n_rows*n % 16 == 0 (n % 16 asserted at every
-        // other site; n_embd = 5120 on this model).
-        unsafe {
-            self.dense.launch_quant_x_q8(
-                stream,
-                &self.verify.xb,
-                &self.verify.xq,
-                &self.verify.xs,
-                &self.verify.xsum,
-                n_rows * n,
-            )?;
-        }
-        self.gemv_quant_rows(&self.weights.lm_head, &self.verify.logits, n_rows)?;
+        // The uploaded rows ARE the normed f32 (the DFlash2 contract) — the
+        // cq3 arm consumes them directly; the incumbent flat quantize is
+        // skipped under a routed lm_head.
+        self.quantize_x_for(&self.weights.lm_head, &self.verify.xb, n_rows * n)?;
+        self.gemv_quant_rows(
+            &self.weights.lm_head,
+            &self.verify.xb,
+            &self.verify.logits,
+            n_rows,
+        )?;
         stream.synchronize().map_err(|e| e.to_string())?;
         let view = self.verify.logits.slice(0..n_rows * vocab);
         stream.clone_dtoh(&view).map_err(|e| e.to_string())
@@ -4905,7 +5273,7 @@ impl Qwen38DenseForward {
         self.run_layer_stack(0, 0)?;
         let stream = &self.stream;
         self.rmsnorm_quant_x(&self.x, &self.weights.output_norm.dev, n, eps)?;
-        self.gemv_quant(&self.weights.lm_head, &self.logits)?;
+        self.gemv_quant(&self.weights.lm_head, &self.x_norm, &self.logits)?;
         stream
             .memset_zeros(&mut self.argmax_res)
             .map_err(|e| e.to_string())?;
@@ -5075,7 +5443,7 @@ impl Qwen38DenseForward {
 
         let stream = &self.stream;
         self.rmsnorm_quant_x(&self.x, &self.weights.output_norm.dev, n, cfg.rms_norm_eps)?;
-        self.gemv_quant(&self.weights.lm_head, &self.logits)?;
+        self.gemv_quant(&self.weights.lm_head, &self.x_norm, &self.logits)?;
         stream.synchronize().map_err(|e| e.to_string())?;
         let logits = stream.clone_dtoh(&self.logits).map_err(|e| e.to_string())?;
         let mut best = 0usize;
@@ -5665,14 +6033,19 @@ impl Qwen38DenseForward {
         // Final norm + lm_head + per-lane argmax (verbatim the chunk tail).
         {
             let v = &self.verify;
-            self.rmsnorm_quant_x_rows(
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_lm = self.weights.lm_head.cq3.is_some();
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_lm = false;
+            self.rows_boundary(
                 &v.xb,
                 &self.weights.output_norm.dev,
                 n_embd,
                 cfg.rms_norm_eps,
                 p,
+                cq3_lm,
             )?;
-            self.gemv_quant_rows(&self.weights.lm_head, &v.logits, p)?;
+            self.gemv_quant_rows(&self.weights.lm_head, &self.cq3_xn, &v.logits, p)?;
         }
         {
             let stream = &self.stream;
@@ -5723,12 +6096,24 @@ impl Qwen38DenseForward {
         let rec_len = n_v * cfg.head_k_dim * cfg.head_v_dim;
         let v = &self.verify;
         if !self.res_nq_fused {
-            self.rmsnorm_quant_x_rows(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p)?;
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_in = [
+                lw.qkv.as_ref(),
+                lw.z.as_ref(),
+                lw.alpha.as_ref(),
+                lw.beta.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|w| w.cq3.is_some());
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_in = false;
+            self.rows_boundary(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p, cq3_in)?;
         }
-        self.gemv_quant_rows(lw.qkv.as_ref().unwrap(), &v.qkv, p)?;
-        self.gemv_quant_rows(lw.z.as_ref().unwrap(), &v.z, p)?;
-        self.gemv_quant_rows(lw.alpha.as_ref().unwrap(), &v.a_raw, p)?;
-        self.gemv_quant_rows(lw.beta.as_ref().unwrap(), &v.b_raw, p)?;
+        self.gemv_quant_rows(lw.qkv.as_ref().unwrap(), &self.cq3_xn, &v.qkv, p)?;
+        self.gemv_quant_rows(lw.z.as_ref().unwrap(), &self.cq3_xn, &v.z, p)?;
+        self.gemv_quant_rows(lw.alpha.as_ref().unwrap(), &self.cq3_xn, &v.a_raw, p)?;
+        self.gemv_quant_rows(lw.beta.as_ref().unwrap(), &self.cq3_xn, &v.b_raw, p)?;
         self.dn
             .launch_beta_decay_rows(
                 stream,
@@ -5790,22 +6175,53 @@ impl Qwen38DenseForward {
                 )
                 .map_err(|e| e.to_string())?;
         }
-        // SAFETY: rec_out/z cover p*d_inner; xq/xs/xsum cover p*(d_inner/16).
-        unsafe {
-            self.dense.launch_rmsnorm_zgate_quant_x_q8(
-                stream,
-                &v.rec_out,
-                &v.z,
-                &lw.ssm_norm.as_ref().unwrap().dev,
-                &v.xq,
-                &v.xs,
-                &v.xsum,
-                p * n_v,
-                cfg.head_v_dim,
-                cfg.rms_norm_eps,
-            )
-        }?;
-        self.gemv_quant_rows(lw.ssm_out.as_ref().unwrap(), &v.y, p)?;
+        // The post-recurrence chain: the fused zgate twin when ssm_out is
+        // incumbent; the cq3 rows form (per-head norm → z-gate → f32 in
+        // cq3_xn) when it rides the cq3 chain.
+        #[cfg(feature = "cq3_cuda")]
+        let ssm_cq3 = lw.ssm_out.as_ref().is_some_and(|w| w.cq3.is_some());
+        #[cfg(not(feature = "cq3_cuda"))]
+        let ssm_cq3 = false;
+        if !ssm_cq3 {
+            // SAFETY: rec_out/z cover p*d_inner; xq/xs/xsum cover p*(d_inner/16).
+            unsafe {
+                self.dense.launch_rmsnorm_zgate_quant_x_q8(
+                    stream,
+                    &v.rec_out,
+                    &v.z,
+                    &lw.ssm_norm.as_ref().unwrap().dev,
+                    &v.xq,
+                    &v.xs,
+                    &v.xsum,
+                    p * n_v,
+                    cfg.head_v_dim,
+                    cfg.rms_norm_eps,
+                )
+            }?;
+        }
+        #[cfg(feature = "cq3_cuda")]
+        if ssm_cq3 {
+            // SAFETY: rec_out covers p·d_inner; cq3_xn covers p·d_inner (the
+            // sizing max); rows are [p·n_v] heads of head_v_dim; z_gating is
+            // elementwise-flat over p·d_inner (in place on cq3_xn). The
+            // batched norm's per-head order differs in the last ulp from
+            // rmsnorm_f32's — disclosed, the cq3 arm is retention-gated.
+            self.attn
+                .launch_rmsnorm_batched(
+                    stream,
+                    &v.rec_out,
+                    &lw.ssm_norm.as_ref().unwrap().dev,
+                    &self.cq3_xn,
+                    p * n_v,
+                    cfg.head_v_dim,
+                    cfg.rms_norm_eps,
+                )
+                .map_err(|e| e.to_string())?;
+            self.dn
+                .launch_z_gating(stream, &self.cq3_xn, &v.z, p * cfg.d_inner)
+                .map_err(|e| e.to_string())?;
+        }
+        self.gemv_quant_rows(lw.ssm_out.as_ref().unwrap(), &self.cq3_xn, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel.
@@ -5840,14 +6256,21 @@ impl Qwen38DenseForward {
         let lane_kv = lanes.lane_ctx * kvd;
         let v = &self.verify;
         if !self.res_nq_fused {
-            self.rmsnorm_quant_x_rows(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p)?;
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_in = [lw.wq.as_ref(), lw.wk.as_ref(), lw.wv.as_ref()]
+                .into_iter()
+                .flatten()
+                .any(|w| w.cq3.is_some());
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_in = false;
+            self.rows_boundary(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p, cq3_in)?;
         }
-        self.gemv_quant_rows(lw.wq.as_ref().unwrap(), &v.qg, p)?;
+        self.gemv_quant_rows(lw.wq.as_ref().unwrap(), &self.cq3_xn, &v.qg, p)?;
         self.attn
             .launch_split_qg_rows(stream, &v.qg, &v.q, &v.gate, cfg.head_dim, cfg.n_head, p)
             .map_err(|e| e.to_string())?;
-        self.gemv_quant_rows(lw.wk.as_ref().unwrap(), &v.k, p)?;
-        self.gemv_quant_rows(lw.wv.as_ref().unwrap(), &v.vv, p)?;
+        self.gemv_quant_rows(lw.wk.as_ref().unwrap(), &self.cq3_xn, &v.k, p)?;
+        self.gemv_quant_rows(lw.wv.as_ref().unwrap(), &self.cq3_xn, &v.vv, p)?;
         self.attn
             .launch_rmsnorm_batched(
                 stream,
@@ -5972,7 +6395,7 @@ impl Qwen38DenseForward {
             self.dense
                 .launch_quant_x_q8(stream, &v.attn_out, &v.xq, &v.xs, &v.xsum, q_dim * p)
         }?;
-        self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.y, p)?;
+        self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.attn_out, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel.
@@ -6302,14 +6725,19 @@ impl Qwen38DenseForward {
         // Final norm + lm_head + per-row argmax (verbatim the chunk tail).
         {
             let v = &self.verify;
-            self.rmsnorm_quant_x_rows(
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_lm = self.weights.lm_head.cq3.is_some();
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_lm = false;
+            self.rows_boundary(
                 &v.xb,
                 &self.weights.output_norm.dev,
                 n_embd,
                 cfg.rms_norm_eps,
                 p,
+                cq3_lm,
             )?;
-            self.gemv_quant_rows(&self.weights.lm_head, &v.logits, p)?;
+            self.gemv_quant_rows(&self.weights.lm_head, &self.cq3_xn, &v.logits, p)?;
         }
         {
             let stream = &self.stream;
@@ -6689,14 +7117,19 @@ impl Qwen38DenseForward {
         // Final norm + lm_head (verbatim the chunk tail).
         {
             let v = &self.verify;
-            self.rmsnorm_quant_x_rows(
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_lm = self.weights.lm_head.cq3.is_some();
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_lm = false;
+            self.rows_boundary(
                 &v.xb,
                 &self.weights.output_norm.dev,
                 n_embd,
                 cfg.rms_norm_eps,
                 p,
+                cq3_lm,
             )?;
-            self.gemv_quant_rows(&self.weights.lm_head, &v.logits, p)?;
+            self.gemv_quant_rows(&self.weights.lm_head, &self.cq3_xn, &v.logits, p)?;
         }
         // Per-row argmax (zero via the capturable device memset — the eager
         // path's host memcpy would bake into the graph).
@@ -6740,12 +7173,24 @@ impl Qwen38DenseForward {
         let v = &self.verify;
         let n_lanes = lanes.n;
         if !self.res_nq_fused {
-            self.rmsnorm_quant_x_rows(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p)?;
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_in = [
+                lw.qkv.as_ref(),
+                lw.z.as_ref(),
+                lw.alpha.as_ref(),
+                lw.beta.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|w| w.cq3.is_some());
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_in = false;
+            self.rows_boundary(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p, cq3_in)?;
         }
-        self.gemv_quant_rows(lw.qkv.as_ref().unwrap(), &v.qkv, p)?;
-        self.gemv_quant_rows(lw.z.as_ref().unwrap(), &v.z, p)?;
-        self.gemv_quant_rows(lw.alpha.as_ref().unwrap(), &v.a_raw, p)?;
-        self.gemv_quant_rows(lw.beta.as_ref().unwrap(), &v.b_raw, p)?;
+        self.gemv_quant_rows(lw.qkv.as_ref().unwrap(), &self.cq3_xn, &v.qkv, p)?;
+        self.gemv_quant_rows(lw.z.as_ref().unwrap(), &self.cq3_xn, &v.z, p)?;
+        self.gemv_quant_rows(lw.alpha.as_ref().unwrap(), &self.cq3_xn, &v.a_raw, p)?;
+        self.gemv_quant_rows(lw.beta.as_ref().unwrap(), &self.cq3_xn, &v.b_raw, p)?;
         self.dn
             .launch_beta_decay_rows(
                 stream,
@@ -6813,22 +7258,53 @@ impl Qwen38DenseForward {
                 )
                 .map_err(|e| e.to_string())?;
         }
-        // SAFETY: rec_out/z cover p*d_inner; xq/xs/xsum cover p*(d_inner/16).
-        unsafe {
-            self.dense.launch_rmsnorm_zgate_quant_x_q8(
-                stream,
-                &v.rec_out,
-                &v.z,
-                &lw.ssm_norm.as_ref().unwrap().dev,
-                &v.xq,
-                &v.xs,
-                &v.xsum,
-                p * n_v,
-                cfg.head_v_dim,
-                cfg.rms_norm_eps,
-            )
-        }?;
-        self.gemv_quant_rows(lw.ssm_out.as_ref().unwrap(), &v.y, p)?;
+        // The post-recurrence chain: the fused zgate twin when ssm_out is
+        // incumbent; the cq3 rows form (per-head norm → z-gate → f32 in
+        // cq3_xn) when it rides the cq3 chain.
+        #[cfg(feature = "cq3_cuda")]
+        let ssm_cq3 = lw.ssm_out.as_ref().is_some_and(|w| w.cq3.is_some());
+        #[cfg(not(feature = "cq3_cuda"))]
+        let ssm_cq3 = false;
+        if !ssm_cq3 {
+            // SAFETY: rec_out/z cover p*d_inner; xq/xs/xsum cover p*(d_inner/16).
+            unsafe {
+                self.dense.launch_rmsnorm_zgate_quant_x_q8(
+                    stream,
+                    &v.rec_out,
+                    &v.z,
+                    &lw.ssm_norm.as_ref().unwrap().dev,
+                    &v.xq,
+                    &v.xs,
+                    &v.xsum,
+                    p * n_v,
+                    cfg.head_v_dim,
+                    cfg.rms_norm_eps,
+                )
+            }?;
+        }
+        #[cfg(feature = "cq3_cuda")]
+        if ssm_cq3 {
+            // SAFETY: rec_out covers p·d_inner; cq3_xn covers p·d_inner (the
+            // sizing max); rows are [p·n_v] heads of head_v_dim; z_gating is
+            // elementwise-flat over p·d_inner (in place on cq3_xn). The
+            // batched norm's per-head order differs in the last ulp from
+            // rmsnorm_f32's — disclosed, the cq3 arm is retention-gated.
+            self.attn
+                .launch_rmsnorm_batched(
+                    stream,
+                    &v.rec_out,
+                    &lw.ssm_norm.as_ref().unwrap().dev,
+                    &self.cq3_xn,
+                    p * n_v,
+                    cfg.head_v_dim,
+                    cfg.rms_norm_eps,
+                )
+                .map_err(|e| e.to_string())?;
+            self.dn
+                .launch_z_gating(stream, &self.cq3_xn, &v.z, p * cfg.d_inner)
+                .map_err(|e| e.to_string())?;
+        }
+        self.gemv_quant_rows(lw.ssm_out.as_ref().unwrap(), &self.cq3_xn, &v.y, p)?;
         if !self.res_nq_fused {
             self.ew
                 .launch_residual_add(stream, &v.xb_res, &v.y, &v.xb, n * p)
@@ -6872,14 +7348,21 @@ impl Qwen38DenseForward {
         let v = &self.verify;
         let n_lanes = lanes.n;
         if !self.res_nq_fused {
-            self.rmsnorm_quant_x_rows(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p)?;
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_in = [lw.wq.as_ref(), lw.wk.as_ref(), lw.wv.as_ref()]
+                .into_iter()
+                .flatten()
+                .any(|w| w.cq3.is_some());
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_in = false;
+            self.rows_boundary(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p, cq3_in)?;
         }
-        self.gemv_quant_rows(lw.wq.as_ref().unwrap(), &v.qg, p)?;
+        self.gemv_quant_rows(lw.wq.as_ref().unwrap(), &self.cq3_xn, &v.qg, p)?;
         self.attn
             .launch_split_qg_rows(stream, &v.qg, &v.q, &v.gate, cfg.head_dim, cfg.n_head, p)
             .map_err(|e| e.to_string())?;
-        self.gemv_quant_rows(lw.wk.as_ref().unwrap(), &v.k, p)?;
-        self.gemv_quant_rows(lw.wv.as_ref().unwrap(), &v.vv, p)?;
+        self.gemv_quant_rows(lw.wk.as_ref().unwrap(), &self.cq3_xn, &v.k, p)?;
+        self.gemv_quant_rows(lw.wv.as_ref().unwrap(), &self.cq3_xn, &v.vv, p)?;
         self.attn
             .launch_rmsnorm_batched(
                 stream,
@@ -7100,7 +7583,7 @@ impl Qwen38DenseForward {
             self.dense
                 .launch_quant_x_q8(stream, &v.attn_out, &v.xq, &v.xs, &v.xsum, q_dim * p)
         }?;
-        self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.y, p)?;
+        self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.attn_out, &v.y, p)?;
         if !self.res_nq_fused {
             self.ew
                 .launch_residual_add(stream, &v.xb_res, &v.y, &v.xb, n * p)
@@ -7370,7 +7853,23 @@ impl Qwen38DenseForward {
     /// views (the literal "batched wrapper over the existing kernel" arm —
     /// the p=1 kernel's proven 732 GB/s inner loop, with the p launches
     /// co-scheduled so L2 catches the weight re-reads).
-    fn gemv_quant_rows(&self, w: &QuantW, y: &CudaSlice<f32>, p: usize) -> Result<(), String> {
+    fn gemv_quant_rows(
+        &self,
+        w: &QuantW,
+        x_f32: &CudaSlice<f32>,
+        y: &CudaSlice<f32>,
+        p: usize,
+    ) -> Result<(), String> {
+        // Issue 1186 T3-prep (a2) — the CQ3 arm preempts every incumbent arm
+        // (wide/mma/loop/strict): the never-unpack GEMV shape at p tokens in
+        // one batched launch (its own cached-p scratch; the scratch cache is
+        // one entry, disclosed — a second p re-grows it).
+        #[cfg(feature = "cq3_cuda")]
+        if let Some(h) = w.cq3.as_ref() {
+            return h.gemv_batched(&self.stream, x_f32, y, p);
+        }
+        #[cfg(not(feature = "cq3_cuda"))]
+        let _ = x_f32;
         static VERIFY_GEMV_ARM: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
         let v = &self.verify;
@@ -7553,14 +8052,29 @@ impl Qwen38DenseForward {
         let v = &self.verify;
 
         if !self.res_nq_fused {
-            self.rmsnorm_quant_x_rows(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p)?;
+            // The cq3 fallback when any first-stage consumer rides the cq3
+            // chain (the f32 normed rows the incumbent fused twin never
+            // materializes); the fused rows twin otherwise.
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_in = [
+                lw.qkv.as_ref(),
+                lw.z.as_ref(),
+                lw.alpha.as_ref(),
+                lw.beta.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|w| w.cq3.is_some());
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_in = false;
+            self.rows_boundary(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p, cq3_in)?;
         }
         // fused path: norm done by the previous site's fused boundary
         // kernel (the loop's site B); residual folded into the next site's.
-        self.gemv_quant_rows(lw.qkv.as_ref().unwrap(), &v.qkv, p)?;
-        self.gemv_quant_rows(lw.z.as_ref().unwrap(), &v.z, p)?;
-        self.gemv_quant_rows(lw.alpha.as_ref().unwrap(), &v.a_raw, p)?;
-        self.gemv_quant_rows(lw.beta.as_ref().unwrap(), &v.b_raw, p)?;
+        self.gemv_quant_rows(lw.qkv.as_ref().unwrap(), &self.cq3_xn, &v.qkv, p)?;
+        self.gemv_quant_rows(lw.z.as_ref().unwrap(), &self.cq3_xn, &v.z, p)?;
+        self.gemv_quant_rows(lw.alpha.as_ref().unwrap(), &self.cq3_xn, &v.a_raw, p)?;
+        self.gemv_quant_rows(lw.beta.as_ref().unwrap(), &self.cq3_xn, &v.b_raw, p)?;
         self.dn
             .launch_beta_decay_rows(
                 stream,
@@ -7624,24 +8138,55 @@ impl Qwen38DenseForward {
                 )
                 .map_err(|e| e.to_string())?;
         }
-        // The fused zgate kernel works as-is with grid p*48 (its indexing is
-        // linear in head_idx over the contiguous [p, 48*head_v_dim] rows).
-        // SAFETY: rec_out/z cover p*d_inner; xq/xs/xsum cover p*(d_inner/16).
-        unsafe {
-            self.dense.launch_rmsnorm_zgate_quant_x_q8(
-                stream,
-                &v.rec_out,
-                &v.z,
-                &lw.ssm_norm.as_ref().unwrap().dev,
-                &v.xq,
-                &v.xs,
-                &v.xsum,
-                p * cfg.n_v_heads,
-                cfg.head_v_dim,
-                cfg.rms_norm_eps,
-            )
-        }?;
-        self.gemv_quant_rows(lw.ssm_out.as_ref().unwrap(), &v.y, p)?;
+        // The post-recurrence chain: the fused zgate twin when ssm_out is
+        // incumbent; the cq3 rows form (per-head norm → z-gate → f32 in
+        // cq3_xn) when it rides the cq3 chain — the fused twin never
+        // materializes the f32 the cq3 quantizer consumes.
+        #[cfg(feature = "cq3_cuda")]
+        let ssm_cq3 = lw.ssm_out.as_ref().is_some_and(|w| w.cq3.is_some());
+        #[cfg(not(feature = "cq3_cuda"))]
+        let ssm_cq3 = false;
+        if !ssm_cq3 {
+            // SAFETY: rec_out/z cover p*d_inner; xq/xs/xsum cover p*(d_inner/16).
+            unsafe {
+                self.dense.launch_rmsnorm_zgate_quant_x_q8(
+                    stream,
+                    &v.rec_out,
+                    &v.z,
+                    &lw.ssm_norm.as_ref().unwrap().dev,
+                    &v.xq,
+                    &v.xs,
+                    &v.xsum,
+                    p * cfg.n_v_heads,
+                    cfg.head_v_dim,
+                    cfg.rms_norm_eps,
+                )
+            }?;
+        }
+        #[cfg(feature = "cq3_cuda")]
+        if ssm_cq3 {
+            // SAFETY: rec_out covers p·d_inner; cq3_xn covers p·d_inner (the
+            // sizing max); rows are [p·n_v] heads of head_v_dim — the batched
+            // kernel's per-head shape; z_gating is elementwise-flat over
+            // p·d_inner (in place on cq3_xn). The batched norm's per-head
+            // order differs in the last ulp from rmsnorm_f32's — disclosed,
+            // the cq3 arm is retention-gated, never a bit-identity claim.
+            self.attn
+                .launch_rmsnorm_batched(
+                    stream,
+                    &v.rec_out,
+                    &lw.ssm_norm.as_ref().unwrap().dev,
+                    &self.cq3_xn,
+                    p * cfg.n_v_heads,
+                    cfg.head_v_dim,
+                    cfg.rms_norm_eps,
+                )
+                .map_err(|e| e.to_string())?;
+            self.dn
+                .launch_z_gating(stream, &self.cq3_xn, &v.z, p * cfg.d_inner)
+                .map_err(|e| e.to_string())?;
+        }
+        self.gemv_quant_rows(lw.ssm_out.as_ref().unwrap(), &self.cq3_xn, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel.
@@ -7702,16 +8247,23 @@ impl Qwen38DenseForward {
         let v = &self.verify;
 
         if !self.res_nq_fused {
-            self.rmsnorm_quant_x_rows(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p)?;
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_in = [lw.wq.as_ref(), lw.wk.as_ref(), lw.wv.as_ref()]
+                .into_iter()
+                .flatten()
+                .any(|w| w.cq3.is_some());
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_in = false;
+            self.rows_boundary(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p, cq3_in)?;
         }
         // fused path: norm done by the previous site's fused boundary
         // kernel; residual folded into the next site's.
-        self.gemv_quant_rows(lw.wq.as_ref().unwrap(), &v.qg, p)?;
+        self.gemv_quant_rows(lw.wq.as_ref().unwrap(), &self.cq3_xn, &v.qg, p)?;
         self.attn
             .launch_split_qg_rows(stream, &v.qg, &v.q, &v.gate, cfg.head_dim, cfg.n_head, p)
             .map_err(|e| e.to_string())?;
-        self.gemv_quant_rows(lw.wk.as_ref().unwrap(), &v.k, p)?;
-        self.gemv_quant_rows(lw.wv.as_ref().unwrap(), &v.vv, p)?;
+        self.gemv_quant_rows(lw.wk.as_ref().unwrap(), &self.cq3_xn, &v.k, p)?;
+        self.gemv_quant_rows(lw.wv.as_ref().unwrap(), &self.cq3_xn, &v.vv, p)?;
         self.attn
             .launch_rmsnorm_batched(
                 stream,
@@ -8090,7 +8642,7 @@ impl Qwen38DenseForward {
             self.dense
                 .launch_quant_x_q8(stream, &v.attn_out, &v.xq, &v.xs, &v.xsum, q_dim * p)
         }?;
-        self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.y, p)?;
+        self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.attn_out, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel.
@@ -8108,12 +8660,23 @@ impl Qwen38DenseForward {
         let n = cfg.n_embd;
         let v = &self.verify;
         if !self.res_nq_fused {
-            self.rmsnorm_quant_x_rows(&v.xb, &lw.post_attn_norm.dev, n, cfg.rms_norm_eps, p)?;
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_in = lw.ffn_gate.cq3.is_some() || lw.ffn_up.cq3.is_some();
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_in = false;
+            self.rows_boundary(
+                &v.xb,
+                &lw.post_attn_norm.dev,
+                n,
+                cfg.rms_norm_eps,
+                p,
+                cq3_in,
+            )?;
         }
         // fused path: norm done by the previous site's fused boundary
         // kernel (the loop's site A); residual folded into the next site's.
-        self.gemv_quant_rows(&lw.ffn_gate, &v.mlp_gate, p)?;
-        self.gemv_quant_rows(&lw.ffn_up, &v.mlp_up, p)?;
+        self.gemv_quant_rows(&lw.ffn_gate, &self.cq3_xn, &v.mlp_gate, p)?;
+        self.gemv_quant_rows(&lw.ffn_up, &self.cq3_xn, &v.mlp_up, p)?;
         self.ew
             .launch_swiglu(
                 stream,
@@ -8134,7 +8697,7 @@ impl Qwen38DenseForward {
                 cfg.mlp_hidden * p,
             )
         }?;
-        self.gemv_quant_rows(&lw.ffn_down, &v.y, p)?;
+        self.gemv_quant_rows(&lw.ffn_down, &v.mlp_hidden, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel (or the plain last-layer add).
@@ -8514,14 +9077,19 @@ impl Qwen38DenseForward {
         // Final norm + lm_head + per-row argmax.
         {
             let v = &self.verify;
-            self.rmsnorm_quant_x_rows(
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_lm = self.weights.lm_head.cq3.is_some();
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_lm = false;
+            self.rows_boundary(
                 &v.xb,
                 &self.weights.output_norm.dev,
                 n,
                 cfg.rms_norm_eps,
                 p,
+                cq3_lm,
             )?;
-            self.gemv_quant_rows(&self.weights.lm_head, &v.logits, p)?;
+            self.gemv_quant_rows(&self.weights.lm_head, &self.cq3_xn, &v.logits, p)?;
         }
         {
             let stream = &self.stream;
@@ -8648,12 +9216,17 @@ impl Qwen38DenseForward {
         // Final norm + lm_head.
         {
             let v = &self.verify;
-            self.rmsnorm_quant_x_rows(
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_lm = self.weights.lm_head.cq3.is_some();
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_lm = false;
+            self.rows_boundary(
                 &v.xb,
                 &self.weights.output_norm.dev,
                 n,
                 cfg.rms_norm_eps,
                 p,
+                cq3_lm,
             )?;
             if ingest {
                 // Issue 754 T2 — the ingest tail: lm_head runs for the LAST
@@ -8665,25 +9238,60 @@ impl Qwen38DenseForward {
                 // kernel is the T9.9 fold-order contract (gated 0/512 +
                 // continuation in bench_755).
                 let w = &self.weights.lm_head;
-                let groups = w.n / 16;
-                let stream = &self.stream;
-                // SAFETY: views cover exactly n / groups / rows elements.
-                unsafe {
-                    self.dense.launch_gemv_q8x_views(
-                        stream,
-                        &w.dev,
-                        &v.xq.slice((p - 1) * w.n..p * w.n),
-                        &v.xs.slice((p - 1) * groups..p * groups),
-                        &v.xsum.slice((p - 1) * groups..p * groups),
+                #[cfg(feature = "cq3_cuda")]
+                if let Some(h) = w.cq3.as_ref() {
+                    // The routed lm_head: the cq3 chain on the last row (the
+                    // f32 normed row is cq3_xn's row p-1 — the boundary above
+                    // materialized it).
+                    h.gemv_decode(
+                        &self.stream,
+                        &self.cq3_xn.slice((p - 1) * n..p * n),
                         &v.logits.slice(0..w.rows),
-                        w.rows,
-                        w.n,
-                        w.blocks_per_row,
-                        w.q4,
-                    )?;
+                    )
+                    .map_err(|e| format!("cq3 lm_head tail: {e}"))?;
+                }
+                #[cfg(feature = "cq3_cuda")]
+                if w.cq3.is_none() {
+                    let groups = w.n / 16;
+                    let stream = &self.stream;
+                    // SAFETY: views cover exactly n / groups / rows elements.
+                    unsafe {
+                        self.dense.launch_gemv_q8x_views(
+                            stream,
+                            &w.dev,
+                            &v.xq.slice((p - 1) * w.n..p * w.n),
+                            &v.xs.slice((p - 1) * groups..p * groups),
+                            &v.xsum.slice((p - 1) * groups..p * groups),
+                            &v.logits.slice(0..w.rows),
+                            w.rows,
+                            w.n,
+                            w.blocks_per_row,
+                            w.q4,
+                        )?;
+                    }
+                }
+                #[cfg(not(feature = "cq3_cuda"))]
+                {
+                    let groups = w.n / 16;
+                    let stream = &self.stream;
+                    // SAFETY: views cover exactly n / groups / rows elements.
+                    unsafe {
+                        self.dense.launch_gemv_q8x_views(
+                            stream,
+                            &w.dev,
+                            &v.xq.slice((p - 1) * w.n..p * w.n),
+                            &v.xs.slice((p - 1) * groups..p * groups),
+                            &v.xsum.slice((p - 1) * groups..p * groups),
+                            &v.logits.slice(0..w.rows),
+                            w.rows,
+                            w.n,
+                            w.blocks_per_row,
+                            w.q4,
+                        )?;
+                    }
                 }
             } else {
-                self.gemv_quant_rows(&self.weights.lm_head, &v.logits, p)?;
+                self.gemv_quant_rows(&self.weights.lm_head, &self.cq3_xn, &v.logits, p)?;
             }
         }
         // Per-row argmax (zero via the capturable device memset - the
@@ -8965,16 +9573,20 @@ impl Qwen38DenseForward {
         // kernel — plus one batched argmax) for the G1 flip-budget harness.
         {
             let v = &self.verify;
-            self.rmsnorm_quant_x_rows(
+            #[cfg(feature = "cq3_cuda")]
+            let cq3_lm = self.weights.lm_head.cq3.is_some();
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_lm = false;
+            self.rows_boundary(
                 &v.xb,
                 &self.weights.output_norm.dev,
                 n,
                 cfg.rms_norm_eps,
                 p,
+                cq3_lm,
             )?;
         }
         let w = &self.weights.lm_head;
-        let groups = w.n / 16;
         let stream = &self.stream;
         let v = &self.verify;
         if all_argmax {
@@ -8984,22 +9596,43 @@ impl Qwen38DenseForward {
             // all p rows. Requires p % 16 == 0 for the argmax packing (the
             // wide path's p=64 pins that).
             assert!(p.is_multiple_of(16), "all-argmax tail requires p % 16 == 0");
-            self.gemv_quant_rows(w, &v.logits, p)?;
+            self.gemv_quant_rows(w, &self.cq3_xn, &v.logits, p)?;
         } else {
-            // SAFETY: views cover exactly n / groups / rows elements.
-            unsafe {
-                self.dense.launch_gemv_q8x_views(
-                    stream,
-                    &w.dev,
-                    &v.xq.slice((p - 1) * w.n..p * w.n),
-                    &v.xs.slice((p - 1) * groups..p * groups),
-                    &v.xsum.slice((p - 1) * groups..p * groups),
+            // The T2 last-row-only tail: the routed lm_head takes the cq3
+            // chain on cq3_xn's last row; the incumbent rides the production
+            // single-row GEMV over the same quantized views (per-row
+            // bit-identity: the T9.9 fold-order contract).
+            #[cfg(feature = "cq3_cuda")]
+            let mut cq3_done = false;
+            #[cfg(feature = "cq3_cuda")]
+            if let Some(h) = w.cq3.as_ref() {
+                h.gemv_decode(
+                    &self.stream,
+                    &self.cq3_xn.slice((p - 1) * n..p * n),
                     &v.logits.slice(0..w.rows),
-                    w.rows,
-                    w.n,
-                    w.blocks_per_row,
-                    w.q4,
-                )?;
+                )
+                .map_err(|e| format!("cq3 lm_head tail: {e}"))?;
+                cq3_done = true;
+            }
+            #[cfg(not(feature = "cq3_cuda"))]
+            let cq3_done = false;
+            if !cq3_done {
+                let groups = w.n / 16;
+                // SAFETY: views cover exactly n / groups / rows elements.
+                unsafe {
+                    self.dense.launch_gemv_q8x_views(
+                        stream,
+                        &w.dev,
+                        &v.xq.slice((p - 1) * w.n..p * w.n),
+                        &v.xs.slice((p - 1) * groups..p * groups),
+                        &v.xsum.slice((p - 1) * groups..p * groups),
+                        &v.logits.slice(0..w.rows),
+                        w.rows,
+                        w.n,
+                        w.blocks_per_row,
+                        w.q4,
+                    )?;
+                }
             }
         }
         let rows = if all_argmax { p } else { 1 };
