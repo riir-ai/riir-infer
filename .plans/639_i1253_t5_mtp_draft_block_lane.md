@@ -60,12 +60,18 @@ filed-and-parked like 1207.
   matvec (the `ternary_lm_head_into` mirror; `shared_head_head` present refuses loud — the dense
   arm is T5.4). The BASIS CONTRACT pinned in the module doc: the residual stream is PRIMAL (folds
   apply D·H at each folded matmul's input; the hidden variant returns the rotated head-basis copy
-  — the caller recovers with `rotate_inverse_inplace`, the Issue-1111 recipe). TWO real bugs the
-  compose-order probe caught + fixed pre-landing: the FFN residual anchor (norming h_prev in place
-  without the pre-norm save fed the NORMED value into the final add) and the head norm destroying
-  the caller's h_draft. Gates `mtp_draft_step_gates` 3/3 + the `--ignored` real teacher-forced arm
+  — the caller recovers with `rotate_inverse_inplace`, the Issue-1111 recipe). THREE real bugs
+  found + fixed: TWO by the compose-order probe pre-landing (the FFN residual anchor — norming
+  h_prev in place without the pre-norm save fed the NORMED value into the final add — and the head
+  norm destroying the caller's h_draft), the THIRD post-landing by katgpt-rs-88's fork source read
+  (`c41b6bc5`: the block's OWN attn_norm was loaded + shape-pinned but never READ — the q/k/v
+  projections consumed the un-normed compose output; invisible to every synthetic arm — the probe
+  zeroes the attention projections, the fixture arms pin no attention-leg value; fixed + gated by
+  a canary-verified v-only single-position arm that reads 2·e0 without the fix). Gates
+  `mtp_draft_step_gates` 4/4 + the `--ignored` real teacher-forced arm
   (`MTP_GGUF`, bar (a) ≥ 0.4353 = the 924 prior): end-to-end determinism bit-identical ×2,
-  primal-vs-rotated basis observable, enorm-first/hnorm-second compose order.
+  primal-vs-rotated basis observable, enorm-first/hnorm-second compose order, attn_norm applied
+  pre-qkv.
 - [ ] **T5.3 — the drafter seat**: `MtpDraftBlockDrafter` as a `DraftSource` over the
   typed block; K presets map to the card cells (K=3 + min-prob 0.10 = the NVIDIA card;
   K∈1..8 = the Apple card); greedy-draft by default (the acceptance harness's teacher
