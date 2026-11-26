@@ -785,6 +785,14 @@ mod tests {
         use crate::deltanet::weights::Proj;
         let fill_proj = |p: &mut Proj, s: &mut u64| match p {
             Proj::Dense { data, .. } => fill(data, s),
+            // The dense fixture never fills a ternary projection — this
+            // arm exists because the `spike_code_census` feature chain
+            // (1252 A2) compiles deltanet_ternary_inference into the same
+            // build, materializing the variant. Refuse loud, never fill a
+            // ternary projection with the dense ladder's numbers.
+            Proj::Ternary(_) => {
+                panic!("closed_form_write fixture: ternary Proj in the dense fixture — caller bug")
+            }
         };
         fill(&mut w.wte, &mut s);
         fill_norm_ones(&mut w.final_norm);

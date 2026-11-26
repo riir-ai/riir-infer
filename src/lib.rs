@@ -202,6 +202,30 @@ pub mod readout_screen;
 #[cfg(feature = "readout_screen")]
 pub mod readout_screen_fixture;
 
+/// The spike-CODING census (Issue 1252 A2 — the SpikingBrain distill,
+/// katgpt-rs Research 694): the offline decision-data pass — per-layer
+/// MLP-activation capture via the `closed_form_write` CaptureSink seam
+/// (dense AND ternary bodies share the `batched_mlp` hook), then per
+/// k ∈ {2,3,4}: the adaptive-threshold spike-count census (`V_th =
+/// mean|x|/k`, `s = round(x/V_th)`), the element-zero `sparsity(k)`
+/// point, the whole-128-group zero rate (the packed ternary matvec's
+/// skip granularity), and the structural-zero decomposition against the
+/// pinned Gaussian/Laplacian floors. Decision data, NEVER a kernel and
+/// never a serving path (the issue's four pre-registered refusals
+/// bind: no GPU spike simulation, no decode activation quantization,
+/// no kernel before A2's bars, no imported energy figures). The census
+/// math is tokenizer/model-free (fixture-gated); the artifact is
+/// canonical bytes + BLAKE3 (`SPKC1`, the RDMAP class). Opt-in
+/// `spike_code_census` (implies the capture seam's feature graph);
+/// offline by construction; Issue-940 fold order; no RNG. Fixture
+/// gates live in `spike_code_census_fixture` (feature-gated, not
+/// test-gated: the `spike-code-census --self-test` bin posture drives
+/// the same source).
+#[cfg(feature = "spike_code_census")]
+pub mod spike_code_census;
+#[cfg(feature = "spike_code_census")]
+pub mod spike_code_census_fixture;
+
 /// The trigger-vote screen (Issue 1251 T1 — katgpt-rs Research 693
 /// Part 2 App. C.4, the checkpoint-ingest backdoor probe; the
 /// published class is cited, never claimed): a weights-only vote over

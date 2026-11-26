@@ -178,6 +178,22 @@ neuron_census = ["dep:katgpt-pruners", "katgpt-pruners/mech_attribution", "delta
 # same commit — P30).
 readout_screen = []
 
+# Issue 1252 A2 (2026-11-26, katgpt-rs Research 694 — the SpikingBrain
+# distill): the spike-CODING census — the offline decision-data pass
+# (sparsity(k), the whole-128-group skip ceiling, the structural-zero
+# decomposition against the pinned floors) that gates the lane's future
+# kernel/format arms. Rides the `closed_form_write` CaptureSink seam
+# (the batched_mlp hook, dense AND ternary bodies) — hence the implies
+# chain mirrors sink_audit's folded posture; the ternary body needs
+# deltanet_ternary_inference (+ bonsai2_hadamard for the folded league
+# files at the RUN's build). Pure-local opt-in, zero serving-path cost,
+# zero new deps (blake3 in-tree). The `spike-code-census` bin is the
+# front (--self-test = the fixture canary; required-features row in
+# the same commit — the P30 law). REPORT/decision-only: the issue's
+# four pre-registered refusals bind this lane's future, not this
+# census's posture.
+spike_code_census = ["closed_form_write", "deltanet_ternary_inference", "bonsai2_hadamard"]
+
 # Issue 1244 T2 (Research 040, arXiv:2611.26363) — the HiSA
 # rotation-suppression census arm beside `hisa_plan`'s closed-form
 # prior: per (attention layer, 16-feature rotating chunk, log-Δ band)
@@ -910,6 +926,16 @@ required-features = ["neuron_census"]
 name = "readout-screen"
 path = "src/bin/readout-screen.rs"
 required-features = ["readout_screen"]
+
+# Issue 1252 A2 — the spike-code-census front: `--self-test` runs the
+# fixture gates in-process (the canary vehicle); `--gguf/--corpus/--out`
+# is the census cell (the SPKC1 artifact + digest + report). Reader
+# protection row (the green-zero law): a default build skips the bin
+# loudly.
+[[bin]]
+name = "spike-code-census"
+path = "src/bin/spike-code-census.rs"
+required-features = ["spike_code_census"]
 
 # Issue 1250 T2 — the J-share verbalizability pass over the T1
 # artifact (weights-only, offline; reads the RDMAP1 atom supports,
