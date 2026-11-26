@@ -51,6 +51,7 @@ fn observe_path_zero_alloc_steady_state() {
         }],
         vec![ImplantAction {
             biases: vec![(10, 8.0)],
+            residual: None,
         }],
         None,
     )
@@ -67,6 +68,7 @@ fn observe_path_zero_alloc_steady_state() {
         }],
         vec![ImplantAction {
             biases: vec![(20, 8.0), (21, 1.0)],
+            residual: None,
         }],
         None,
     )
