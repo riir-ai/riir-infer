@@ -329,20 +329,22 @@ fn run_sweep_cell(
             // layer/column the commit landed at.
             done += 1;
             if last_print.elapsed().as_secs_f64() >= 1.0 {
-                let dt = last_print.elapsed().as_secs_f64();
                 let rate = (done as f64) / (t1.elapsed().as_secs_f64());
                 let remaining = total.saturating_sub(done);
-                let eta = if rate > 0.0 {
-                    remaining as f64 / rate
+                // eta holds SECONDS (remaining / per-second rate) — print it
+                // as minutes explicitly (Issue 1257: the bare `{eta:.0}m`
+                // label overstated every eta by ~60x and read as 116 days
+                // on the bmo chat sweep when the real remaining was ~47 h).
+                let eta_min = if rate > 0.0 {
+                    remaining as f64 / rate / 60.0
                 } else {
                     f64::NAN
                 };
                 println!(
                     "[census] L{} col {}/{} · {done}/{total} · {rate:.2}/s · eta {:.0}m",
-                    cursor.layer_index, cursor.next_column, width, eta,
+                    cursor.layer_index, cursor.next_column, width, eta_min,
                 );
                 last_print = Instant::now();
-                let _ = dt;
             }
         },
     )?;
