@@ -41,6 +41,14 @@ pub fn set_ternary_q8_act(on: bool) {
     TERNARY_Q8_ACT.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// The forward's current ternary matvec arm (`true` = int8-activation SDOT,
+/// `false` = f32). Parity tests assert this after pinning so a leaked default
+/// fails loudly instead of quietly measuring the wrong kernel (Issue 1264 C2).
+#[cfg(feature = "ternary_q8_act")]
+pub fn ternary_q8_act() -> bool {
+    TERNARY_Q8_ACT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// The forward's ternary matvec `y = W @ x` — the ONE dispatch point every
 /// production projection (and the LM head) goes through.
 ///
