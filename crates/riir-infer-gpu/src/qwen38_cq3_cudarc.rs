@@ -54,6 +54,8 @@
 #![cfg(all(feature = "cq3_cuda", not(target_os = "macos")))]
 
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
@@ -407,3 +409,325 @@ extern "C" __global__ void cq3_gemv_tiled(
     out[(size_t)pos * rows + row] = total;
 }
 "#;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Issue 1186 T3-prep (a2) — the cudarc serving handle (the `154159ef`
+// CubeCL `Cq3Handle` mirror, cudarc idiom).
+//
+// One handle per routed tensor: device buffers (words u32 / scales f32 /
+// c8 i32 / perm u32 / s1 s2 smooth f32 — scales PRE-EXPANDED host-side,
+// the Issue-593 subnormal class never reaches a kernel; smooth rides a
+// zeroed d_in dummy when unarmed — a size-0 buffer arg corrupts the
+// launch, the measured trap), the kernel set, consts, engagement
+// counters (the Issue-1124 T1.5 class), and the grown-once decode /
+// cached-p batched scratch. The three-launch chain per dispatch:
+// act_prep (rotate) → quant_x8 (stage) → gemv_tiled (never-unpack dot).
+// Unarmed = the field is `None` in the dense module's QuantW — the
+// incumbent route, byte-identical (G3).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Decode scratch: rotated x (f32) + staged x8 (i32) + s_x (f32).
+struct Cq3DecodeScratch {
+    x_rot: CudaSlice<f32>,
+    x8: CudaSlice<i32>,
+    s_x: CudaSlice<f32>,
+}
+
+/// The cudarc CQ3 serving handle (one per routed tensor).
+pub struct Cq3HandleCuda {
+    kernels: Arc<Cq3CudarcKernels>,
+    words: CudaSlice<u32>,
+    scales: CudaSlice<f32>,
+    c8: CudaSlice<i32>,
+    perm: CudaSlice<u32>,
+    s1: CudaSlice<f32>,
+    s2: CudaSlice<f32>,
+    /// The SmoothQuant fold (f32, d_in); a zeroed dummy when unarmed
+    /// (`smooth_len == 0` is the only gate the kernel consults).
+    smooth: CudaSlice<f32>,
+    smooth_len: usize,
+    /// Per-group rotation consts.
+    g: usize,
+    b: u32,
+    s_c: f32,
+    pub d_out: usize,
+    pub d_in: usize,
+    /// Engagement counters (act-prep, gemv launches) — the construction
+    /// line names the lane, the smoke asserts these move.
+    prep_launches: AtomicUsize,
+    gemv_launches: AtomicUsize,
+    /// Grown once at the decode shape.
+    decode_scratch: Mutex<Option<Cq3DecodeScratch>>,
+    /// Lazily grown batched scratch: `(p, ...)` — one entry (the league's
+    /// tile count is fixed per run), the Metal twin's cached-p shape.
+    batch_scratch: Mutex<Option<(usize, Cq3DecodeScratch)>>,
+}
+
+impl Cq3HandleCuda {
+    /// Build from a packed artifact tensor: the battery's proven host path
+    /// (`device_form`, `qwen38_cq3_cudarc_g1`) — unpack → `pack_indices_b32`
+    /// → pre-expand f16 scales → i32 codebook → rotation `device_params` →
+    /// dummy smooth when unarmed.
+    ///
+    /// # Errors
+    /// Upload failures name the tensor stage loud.
+    pub fn from_packed_cuda(
+        kernels: Arc<Cq3CudarcKernels>,
+        stream: &Arc<CudaStream>,
+        t: &crate::qwen38_cq3_serving::PackedCq3Tensor,
+    ) -> Result<Self, String> {
+        let carrier = t.unpack_indices();
+        let words = crate::qwen38_cq3::pack_indices_b32(&carrier, t.b);
+        let scales: Vec<f32> = t
+            .scales
+            .iter()
+            .map(|&bits| half::f16::from_bits(bits).to_f32())
+            .collect();
+        let cb = t.codebook();
+        let c8: Vec<i32> = cb.c8.iter().map(|&v| i32::from(v)).collect();
+        let rot = t.rotation();
+        let (rot_s1, rot_s2, rot_perm) = rot.device_params();
+        let rot_perm: Vec<u32> = rot_perm.to_vec();
+        let rot_s1: Vec<f32> = rot_s1.to_vec();
+        let rot_s2: Vec<f32> = rot_s2.to_vec();
+        let g = t.g;
+        let groups = t.d_in / g;
+        assert!(
+            groups <= 1024,
+            "cq3 serving: groups per tensor {groups} exceeds the tiled kernel's shared slice (1024) — \
+             the recipe pins g=32 (27B max 432); a wider model needs the cap raised"
+        );
+        // Dummy d_in fold when unarmed (size-0 = the corrupt-launch trap).
+        let smooth_host = t.smooth.clone().unwrap_or_else(|| vec![0.0_f32; t.d_in]);
+        let words_dev = stream
+            .clone_htod(&words)
+            .map_err(|e| format!("cq3 upload words: {e}"))?;
+        let scales_dev = stream
+            .clone_htod(&scales)
+            .map_err(|e| format!("cq3 upload scales: {e}"))?;
+        let c8_dev = stream
+            .clone_htod(&c8)
+            .map_err(|e| format!("cq3 upload c8: {e}"))?;
+        let perm_dev = stream
+            .clone_htod(&rot_perm)
+            .map_err(|e| format!("cq3 upload perm: {e}"))?;
+        let s1_dev = stream
+            .clone_htod(&rot_s1)
+            .map_err(|e| format!("cq3 upload s1: {e}"))?;
+        let s2_dev = stream
+            .clone_htod(&rot_s2)
+            .map_err(|e| format!("cq3 upload s2: {e}"))?;
+        let smooth_dev = stream
+            .clone_htod(&smooth_host)
+            .map_err(|e| format!("cq3 upload smooth: {e}"))?;
+        let smooth_len = if t.smooth.is_some() { t.d_in } else { 0 };
+        eprintln!(
+            "[cq3-serving-cuda] armed: {}x{} g={} b={} b_eff={:.3} words={}KiB smooth={} \
+             (launch counters on; opt-in cq3_cuda, never production before the T3 GOAT)",
+            t.d_out,
+            t.d_in,
+            g,
+            t.b,
+            t.bits_per_weight(),
+            words.len() * 4 / 1024,
+            if smooth_len > 0 { "on" } else { "off" },
+        );
+        Ok(Self {
+            kernels,
+            words: words_dev,
+            scales: scales_dev,
+            c8: c8_dev,
+            perm: perm_dev,
+            s1: s1_dev,
+            s2: s2_dev,
+            smooth: smooth_dev,
+            smooth_len,
+            g,
+            b: t.b,
+            s_c: cb.s_c,
+            d_out: t.d_out,
+            d_in: t.d_in,
+            prep_launches: AtomicUsize::new(0),
+            gemv_launches: AtomicUsize::new(0),
+            decode_scratch: Mutex::new(None),
+            batch_scratch: Mutex::new(None),
+        })
+    }
+
+    /// Dims for the dispatch site's shape assertions.
+    pub fn dims(&self) -> (usize, usize) {
+        (self.d_out, self.d_in)
+    }
+
+    /// Launch counters (the engagement-proof readout).
+    pub fn launch_counts(&self) -> (usize, usize) {
+        (
+            self.prep_launches.load(Ordering::Relaxed),
+            self.gemv_launches.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Groups per token (= d_in / g, asserted ≤ 1024 at construction).
+    fn groups(&self) -> usize {
+        self.d_in / self.g
+    }
+
+    /// The three-launch decode chain: rotate → stage → never-unpack dot.
+    /// `x` covers d_in f32 (the UNROTATED normed activation); `y` covers
+    /// d_out f32 (row-major [1, d_out] — the kernel's out[pos·rows+row]).
+    ///
+    /// # Errors
+    /// Launch failures name the stage loud.
+    pub fn gemv_decode(
+        &self,
+        stream: &CudaStream,
+        x: &CudaSlice<f32>,
+        y: &CudaSlice<f32>,
+    ) -> Result<(), String> {
+        let mut slot = self.decode_scratch.lock().expect("cq3 scratch lock");
+        let s = match slot.as_ref() {
+            Some(s) => s,
+            None => {
+                let grown = self.grow_scratch(stream, 1)?;
+                slot.insert(grown)
+            }
+        };
+        // SAFETY: scratch covers 1·d_in / 1·groups; x covers d_in; y
+        // covers d_out; buffers are handle-carried (sizes fixed at
+        // construction).
+        unsafe {
+            self.kernels.launch_act_prep(
+                stream,
+                x,
+                &self.smooth,
+                &self.perm,
+                &self.s1,
+                &self.s2,
+                &s.x_rot,
+                self.g,
+                self.smooth_len,
+                1,
+                self.groups(),
+            )
+        }
+        .map_err(|e| format!("cq3 act_prep: {e}"))?;
+        // SAFETY: covers 1·d_in / 1·groups.
+        unsafe {
+            self.kernels
+                .launch_quant_x8(stream, &s.x_rot, &s.x8, &s.s_x, self.g, 1, self.groups())
+        }
+        .map_err(|e| format!("cq3 quant_x8: {e}"))?;
+        // SAFETY: covers d_out·wpr / d_out·groups / 1<<b / 1·d_in / 1·groups /
+        // 1·d_out; shared = groups·4 B.
+        unsafe {
+            self.kernels.launch_gemv_tiled(
+                stream,
+                &self.words,
+                &self.scales,
+                &self.c8,
+                &s.x8,
+                &s.s_x,
+                y,
+                self.g,
+                self.b,
+                self.s_c,
+                1,
+                self.groups(),
+                self.d_out,
+            )
+        }
+        .map_err(|e| format!("cq3 gemv_tiled: {e}"))?;
+        self.prep_launches.fetch_add(1, Ordering::Relaxed);
+        self.gemv_launches.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// The batched (prefill option-(i)) chain: `p` tokens, `x` covers
+    /// p·d_in, `y` covers p·d_out row-major [p, d_out]. Scratch cached per
+    /// p (one entry — the league's tile count is fixed per run); a NEW p
+    /// grows the cache (the league runs one tile per run, disclosed).
+    ///
+    /// # Errors
+    /// Launch / grow failures name the stage loud.
+    pub fn gemv_batched(
+        &self,
+        stream: &CudaStream,
+        x: &CudaSlice<f32>,
+        y: &CudaSlice<f32>,
+        p: usize,
+    ) -> Result<(), String> {
+        if p == 1 {
+            return self.gemv_decode(stream, x, y);
+        }
+        let mut slot = self.batch_scratch.lock().expect("cq3 scratch lock");
+        let s = match slot.as_ref() {
+            Some((cached_p, s)) if *cached_p == p => s,
+            _ => {
+                let grown = self.grow_scratch(stream, p)?;
+                slot.insert((p, grown))
+            }
+        };
+        // SAFETY: mirror of [`Self::gemv_decode`] at p tokens — the
+        // scratch covers p·d_in / p·groups; x covers p·d_in; y covers
+        // p·d_out row-major.
+        unsafe {
+            self.kernels.launch_act_prep(
+                stream,
+                x,
+                &self.smooth,
+                &self.perm,
+                &self.s1,
+                &self.s2,
+                &s.x_rot,
+                self.g,
+                self.smooth_len,
+                p,
+                self.groups(),
+            )
+        }
+        .map_err(|e| format!("cq3 act_prep(p={p}): {e}"))?;
+        // SAFETY: covers p·d_in / p·groups.
+        unsafe {
+            self.kernels
+                .launch_quant_x8(stream, &s.x_rot, &s.x8, &s.s_x, self.g, p, self.groups())
+        }
+        .map_err(|e| format!("cq3 quant_x8(p={p}): {e}"))?;
+        // SAFETY: covers p·d_out row-major; shared = groups·4 B.
+        unsafe {
+            self.kernels.launch_gemv_tiled(
+                stream,
+                &self.words,
+                &self.scales,
+                &self.c8,
+                &s.x8,
+                &s.s_x,
+                y,
+                self.g,
+                self.b,
+                self.s_c,
+                p,
+                self.groups(),
+                self.d_out,
+            )
+        }
+        .map_err(|e| format!("cq3 gemv_tiled(p={p}): {e}"))?;
+        self.prep_launches.fetch_add(1, Ordering::Relaxed);
+        self.gemv_launches.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Grow a p-token scratch (rotated f32 + staged i32 + scales f32).
+    fn grow_scratch(&self, stream: &CudaStream, p: usize) -> Result<Cq3DecodeScratch, String> {
+        let groups = self.groups();
+        let x_rot = stream
+            .alloc_zeros::<f32>(p * self.d_in)
+            .map_err(|e| format!("cq3 scratch x_rot: {e}"))?;
+        let x8 = stream
+            .alloc_zeros::<i32>(p * self.d_in)
+            .map_err(|e| format!("cq3 scratch x8: {e}"))?;
+        let s_x = stream
+            .alloc_zeros::<f32>(p * groups)
+            .map_err(|e| format!("cq3 scratch s_x: {e}"))?;
+        Ok(Cq3DecodeScratch { x_rot, x8, s_x })
+    }
+}
