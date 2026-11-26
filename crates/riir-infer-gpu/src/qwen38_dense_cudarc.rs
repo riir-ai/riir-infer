@@ -2519,6 +2519,13 @@ struct Cq3Route {
     mask: Option<std::collections::HashSet<String>>,
 }
 
+/// The unarmed form: an empty struct so `Cq3RouteRef::On` exists and the
+/// enum's lifetime parameter is used at every posture (the i678 T8(b)
+/// E0392 class). Never constructed unarmed — the route construction is
+/// cfg-gated and `upload_quant_for`'s `On` arm is cfg-gated.
+#[cfg(not(feature = "cq3_cuda"))]
+struct Cq3Route;
+
 #[cfg(feature = "cq3_cuda")]
 impl Cq3Route {
     /// The routing predicate: no mask = every artifact tensor routes; under
@@ -2585,11 +2592,13 @@ impl Cq3Route {
 }
 
 /// Which half of a possibly-armed route an upload consults. A cfg-neutral
-/// enum so `upload_quant_for`'s signature compiles at every posture.
+/// enum so `upload_quant_for`'s signature compiles at every posture — `On`
+/// exists UNARMED too (the i678 T8(b) defect: a cfg-gated variant left `'a`
+/// unused → E0392); under cfg-off `Cq3Route` is the empty struct below and
+/// `On` is never constructed (the route construction is cfg-gated).
 #[derive(Clone, Copy)]
 enum Cq3RouteRef<'a> {
     Off,
-    #[cfg(feature = "cq3_cuda")]
     On(&'a Cq3Route),
 }
 
@@ -2604,6 +2613,8 @@ fn upload_quant_for(
     rows: usize,
     n: usize,
 ) -> Result<QuantW, String> {
+    #[cfg(not(feature = "cq3_cuda"))]
+    let _ = route;
     #[cfg(feature = "cq3_cuda")]
     if let Cq3RouteRef::On(r) = route {
         if let Some(w) = r.try_route(stream, name, rows, n)? {
@@ -3392,7 +3403,11 @@ pub struct Qwen38DenseForward {
     /// the rows-path boundary fallback materializes (`cq3_norm_rows`) and
     /// the zgate rows form writes (`[p·n_v]` heads of `head_v_dim`). Sized
     /// `QWEN38_VERIFY_MAX_P · max(n_embd, d_inner)` so every fed site fits.
-    #[cfg(feature = "cq3_cuda")]
+    /// UNGATED deliberately (the i678 T8(b) unarmed-compile defect): every
+    /// funnel call site passes it as the ignored `x_f32` arg and gating the
+    /// FIELD would have gated 42 call sites. Unarmed builds pay the ~393 KB
+    /// alloc and never write it (the writers are all cfg-gated); armed
+    /// builds are the only readers-when-fed.
     cq3_xn: CudaSlice<f32>,
     /// Issue 742 T9.9 - the p-row verify scratch + GDN snapshots.
     verify: Qwen38VerifyScratch,
@@ -3874,7 +3889,8 @@ impl Qwen38DenseForward {
         // fallback materializes (the rows twins are unconditional-fused and
         // write no f32). [p · max(n_embd, d_inner)] covers every fed site
         // (the boundary norms are n-dim; the zgate rows form is d_inner-dim).
-        #[cfg(feature = "cq3_cuda")]
+        // Unconditional (the i678 T8(b) defect — see the field doc): ~393 KB
+        // on unarmed builds, written only by the gated cq3 paths.
         let cq3_xn = alloc_f32!(QWEN38_VERIFY_MAX_P * cfg.d_inner.max(cfg.n_embd));
         let attn_part_m = alloc_f32!(cfg.n_head * attn_n_chunks);
         let attn_part_l = alloc_f32!(cfg.n_head * attn_n_chunks);
@@ -3953,7 +3969,6 @@ impl Qwen38DenseForward {
             rnq_fast,
             zgq_fused,
             res_nq_fused,
-            #[cfg(feature = "cq3_cuda")]
             cq3_xn,
             verify,
             wide_scratch: None,
