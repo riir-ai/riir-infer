@@ -62,6 +62,8 @@ Coverage sweeps this session: (A) all 24 sibling repos' `.research/.plans/.docs/
 
 **Also adjacent:** riir-train 492 owl sparse rewiring (read-side rank-4 persona additions → became `surgical_read_patch`, Issue 996 — row-sparse WRITE-FROZEN delta + `projection_to_lora` runtime option, DORMANT, consumer-gated by 686); katgpt-rs 606 (query-conditioned bias deltas over a frozen model — closed-negative modelless track); riir-ai 003/020 engram latent-write (persistence plane, not forward-pass).
 
+**Encoder/decision-stack rung (the rethink/instinct lanes — model_classes.md's ladder):** the head-only serving ladder IS the implant architecture in trained-head form — frozen encoder + bolt-on head + winner-law admission + whole-swap-never-blend (= the A2 law) — so WSM's architecture is not new HERE, only its add-on medium is (agent-written exact programs vs trained heads). Prior weight-space attempts on this rung: katgpt-canon adapters (459/Proposal 010; Procrustes/Subspace/Mask over encoder representations — within-model GOAT, Bench 562; the cross-model ambition PERMANENTLY DEMOTED at riir-train 424–427, agreement structurally ~0); 671 decision-head WSP (head is the only writable surface — guardrails refuse embedding/output/final-norm edits); riir-train 491 (transplant; consumer rethink 062 FAIL); and the PENDING compiled-lane class (rethink Proposal 006, on 677's compiled ternary System One — cost refuted 62× over bar there, the bar 006 must respect). WSM's zero-example auto-firing rules + the discovery-loop anti-hack process strengthen 006's case; the decode-loop half of WSM maps weakly to the encoder class (one forward pass, no per-token loop to ride — the head is the seam), and the mistake-detector law already ships as the ESC escalation (floor first, head on abstain).
+
 ---
 
 ## 3. External prior art
@@ -74,8 +76,8 @@ WSM's own related-work map (its §8) is honest and thorough; we add only what it
 | iWSP — Interpretable Weight-Space Programming (arXiv:2611.18114) | [29] | **distilled**: katgpt-rs 678; consumer riir-refine Issue 242 |
 | Qwenputer (RISC-V CPU in Qwen weights) | [15] | **distilled**: riir-infer 018 |
 | Looped Transformers as Programmable Computers | [1] | looped family: katgpt-rs 073/097/414/690 |
-| **Sketchpad — certified-exact arithmetic adapter on a frozen Qwen3.5-0.8B, base untouched when off (Mohsenvand 2026)** | [31] | **NOT distilled** — and it targets OUR league checkpoint family (riir-infer cells run Qwen3.5-0.8B-Base-Q8_0). Follow-up candidate |
-| **WeightCode — LLM-written gated capabilities installed into vision/sequence nets (concurrent)** | [32] | **NOT distilled**. Follow-up candidate |
+| **Sketchpad — certified-exact arithmetic adapter on a frozen Qwen3.5-0.8B, base untouched when off (Mohsenvand 2026, arXiv:2611.04434)** | [31] | **distilled: riir-infer 046** — the finite-view certificate class + margin contract + trained-then-certified route; 1256 proof-path upgrade |
+| **WeightCode — LLM-written gated capabilities installed into vision/sequence nets (concurrent, arXiv:2611.25476)** | [32] | **distilled: riir-infer 046** — program-vs-edit transfer retention (83–110% vs negligible) + accumulation; 1256 T2 reference arm |
 | Neural Comprehension / IGC / MathLLM / Percepta / OccamLLM / Bicameral / Frozen Tape Modules | [13][14][21][16][24][23][22] | not distilled; the WSM §8 one-liners suffice for this note's purposes |
 | Tool-RL (ReTool / ToolRL / ToRL) | [26–28] | not distilled; tools-outside-the-weights class |
 
@@ -142,4 +144,4 @@ Reception check (2026-11-26): WSM is <1 day old; no published critique or replic
 
 - WSM blog: https://papail.io/papers/wsm/ · code: https://github.com/anadim/weight-space-micromachines (MIT)
 - Our family: katgpt-rs `.research/648`, `678`, `690`, `621`, `659`, `664`, `668`, `671`, `649`, `677`, `655`, `679`, Issue 980 + Bench 976, Issue 1243; riir-infer `.research/018`, `044`, `013`, `027`; riir-train `.issues/665`, `686`, `.research/491`, `492`, `406`; riir-ai Proposal 006 + Plan 391 + Bench 391; katgpt-rs `417`; reflex `011`/`014`; riir-refine `168`
-- Sketchpad (Mohsenvand 2026) — WSM ref [31]; WeightCode (2026) — ref [32]: undistilled follow-ups
+- Sketchpad (Mohsenvand 2026, arXiv:2611.04434) — WSM ref [31]; WeightCode (arXiv:2611.25476) — ref [32]: distilled as riir-infer 046
