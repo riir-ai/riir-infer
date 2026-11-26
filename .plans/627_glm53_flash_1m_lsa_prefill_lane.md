@@ -4,8 +4,9 @@
 
 **Lease closed:** zed-m3-lsa-distill, 1793698334, was expires 2026-11-10T00:00:00+00:00 — expired undischarged 13 days; folded to the closed-row form (the expired line made this file's lease AMBIGUOUS, blinding the repo-wide claim check; the live claim below stands).
 **Housekeeping 2026-11-23 (zed-bb86e4df@amo, boss sweep): EXPIRED UNDISCHARGED 13 days — re-claimable.**
-**Claimed:** zed-6addfb44@amo, 1795458782, expires 2026-11-25T18:33:00+00:00
-(scope: the PRE-ARRIVAL track Phase 0 only — arch probe, serving-posture survey, memory-budget doc; the ~650GB checkpoint pull stays owner-gated per the plan's own row, and Phase 1+ re-claims per the lease law as this arc progresses; the G2 @pp1M cells stay hardware-gated regardless) Zero landing commits since the 11-03 filing (plan touched only by its three 11-03 docs commits); holder session gone. Owner-pulled lane — the owner's 1M-context M5 Ultra need stands; next claimant re-claims with a fresh lease + starts at the pre-arrival track on the 96GB pair (the 128GB block is reserved-not-on-site per the hardware-gate commit `f74d0fa6`). Not claimed by the 11-23 sweep lane: multi-day engineering arc, and the sweep lane holds a live rig-wait lease (riir-infer i1236-T0) whose wake can land mid-arc.
+**Lease closed:** zed-6addfb44@amo, 1795458782, was expires 2026-11-25T18:33:00+00:00 — expired undischarged (zero landing commits; scope was the Phase 0 pre-arrival track); adjudicated expired 2026-11-26 by the idle lane.
+**Claimed:** zed-7e18a471@amo, 1795657452, expires 2026-11-28T01:44:12Z
+(scope: the same Phase 0 pre-arrival track — arch probe from the HF config/index/tokenizer metadata (small files only; the ~650GB weights pull stays owner-gated per the plan's own row), serving-posture survey, memory-budget doc; Phase 1+ re-claims per the lease law as this arc progresses; the G2 @pp1M cells stay hardware-gated regardless. Predecessor zed-6addfb44 landed zero commits; the 128GB block is reserved-not-on-site per the hardware-gate commit `f74d0fa6`; not claimed by the 11-23 sweep lane — multi-day engineering arc, and the sweep lane holds a live rig-wait lease (riir-infer i1236-T0) whose wake can land mid-arc.)
 
 ## The two mountains (honest scoping)
 
