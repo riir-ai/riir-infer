@@ -150,7 +150,8 @@ impl Cq3CudarcKernels {
         let shared = (g * std::mem::size_of::<f32>()) as u32;
         // SAFETY: caller contract above.
         unsafe {
-            let args = stream.launch_builder(&self.act_prep).arg(x);
+            let mut builder = stream.launch_builder(&self.act_prep);
+            let args = builder.arg(x);
             args.arg(smooth)
                 .arg(perm)
                 .arg(s1)
@@ -189,7 +190,8 @@ impl Cq3CudarcKernels {
         let (g_i, tokens_i) = (g as i32, tokens as i32);
         // SAFETY: caller contract above.
         unsafe {
-            let args = stream.launch_builder(&self.quant_x8).arg(xr);
+            let mut builder = stream.launch_builder(&self.quant_x8);
+            let args = builder.arg(xr);
             args.arg(x8)
                 .arg(s_x)
                 .arg(&g_i)
@@ -241,8 +243,8 @@ impl Cq3CudarcKernels {
         let shared = (groups * std::mem::size_of::<f32>()) as u32;
         // SAFETY: caller contract above.
         unsafe {
-            let args = stream
-                .launch_builder(&self.gemv_tiled)
+            let mut builder = stream.launch_builder(&self.gemv_tiled);
+            let args = builder
                 .arg(words)
                 .arg(scales)
                 .arg(c8)
@@ -609,8 +611,15 @@ impl Cq3HandleCuda {
         .map_err(|e| format!("cq3 act_prep: {e}"))?;
         // SAFETY: covers 1·d_in / 1·groups.
         unsafe {
-            self.kernels
-                .launch_quant_x8(stream, &s.x_rot, &s.x8, &s.s_x, self.g, 1, self.groups())
+            self.kernels.launch_quant_x8(
+                stream,
+                &s.x_rot.as_view(),
+                &s.x8.as_view(),
+                &s.s_x.as_view(),
+                self.g,
+                1,
+                self.groups(),
+            )
         }
         .map_err(|e| format!("cq3 quant_x8: {e}"))?;
         // SAFETY: covers d_out·wpr / d_out·groups / 1<<b / 1·d_in / 1·groups /
@@ -683,8 +692,15 @@ impl Cq3HandleCuda {
         .map_err(|e| format!("cq3 act_prep(p={p}): {e}"))?;
         // SAFETY: covers p·d_in / p·groups.
         unsafe {
-            self.kernels
-                .launch_quant_x8(stream, &s.x_rot, &s.x8, &s.s_x, self.g, p, self.groups())
+            self.kernels.launch_quant_x8(
+                stream,
+                &s.x_rot.as_view(),
+                &s.x8.as_view(),
+                &s.s_x.as_view(),
+                self.g,
+                p,
+                self.groups(),
+            )
         }
         .map_err(|e| format!("cq3 quant_x8(p={p}): {e}"))?;
         // SAFETY: covers p·d_out row-major; shared = groups·4 B.

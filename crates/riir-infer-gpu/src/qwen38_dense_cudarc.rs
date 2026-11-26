@@ -70,7 +70,9 @@ use std::sync::Arc;
 
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream};
+use cudarc::driver::safe::{
+    CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, CudaView,
+};
 use riir_infer_core::gguf_loader::{GgmlType, GgufFile};
 
 use crate::cudarc_kernels::ElementwiseKernels;
