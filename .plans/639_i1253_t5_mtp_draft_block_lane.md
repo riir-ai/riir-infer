@@ -3,7 +3,7 @@
 - [ ] Plan 639 — slices T5.1–T5.5 below; measured cells pre-registered here, executed in quiet windows only.
 
 **Status:** FILED 2026-11-26 (session zed-i1253t3@amo, epoch 1795719635) — the lane breakdown for `.issues/1253` T5; claim slices individually, this plan is not a claim.
-**Progress:** T5.1 + T5.2 LANDED 2026-11-27 (`a3b455cd` + `fbf10fe3`, zed-ecba9366@amo) — the typed admission + the CPU reference forward, synthetic gates green; T5.4/T5.5 (the measured cells, quiet-window-only) remain unclaimed.
+**Progress:** T5.1 + T5.2 LANDED 2026-11-27 (`a3b455cd` + `fbf10fe3`, zed-ecba9366@amo) — the typed admission + the CPU reference forward, synthetic gates green; **T5.3 LANDED 2026-11-27 (`70b62d0c`, zed-14567e6f@amo)** — the drafter seat + card presets + the greedy chain, gates 5/5; T5.4/T5.5 (the measured cells, quiet-window-only) remain unclaimed.
 **Verdict (delegated-owner, Claude, 2026-11-26 ~20:4xZ, session 464973ce): AGREE with conditions, both discharged same session** — (1) the basis contract ACCEPTED as pinned (norm-before-rotation flagged as the load-bearing order; the draft tensors' primal storage is header-verified data, not assumption); the open question (which hidden the fork hands over) RESOLVED by source read: `qwen35.cpp` norms FIRST then publishes `t_h_nextn` = `t_embd` from the SAME post-`output_norm` tensor — the module doc now carries the evidence; (2) the DEFECT (the per-call `inp_sa` `to_vec` allocation — bar (c) as written) FIXED + gated: `inp_sa` is a scratch field, and `tests/mtp_draft_step_g4_alloc` (own binary, counting allocator + liveness canary, 2/2) pins the step at ZERO allocations so it cannot come back.
 **Routes (filing-is-not-routing, per the verdict):** T5.3 (the `DraftSource` seat) — CPU-only implementation, unclaimed, any box; T5.4/T5.5 bar (a) real teacher-forced cell — BLOCKED on the 2.5 `-mtp` twin's absence from this box + a quiet window; ROUTED to bmo (the hard rule honored: binary-only, the twin downloads there, the test runs from bmo's own synced clone), queued amo→bmo 2026-11-26 ~20:5xZ as an exclusive rig job with notify to the live claimant inbox (the dead-letter lesson applied — no boss re-fire needed for this one); bar (b)/(c) Metal cells — BLOCKED on bar (a)'s pass + a quiet amo/bmo window, re-route when (a) lands.
 **Depends:** T2 (loader tolerance — LANDED `5d1e2cf`, Bench 1271) + T3 (model verified — cheap half LANDED `dc90cdaa`, Bench 1272; 4090 parity arm open with the GPU lane).
@@ -72,11 +72,29 @@ filed-and-parked like 1207.
   (`MTP_GGUF`, bar (a) ≥ 0.4353 = the 924 prior): end-to-end determinism bit-identical ×2,
   primal-vs-rotated basis observable, enorm-first/hnorm-second compose order, attn_norm applied
   pre-qkv.
-- [ ] **T5.3 — the drafter seat**: `MtpDraftBlockDrafter` as a `DraftSource` over the
+- [x] **T5.3 — the drafter seat**: `MtpDraftBlockDrafter` as a `DraftSource` over the
   typed block; K presets map to the card cells (K=3 + min-prob 0.10 = the NVIDIA card;
   K∈1..8 = the Apple card); greedy-draft by default (the acceptance harness's teacher
   posture when measuring head quality alone).
-**Claimed:** zed-14567e6f@amo, 1795728161, expires 2026-11-28T21:20:00+00:00
+  LANDED 2026-11-27 `70b62d0c` (zed-14567e6f@amo, claim exp 2026-11-28T21:20Z folded on
+  landing): `crates/riir-infer-dist/src/spec_mtp_block.rs` behind the opt-in dist
+  `mtp_draft_block` feature (forwards the root crate's); `MtpDraftPreset`
+  (nvidia_draft3 / apple(k), domain refusals) + `MtpDraftBlockDrafter` —
+  `seed(h_final primal, last_landed, next_pos)` → `draft_chain()` greedy over
+  `mtp_draft_step` (in-place h chain, the block's own KV discipline: committed-prefix
+  rows persist, rejected tails rewritten, no explicit truncation); `propose` = d_0 echo
+  + d_j = chain step j; **the 2-stage spec runner posture cannot feed `h_final`
+  (tail-side) — the seat degrades to the lossless echo + `take_error` (the BMTH
+  honest-basis disclosure); the lawful postures are the full-stack T5.4 teacher
+  harness + T5.5 Metal cell, seeded per round**. min-prob = top-token mass 1/Z
+  (ascending f32 fold, first-index argmax; a scalar normalizer read, never a softmax
+  weighting; non-finite gates out loud). Gates `mtp_draft_block_drafter_gates` 5/5
+  (required-features row rides the same commit — the green-zero law). Drive-by FIX:
+  the `01932e53` rebase had duplicated the `attn_output` `dense_matvec` in
+  `mtp_draft_step` (2× the matvec per draft step, K-multiplied in the chain); removed,
+  T5.2 gates 4/4 unchanged. Post-mining note: `cargo refine fix` landed
+  shrink-to-fit; the 2 `collapsible_if` let-chain collapses were manual (rulewright
+  miss on the class, edition-2024 let-chains).
 - [ ] **T5.4 — the acceptance + net-throughput cells** (`examples/mtp_head_acceptance.rs`
   adapted or a sibling example — the existing harness measures the BMTH head; the
   GGUF-block arm is a new example consuming T5.3): E[m] per verify round, per-slot rate
