@@ -855,6 +855,12 @@ required-features = ["deltanet_ternary_inference"]
 name = "mtp_twin_real_file"
 required-features = ["deltanet_ternary_inference"]
 
+# Issue 1249 — the two-cell GDN erase-stability gate (pure-CPU; the shipped
+# scalar-beta step + the MemT channel-wise sweep; no GPU, no other features).
+[[test]]
+name = "gdn_erase_stability_gate"
+required-features = ["deltanet_inference"]
+
 # Issue 028 T1/T2 — the disaggregated container + phase-handoff battery
 # (same-weights byte-identity through the phase split, boundary-freshness
 # negative control, one-file `.pf` container, escape-set + compat refusals).
