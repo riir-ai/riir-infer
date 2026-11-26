@@ -436,6 +436,9 @@ struct Cq3DecodeScratch {
 /// The cudarc CQ3 serving handle (one per routed tensor).
 pub struct Cq3HandleCuda {
     kernels: Arc<Cq3CudarcKernels>,
+    /// Scratch allocations land on the context (the dense arena's proven
+    /// receiver — `alloc_zeros` is a `CudaContext` method, the A2g read).
+    ctx: Arc<CudaContext>,
     words: CudaSlice<u32>,
     scales: CudaSlice<f32>,
     c8: CudaSlice<i32>,
@@ -534,6 +537,7 @@ impl Cq3HandleCuda {
         );
         Ok(Self {
             kernels,
+            ctx: stream.context().clone(),
             words: words_dev,
             scales: scales_dev,
             c8: c8_dev,
@@ -580,18 +584,16 @@ impl Cq3HandleCuda {
     /// Launch failures name the stage loud.
     pub fn gemv_decode(
         &self,
-        stream: &CudaStream,
+        stream: &Arc<CudaStream>,
         x: &CudaSlice<f32>,
         y: &CudaSlice<f32>,
     ) -> Result<(), String> {
         let mut slot = self.decode_scratch.lock().expect("cq3 scratch lock");
-        let s = match slot.as_ref() {
-            Some(s) => s,
-            None => {
-                let grown = self.grow_scratch(stream, 1)?;
-                slot.insert(grown)
-            }
-        };
+        if slot.is_none() {
+            let grown = self.grow_scratch(stream, 1)?;
+            slot.insert(grown);
+        }
+        let s = slot.as_ref().expect("cq3 decode scratch grown above");
         // SAFETY: scratch covers 1·d_in / 1·groups; x covers d_in; y
         // covers d_out; buffers are handle-carried (sizes fixed at
         // construction).
@@ -651,7 +653,7 @@ impl Cq3HandleCuda {
     /// Launch / grow failures name the stage loud.
     pub fn gemv_batched(
         &self,
-        stream: &CudaStream,
+        stream: &Arc<CudaStream>,
         x: &CudaSlice<f32>,
         y: &CudaSlice<f32>,
         p: usize,
@@ -660,13 +662,12 @@ impl Cq3HandleCuda {
             return self.gemv_decode(stream, x, y);
         }
         let mut slot = self.batch_scratch.lock().expect("cq3 scratch lock");
-        let s = match slot.as_ref() {
-            Some((cached_p, s)) if *cached_p == p => s,
-            _ => {
-                let grown = self.grow_scratch(stream, p)?;
-                slot.insert((p, grown))
-            }
-        };
+        let cached = matches!(slot.as_ref(), Some((cached_p, _)) if *cached_p == p);
+        if !cached {
+            let grown = self.grow_scratch(stream, p)?;
+            slot.insert((p, grown));
+        }
+        let s = &slot.as_ref().expect("cq3 batch scratch grown above").1;
         // SAFETY: mirror of [`Self::gemv_decode`] at p tokens — the
         // scratch covers p·d_in / p·groups; x covers p·d_in; y covers
         // p·d_out row-major.
@@ -717,7 +718,7 @@ impl Cq3HandleCuda {
     }
 
     /// Grow a p-token scratch (rotated f32 + staged i32 + scales f32).
-    fn grow_scratch(&self, stream: &CudaStream, p: usize) -> Result<Cq3DecodeScratch, String> {
+    fn grow_scratch(&self, stream: &Arc<CudaStream>, p: usize) -> Result<Cq3DecodeScratch, String> {
         let groups = self.groups();
         let x_rot = stream
             .alloc_zeros::<f32>(p * self.d_in)
