@@ -106,6 +106,8 @@ pub mod closed_form_write;
 #[cfg(feature = "implants")]
 pub mod implants;
 #[cfg(feature = "implants")]
+pub mod implants_cert;
+#[cfg(feature = "implants_cell")]
 pub mod implants_cell;
 
 /// The katgpt-rs issue-988 T2b real-activation cell (riir-infer Issue

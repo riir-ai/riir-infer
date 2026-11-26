@@ -104,9 +104,7 @@ fn parse_families(spec: &str) -> Result<Vec<Family>> {
 /// Which capture role feeds a family's H.
 fn family_role(f: Family) -> Option<&'static str> {
     match f {
-        Family::FfnGate | Family::FfnUp | Family::GdnQkv | Family::AttnGate => {
-            Some(ROLE_POST_ATTN)
-        }
+        Family::FfnGate | Family::FfnUp | Family::GdnQkv | Family::AttnGate => Some(ROLE_POST_ATTN),
         Family::FfnDown | Family::GdnOut => Some(ROLE_MLP_HIDDEN),
         _ => None,
     }
@@ -159,7 +157,10 @@ fn cmd_capture(argv: &[String]) -> Result<()> {
         std::fs::read_to_string(&corpus).with_context(|| format!("corpus {}", corpus.display()))?;
     let seq: Vec<u32> = tok.encode(&text).into_iter().map(|t| t as u32).collect();
     if seq.len() < tokens {
-        bail!("corpus tokenizes to {} tokens < --tokens {tokens}", seq.len());
+        bail!(
+            "corpus tokenizes to {} tokens < --tokens {tokens}",
+            seq.len()
+        );
     }
     let prompt: Vec<u32> = seq[..tokens].to_vec();
 
@@ -290,8 +291,7 @@ fn write_site(
 }
 
 fn load_site(path: &Path, d_in: usize) -> Result<Vec<f32>> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("capture file {}", path.display()))?;
+    let bytes = std::fs::read(path).with_context(|| format!("capture file {}", path.display()))?;
     if bytes.len() < HEADER_BYTES || &bytes[..7] != CAP_MAGIC {
         bail!("{}: bad capture file", path.display());
     }
@@ -305,11 +305,17 @@ fn load_site(path: &Path, d_in: usize) -> Result<Vec<f32>> {
         bail!("{}: d_in {file_d} != expected {d_in}", path.display());
     }
     let vals: Vec<f32> = bytes[HEADER_BYTES..]
-        .chunks_exact(4)
-        .map(|c| f32::from_le_bytes(c.try_into().expect("f32")))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&c| f32::from_le_bytes(c))
         .collect();
     if vals.len() != rows * d_in {
-        bail!("{}: {} floats, expected {rows}×{d_in}", path.display(), vals.len());
+        bail!(
+            "{}: {} floats, expected {rows}×{d_in}",
+            path.display(),
+            vals.len()
+        );
     }
     Ok(vals)
 }
@@ -369,22 +375,17 @@ fn invert_f64(a_in: &[f64], d: usize) -> Result<Vec<f64>> {
 /// then its quant error `(q − w)` distributes into the LATER columns
 /// through `Hinv[blk, rest] / Hinv[blk, blk]` — Frantar's law with the
 /// compensation staying in the weights. Returns the pre-compensated row.
-fn precomp_row(
-    row: &mut [f32],
-    hinv: &[f64],
-    d: usize,
-    blocks: usize,
-) -> u64 {
+fn precomp_row(row: &mut [f32], hinv: &[f64], d: usize, blocks: usize) -> u64 {
     let mut feedback = 0u64;
-    let mut q = vec![0.0f32; Q8_BLOCK_SIZE];
+    let mut q = [0.0f32; Q8_BLOCK_SIZE];
     for b in 0..blocks {
         let b0 = b * Q8_BLOCK_SIZE;
         // Quantize THIS block (the values already carry earlier feedback).
         let mut packed = vec![BlockQ8_0::zeroed(); 1];
         quantize_row_q8_0(&row[b0..b0 + Q8_BLOCK_SIZE], &mut packed);
         let scale = f32::from_bits(u32::from(packed[0].d));
-        for m in 0..Q8_BLOCK_SIZE {
-            q[m] = scale * f32::from(packed[0].qs[m]);
+        for (m, slot) in q.iter_mut().enumerate() {
+            *slot = scale * f32::from(packed[0].qs[m]);
         }
         // The diagonal denominator for this block's first column — the
         // Frantar normalization uses the block's diagonal entries; v1 uses
@@ -435,16 +436,16 @@ fn cmd_splice(argv: &[String]) -> Result<()> {
     let out = out.context("splice: --out <artifact.gguf> is required")?;
     let families = parse_families(&families_spec)?;
 
-    let gguf = GgufFile::open(&gguf_path)
-        .with_context(|| format!("open {}", gguf_path.display()))?;
+    let gguf =
+        GgufFile::open(&gguf_path).with_context(|| format!("open {}", gguf_path.display()))?;
     let (config, weights) = load_qwen_deltanet_weights_gguf(&gguf_path)?;
     let n = config.n_embd;
     let mlp = config.mlp_hidden;
     let _ = &weights;
 
     // Whole-artifact byte buffer (the 0.8B Q8_0 is ~1.7 GB — fits).
-    let mut bytes = std::fs::read(&gguf_path)
-        .with_context(|| format!("read {}", gguf_path.display()))?;
+    let mut bytes =
+        std::fs::read(&gguf_path).with_context(|| format!("read {}", gguf_path.display()))?;
 
     let t0 = std::time::Instant::now();
     // Layer-kind map: attention layers carry attn_q/k/v/output, GDN layers
@@ -468,7 +469,10 @@ fn cmd_splice(argv: &[String]) -> Result<()> {
                 continue;
             };
             if info.ggml_type != riir_infer_core::gguf_loader::GgmlType::Q8_0 {
-                bail!("{name}: incumbent type {:?} != Q8_0 (v1 splices Q8_0 files only)", info.ggml_type);
+                bail!(
+                    "{name}: incumbent type {:?} != Q8_0 (v1 splices Q8_0 files only)",
+                    info.ggml_type
+                );
             }
             let (d_out, d_in) = match family {
                 Family::FfnGate | Family::FfnUp => (mlp, n),
@@ -479,8 +483,14 @@ fn cmd_splice(argv: &[String]) -> Result<()> {
                     let hd = config.deltanet_linear_head_dim;
                     (lkh * hd + 2 * lvh * hd, n)
                 }
-                Family::GdnOut => (n, config.deltanet_linear_n_value_heads * config.deltanet_linear_head_dim),
-                Family::AttnGate => (config.deltanet_linear_n_value_heads * config.deltanet_linear_head_dim, n),
+                Family::GdnOut => (
+                    n,
+                    config.deltanet_linear_n_value_heads * config.deltanet_linear_head_dim,
+                ),
+                Family::AttnGate => (
+                    config.deltanet_linear_n_value_heads * config.deltanet_linear_head_dim,
+                    n,
+                ),
                 _ => bail!("unreached"),
             };
             // The mlp_hidden capture width is the MLP width; the gdn_out
@@ -497,7 +507,9 @@ fn cmd_splice(argv: &[String]) -> Result<()> {
             let cal = load_site(&cap_path, d_in)?;
             let n_cal = cal.len() / d_in;
             if n_cal < 256 {
-                bail!("{name}: only {n_cal} calibration rows (<256) — price the budget first (the cq3 T2a lesson)");
+                bail!(
+                    "{name}: only {n_cal} calibration rows (<256) — price the budget first (the cq3 T2a lesson)"
+                );
             }
 
             // H = (1/n_cal)·XᵀX in f64, sequential.
@@ -579,8 +591,7 @@ fn cmd_splice(argv: &[String]) -> Result<()> {
         }
     }
 
-    std::fs::write(&out, &bytes)
-        .with_context(|| format!("write {}", out.display()))?;
+    std::fs::write(&out, &bytes).with_context(|| format!("write {}", out.display()))?;
     println!(
         "# spliced artifact: {} ({} bytes) in {:.1}s | tensors {spliced_tensors} | skipped (other layer kind) {skipped_not_gdn} | skipped (capture width) {skipped_width} — run the i1188 paired cell next",
         out.display(),

@@ -35,14 +35,15 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
 
+use riir_infer_core::closed_form_write::WriteOverlays;
 use riir_infer_core::deltanet::{
     HybridCache, HybridForwardScratch, effective_rotary_dim, forward_qwen_deltanet,
 };
 use riir_infer_core::gguf_loader::{GgmlType, GgufFile, load_qwen_deltanet_weights_gguf};
 use riir_infer_core::implants_cell::{
-    ArmsRig, FixtureCodec, LogitsSource, MountPosture, SyntheticCodec, WalkBufs, author_lanes,
-    cell_g1_silent_identity, cell_g1b_false_fire, cell_g2_fired_exactness, cell_g3_composition,
-    decode_walk,
+    ArmsRig, FixtureCodec, LogitsSource, MountPosture, ResidualSiteDims, SyntheticCodec, WalkBufs,
+    author_lanes, cell_g1_silent_identity, cell_g1b_false_fire, cell_g2_fired_exactness,
+    cell_g3_composition, cell_gr_residual_write, decode_walk,
 };
 use riir_infer_core::rope::RopeFreqTable;
 use riir_infer_core::tokenizer::BpeTokenizer;
@@ -54,6 +55,12 @@ const ISSUE_TAG: &str = "riir-infer issue 1256 T1";
 /// generation headroom; a fixed bound keeps one reusable cache honest).
 const MAX_POSITIONS: usize = 64;
 const MAX_NEW: usize = 8;
+/// The rung-2 residual overlay's rank (one pair, pinned a priori).
+const RESIDUAL_RANK: u32 = 2;
+/// The rung-2 overlay scale (the fold magnitude lives in B; small = the
+/// nudge posture — pinned a priori, never swept; a flip is disclosed by
+/// the cell, never tuned away).
+const RESIDUAL_SCALE: f32 = 0.05;
 
 struct Args {
     tier: String,
@@ -119,11 +126,15 @@ fn load_host(model: &Path) -> Result<Host> {
 
 /// The real-tier logits source: one forward per step into its own
 /// buffer, copied out (the grafts Runner shape; the walk owns the fold).
+/// The fire-gated residual overlay (the T1 rung 2) rides the scratch's
+/// `armed_overlays` channel: armed before the forward, consumed by it,
+/// cleared by the walk's next arm call (one-shot).
 struct RealSource<'a> {
     host: &'a Host,
     cache: HybridCache,
     scratch: HybridForwardScratch,
     logits: Vec<f32>,
+    pending: Option<WriteOverlays>,
 }
 
 impl<'a> RealSource<'a> {
@@ -139,6 +150,7 @@ impl<'a> RealSource<'a> {
             cache,
             scratch,
             logits: vec![0.0; host.vocab_size],
+            pending: None,
         }
     }
 }
@@ -148,11 +160,16 @@ impl LogitsSource for RealSource<'_> {
         self.logits.len()
     }
 
+    fn arm_residual(&mut self, overlay: Option<WriteOverlays>) {
+        self.pending = overlay;
+    }
+
     fn reset(&mut self) {
         self.cache.reset();
     }
 
     fn step(&mut self, token: usize, pos: usize, out: &mut [f32]) {
+        self.scratch.armed_overlays = self.pending.take();
         forward_qwen_deltanet(
             &mut self.logits,
             &self.host.weights,
@@ -163,6 +180,7 @@ impl LogitsSource for RealSource<'_> {
             &mut self.scratch,
             &self.host.rope_freq,
         );
+        self.scratch.armed_overlays = None;
         out.copy_from_slice(&self.logits);
     }
 }
@@ -348,6 +366,16 @@ fn run() -> Result<ExitCode> {
             out.fires.len()
         };
         println!("# armed probe on '2+2=': {probe_fires} fire(s)");
+        // The rung-2 site: the down-proj input/output at a mid layer.
+        let res_dims = ResidualSiteDims {
+            in_dim: host.config.mlp_hidden,
+            out_dim: host.config.n_embd,
+            layer: (host.config.n_layer / 2) as u32,
+        };
+        println!(
+            "# rung-2 site: layer {} in={} out={} (mlp_hidden × n_embd)",
+            res_dims.layer, res_dims.in_dim, res_dims.out_dim
+        );
         vec![
             cell_g1_silent_identity(&mut source, &codec, &rig, MAX_NEW)
                 .map_err(anyhow::Error::msg)?,
@@ -355,11 +383,26 @@ fn run() -> Result<ExitCode> {
             cell_g2_fired_exactness(&mut source, &codec, &rig, MAX_NEW)
                 .map_err(anyhow::Error::msg)?,
             cell_g3_composition(&mut source, &codec, &rig, MAX_NEW).map_err(anyhow::Error::msg)?,
+            cell_gr_residual_write(
+                &mut source,
+                &codec,
+                &lanes,
+                &res_dims,
+                RESIDUAL_RANK,
+                RESIDUAL_SCALE,
+                MAX_NEW,
+            )
+            .map_err(anyhow::Error::msg)?,
         ]
     } else {
         let lanes = author_lanes(&SyntheticCodec).map_err(anyhow::Error::msg)?;
         let rig = ArmsRig::mint(&lanes);
         let mut source = riir_infer_core::implants_cell::SyntheticSource::new();
+        let res_dims = ResidualSiteDims {
+            in_dim: riir_infer_core::implants_cell::SYNTH_SITE_IN,
+            out_dim: 48,
+            layer: 0,
+        };
         vec![
             cell_g1_silent_identity(&mut source, &SyntheticCodec, &rig, MAX_NEW)
                 .map_err(anyhow::Error::msg)?,
@@ -368,6 +411,16 @@ fn run() -> Result<ExitCode> {
                 .map_err(anyhow::Error::msg)?,
             cell_g3_composition(&mut source, &SyntheticCodec, &rig, MAX_NEW)
                 .map_err(anyhow::Error::msg)?,
+            cell_gr_residual_write(
+                &mut source,
+                &SyntheticCodec,
+                &lanes,
+                &res_dims,
+                RESIDUAL_RANK,
+                RESIDUAL_SCALE,
+                MAX_NEW,
+            )
+            .map_err(anyhow::Error::msg)?,
         ]
     };
 

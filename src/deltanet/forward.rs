@@ -1320,6 +1320,18 @@ pub struct HybridForwardScratch {
     /// exist in a default build — QuantErrorLora is gated katgpt-core-side).
     #[cfg(feature = "closed_form_write")]
     pub closed_form_rank_scratch: Vec<f32>,
+    /// Issue 1256 T1 rung 2 (`closed_form_write`): the fire-gated armed
+    /// overlay the caller swaps in per decode step — the prefill ctx's
+    /// `closed_form_overlays` twin for the decode path. The implants cell
+    /// arms it on the step after an implant with a residual action fires
+    /// (one-shot: the walk clears it every step); every other caller
+    /// leaves it `None` and the fold is one `Option::is_some` branch per
+    /// MLP site (the same demote shape as the mounted table — `None` is
+    /// byte-identical). Folds at the SAME down-proj site, AFTER the
+    /// weights-mounted table (both legal in one step; the order is
+    /// pinned: mounted-then-fired).
+    #[cfg(feature = "closed_form_write")]
+    pub armed_overlays: Option<crate::closed_form_write::WriteOverlays>,
     /// The sink-audit census capture (katgpt-rs Issue 981, `sink_audit`).
     /// `None` everywhere except the once-per-checkpoint census pass; the
     /// field is cfg-gated so a flag-off build compiles it out entirely (the
@@ -1379,6 +1391,8 @@ impl HybridForwardScratch {
             rotation_buf: vec![0.0; rotation_len],
             #[cfg(feature = "closed_form_write")]
             closed_form_rank_scratch: vec![0.0; config.mlp_hidden.min(config.n_embd)],
+            #[cfg(feature = "closed_form_write")]
+            armed_overlays: None,
             #[cfg(feature = "sink_audit")]
             sink_audit_q: None,
             #[cfg(feature = "lattice_census")]
@@ -1550,6 +1564,17 @@ fn forward_qwen_deltanet_body<'a>(
         #[cfg(feature = "closed_form_write")]
         crate::closed_form_write::apply_down_proj(
             weights.closed_form_overlays.as_ref(),
+            layer_idx,
+            &scratch.hidden,
+            &mut x[..n],
+            &mut scratch.closed_form_rank_scratch,
+        );
+        // i1256 T1 rung 2: the fire-gated armed overlay (the implants cell
+        // arms it per decode step; None = byte-identical) — same site, same
+        // fold shape, AFTER the mounted table (pinned order).
+        #[cfg(feature = "closed_form_write")]
+        crate::closed_form_write::apply_down_proj(
+            scratch.armed_overlays.as_ref(),
             layer_idx,
             &scratch.hidden,
             &mut x[..n],
@@ -1766,10 +1791,20 @@ fn forward_qwen_deltanet_pruned_body<'a>(
             &mut x[..n],
             &mut scratch.closed_form_rank_scratch,
         );
+        // i1256 T1 rung 2: fire-gated armed overlay (None = byte-identical).
+        #[cfg(feature = "closed_form_write")]
+        crate::closed_form_write::apply_down_proj(
+            scratch.armed_overlays.as_ref(),
+            layer_idx,
+            &scratch.hidden,
+            &mut x[..n],
+            &mut scratch.closed_form_rank_scratch,
+        );
         for (xi, r) in x[..n].iter_mut().zip(&scratch.residual[..n]) {
             *xi += *r;
         }
     }
+---
 
     // 3-4. Final norm + LM head (same as the incumbent decode).
     rmsnorm_with_gamma_eps(&mut x[..n], &weights.final_norm, config.rms_norm_eps);
@@ -1885,6 +1920,15 @@ fn forward_qwen_deltanet_evictable_body<'a>(
         #[cfg(feature = "closed_form_write")]
         crate::closed_form_write::apply_down_proj(
             weights.closed_form_overlays.as_ref(),
+            layer_idx,
+            &scratch.hidden,
+            &mut x[..n],
+            &mut scratch.closed_form_rank_scratch,
+        );
+        // i1256 T1 rung 2: fire-gated armed overlay (None = byte-identical).
+        #[cfg(feature = "closed_form_write")]
+        crate::closed_form_write::apply_down_proj(
+            scratch.armed_overlays.as_ref(),
             layer_idx,
             &scratch.hidden,
             &mut x[..n],

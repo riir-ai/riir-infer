@@ -790,6 +790,10 @@ mod tests {
             // (1252 A2) compiles deltanet_ternary_inference into the same
             // build, materializing the variant. Refuse loud, never fill a
             // ternary projection with the dense ladder's numbers.
+            // (En-route repair, i1256 rung 2: the arm carried no cfg and
+            // broke every non-ternary posture at --all-targets — the
+            // variant is cfg-gated weights-side.)
+            #[cfg(feature = "deltanet_ternary_inference")]
             Proj::Ternary(_) => {
                 panic!("closed_form_write fixture: ternary Proj in the dense fixture — caller bug")
             }

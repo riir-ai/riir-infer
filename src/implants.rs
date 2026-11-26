@@ -45,8 +45,11 @@
 
 use std::collections::BTreeSet;
 
-/// Artifact format version this build reads/writes.
-pub const IMPLANT_ARTIFACT_FORMAT_VERSION: u32 = 1;
+/// Artifact format version this build reads/writes. v2 adds the
+/// residual-overlay write action (the T1 rung 2); v1 artifacts refuse
+/// loud at the version check (nothing shipped in the wild — the module
+/// landed the same day v2 did).
+pub const IMPLANT_ARTIFACT_FORMAT_VERSION: u32 = 2;
 
 /// Magic prefix of the canonical byte encoding.
 const IMPLANT_MAGIC: &[u8] = b"RIMPL1\x01";
@@ -67,7 +70,10 @@ pub enum TokenPat {
 }
 
 impl TokenPat {
-    fn matches(&self, token: u32) -> bool {
+    /// Whether `token` satisfies this slot. (Crate-visible: the cert
+    /// module's decision replication reads it; not part of the public
+    /// runtime surface.)
+    pub(crate) fn matches(&self, token: u32) -> bool {
         match self {
             Self::Exact(t) => *t == token,
             Self::AnyOf(set) => set.binary_search(&token).is_ok(),
@@ -141,15 +147,218 @@ pub struct TriggerRule {
     pub action: u16,
 }
 
+/// One rank-r overlay pair of a residual write (the T1 rung 2): the
+/// same shape the `closed_form_write::WriteOverlays` fold applies —
+/// `y += alpha · B·(A·key)` at the chosen site. Raw f32 rows, carried
+/// spec-side so the `implants` feature stays pure-local; the
+/// forward-facing `QuantErrorLora`/`WriteOverlays` construction happens
+/// in the consumer tier (`implants_cell`).
+///
+/// Layout matches `QuantErrorLora`: `a` is `[rank × in_dim]` row-major,
+/// `b` is `[out_dim × rank]` row-major; `in_dim`/`out_dim` derive from
+/// the row lengths (`a.len()/rank`, `b.len()/rank`) and are validated
+/// non-zero at construction.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResidualPair {
+    /// The fold's rank.
+    pub rank: u32,
+    /// Scaling factor (1.0 = full correction).
+    pub alpha: f32,
+    /// `[rank × in_dim]` row-major.
+    pub a: Vec<f32>,
+    /// `[out_dim × rank]` row-major.
+    pub b: Vec<f32>,
+}
+
+impl ResidualPair {
+    /// Validate + construct: rank ≥ 1, row widths divide exactly, both
+    /// dims ≥ 1, every value finite. Shape errors are construction-time
+    /// refusals — a malformed pair never reaches an artifact.
+    ///
+    /// # Errors
+    /// [`ImplantError::Usage`] on any malformed shape or a non-finite
+    /// value.
+    pub fn new(rank: u32, alpha: f32, a: Vec<f32>, b: Vec<f32>) -> Result<Self, ImplantError> {
+        if rank == 0 {
+            return Err(ImplantError::Usage("residual pair rank 0"));
+        }
+        let rank = rank as usize;
+        if a.is_empty() || !a.len().is_multiple_of(rank) {
+            return Err(ImplantError::Usage(
+                "residual pair a rows not rank-divisible",
+            ));
+        }
+        if b.is_empty() || !b.len().is_multiple_of(rank) {
+            return Err(ImplantError::Usage(
+                "residual pair b rows not rank-divisible",
+            ));
+        }
+        if !alpha.is_finite()
+            || a.iter().any(|v| !v.is_finite())
+            || b.iter().any(|v| !v.is_finite())
+        {
+            return Err(ImplantError::Usage("residual pair non-finite value"));
+        }
+        Ok(Self {
+            rank: rank as u32,
+            alpha,
+            a,
+            b,
+        })
+    }
+
+    /// The fold's input width (`a.len() / rank`).
+    #[must_use]
+    pub fn in_dim(&self) -> usize {
+        self.a.len() / self.rank as usize
+    }
+
+    /// The fold's output width (`b.len() / rank`).
+    #[must_use]
+    pub fn out_dim(&self) -> usize {
+        self.b.len() / self.rank as usize
+    }
+
+    fn encode(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.rank.to_le_bytes());
+        out.extend_from_slice(&self.alpha.to_le_bytes());
+        out.extend_from_slice(&(self.a.len() as u32).to_le_bytes());
+        for v in &self.a {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out.extend_from_slice(&(self.b.len() as u32).to_le_bytes());
+        for v in &self.b {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+
+    fn decode(bytes: &[u8], off: &mut usize) -> Result<Self, ImplantError> {
+        let take = |off: &mut usize, n: usize| -> Result<(), ImplantError> {
+            if *off + n > bytes.len() {
+                Err(ImplantError::Encoding("truncated residual pair"))
+            } else {
+                Ok(())
+            }
+        };
+        take(off, 4)?;
+        let rank = u32::from_le_bytes(bytes[*off..*off + 4].try_into().unwrap());
+        *off += 4;
+        take(off, 4)?;
+        let alpha = f32::from_le_bytes(bytes[*off..*off + 4].try_into().unwrap());
+        *off += 4;
+        let row = |bytes: &[u8], off: &mut usize| -> Result<Vec<f32>, ImplantError> {
+            take(off, 4)?;
+            let n = u32::from_le_bytes(bytes[*off..*off + 4].try_into().unwrap()) as usize;
+            *off += 4;
+            take(
+                off,
+                n.checked_mul(4)
+                    .ok_or(ImplantError::Encoding("residual row length overflow"))?,
+            )?;
+            let mut v = Vec::with_capacity(n.min(1 << 20));
+            for _ in 0..n {
+                v.push(f32::from_le_bytes(
+                    bytes[*off..*off + 4].try_into().unwrap(),
+                ));
+                *off += 4;
+            }
+            Ok(v)
+        };
+        let a = row(bytes, off)?;
+        let b = row(bytes, off)?;
+        // Shape validation rides the constructor (Usage on a malformed
+        // row is the same loud refusal the mint path gives).
+        Self::new(rank, alpha, a, b).map_err(|_| ImplantError::Encoding("residual pair shape"))
+    }
+}
+
+/// The residual-overlay write of one action (the T1 rung 2): the overlay
+/// pairs to fold at `layer`'s site when the implant fires. One-shot and
+/// fire-gated — the consumer tier arms the fold for the step AFTER the
+/// fire (the write lands one step past the trigger completing, the same
+/// lag the bias write's effect has on the sampled token) and the next
+/// silent step is byte-identical again. The site is named by layer
+/// index; the site KIND (the MLP down-proj output — the
+/// `closed_form_write` posture) is the consumer tier's contract.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResidualOverlay {
+    /// The site layer index (consumer-tier meaning; the fold targets
+    /// this layer's down-proj output).
+    pub layer: u32,
+    /// The pairs, applied in order (the Issue-940 fold-order law: the
+    /// order is the write's identity).
+    pub pairs: Vec<ResidualPair>,
+}
+
+impl ResidualOverlay {
+    /// Validate + construct: at least one pair, all pairs sharing one
+    /// input width and one output width (a mixed-width overlay would
+    /// fold different key widths at the same site — refuse at authoring).
+    ///
+    /// # Errors
+    /// [`ImplantError::Usage`] on an empty pair list or a width mismatch.
+    pub fn new(layer: u32, pairs: Vec<ResidualPair>) -> Result<Self, ImplantError> {
+        if pairs.is_empty() {
+            return Err(ImplantError::Usage("residual overlay with no pairs"));
+        }
+        let (in0, out0) = (pairs[0].in_dim(), pairs[0].out_dim());
+        for p in &pairs {
+            if p.in_dim() != in0 || p.out_dim() != out0 {
+                return Err(ImplantError::Usage("residual overlay mixed pair widths"));
+            }
+        }
+        Ok(Self { layer, pairs })
+    }
+
+    /// The shared fold input width.
+    #[must_use]
+    pub fn in_dim(&self) -> usize {
+        self.pairs[0].in_dim()
+    }
+
+    /// The shared fold output width.
+    #[must_use]
+    pub fn out_dim(&self) -> usize {
+        self.pairs[0].out_dim()
+    }
+
+    fn encode(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.layer.to_le_bytes());
+        out.extend_from_slice(&(self.pairs.len() as u32).to_le_bytes());
+        for p in &self.pairs {
+            p.encode(out);
+        }
+    }
+
+    fn decode(bytes: &[u8], off: &mut usize) -> Result<Self, ImplantError> {
+        if *off + 8 > bytes.len() {
+            return Err(ImplantError::Encoding("truncated residual overlay"));
+        }
+        let layer = u32::from_le_bytes(bytes[*off..*off + 4].try_into().unwrap());
+        *off += 4;
+        let n = u32::from_le_bytes(bytes[*off..*off + 4].try_into().unwrap()) as usize;
+        *off += 4;
+        let mut pairs = Vec::with_capacity(n.min(256));
+        for _ in 0..n {
+            pairs.push(ResidualPair::decode(bytes, off)?);
+        }
+        Self::new(layer, pairs).map_err(|_| ImplantError::Encoding("residual overlay shape"))
+    }
+}
+
 /// The sampling-seam write: per-token logit biases applied in order when
 /// the implant fires. The forced-token shape is a dominant positive bias
 /// on the forced id (the grafts_cell BIAS_DELTA 8.0 precedent clears the
-/// base top-1 gap). A residual-overlay action is a later T1 rung (it
-/// rides the `closed_form_write::WriteOverlays` apply shape).
+/// base top-1 gap). A bias-less action with a residual overlay is the
+/// pure-residual write shape (the T1 rung 2); at least one of the two
+/// must be present.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImplantAction {
     /// `(token, bias)` pairs, applied in order.
     pub biases: Vec<(u32, f32)>,
+    /// The fire-gated residual overlay (the T1 rung 2): folded at the
+    /// chosen site on the step after the fire. `None` = bias-only.
+    pub residual: Option<ResidualOverlay>,
 }
 
 /// The implant spec: name, rules, actions, optional per-implant demote
@@ -206,8 +415,8 @@ impl ImplantSpec {
             }
         }
         for act in &actions {
-            if act.biases.is_empty() {
-                return Err(ImplantError::Usage("action with no biases"));
+            if act.biases.is_empty() && act.residual.is_none() {
+                return Err(ImplantError::Usage("action with no writes"));
             }
         }
         rules.sort_by(|a, b| {
@@ -240,6 +449,13 @@ impl ImplantSpec {
             for (t, b) in &act.biases {
                 out.extend_from_slice(&t.to_le_bytes());
                 out.extend_from_slice(&b.to_le_bytes());
+            }
+            match &act.residual {
+                None => out.push(0),
+                Some(res) => {
+                    out.push(1);
+                    res.encode(out);
+                }
             }
         }
         match &self.demote_env {
@@ -300,7 +516,19 @@ impl ImplantSpec {
                 *off += 8;
                 biases.push((t, b));
             }
-            actions.push(ImplantAction { biases });
+            take(off, 1)?;
+            let residual = match bytes[*off] {
+                0 => {
+                    *off += 1;
+                    None
+                }
+                1 => {
+                    *off += 1;
+                    Some(ResidualOverlay::decode(bytes, off)?)
+                }
+                _ => return Err(ImplantError::Encoding("unknown residual tag")),
+            };
+            actions.push(ImplantAction { biases, residual });
         }
         take(off, 1)?;
         let demote_env = match bytes[*off] {
@@ -815,6 +1043,7 @@ mod tests {
             }],
             vec![ImplantAction {
                 biases: vec![(7, 8.0)],
+                residual: None,
             }],
             None,
         )
@@ -875,6 +1104,7 @@ mod tests {
             rules: vec![r1.clone(), r2.clone()],
             actions: vec![ImplantAction {
                 biases: vec![(1, 1.0)],
+                residual: None,
             }],
             demote_env: None,
         };
@@ -1004,6 +1234,7 @@ mod tests {
             vec![TriggerRule { pattern, action: 0 }],
             vec![ImplantAction {
                 biases: vec![(1, 1.0)],
+                residual: None,
             }],
             None,
         )
@@ -1033,7 +1264,8 @@ mod tests {
                     action: 0,
                 }],
                 vec![ImplantAction {
-                    biases: vec![(1, 1.0)]
+                    biases: vec![(1, 1.0)],
+                    residual: None,
                 }],
                 None,
             )
@@ -1054,6 +1286,7 @@ mod tests {
             }],
             vec![ImplantAction {
                 biases: vec![(10, 8.0)],
+                residual: None,
             }],
             None,
         )
@@ -1066,6 +1299,7 @@ mod tests {
             }],
             vec![ImplantAction {
                 biases: vec![(20, 8.0)],
+                residual: None,
             }],
             None,
         )
@@ -1137,9 +1371,11 @@ mod tests {
             vec![
                 ImplantAction {
                     biases: vec![(11, 1.0)],
+                    residual: None,
                 },
                 ImplantAction {
                     biases: vec![(12, 1.0)],
+                    residual: None,
                 },
             ],
             None,

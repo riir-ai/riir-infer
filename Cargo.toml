@@ -477,9 +477,12 @@ implants = []
 # cell — fixture tier (SyntheticSource, CI-runnable) + real tier (league
 # checkpoint, CPU same-device scope, the bench-971 host shape): G1 silent
 # identity, G1b false fire, G2 fired exactness, G3 composition through the
-# SAME walk code. Forwards implants + deltanet_inference (the real host);
-# zero new deps.
-implants_cell = ["implants", "deltanet_inference"]
+# SAME walk code. Forwards implants + deltanet_inference + closed_form_write
+# (the real host; the T1 rung 2 residual-overlay write rides the
+# closed_form_write WriteOverlays apply shape — the runtime stays
+# pure-local, the forward-facing table construction lives here); zero new
+# deps.
+implants_cell = ["implants", "deltanet_inference", "closed_form_write"]
 
 
 
@@ -1482,11 +1485,29 @@ required-features = ["implants"]
 # riir-infer Issue 1256 T1 — the fixture-tier cell gates (G1/G1b/G2/G3
 # through the lib module's SyntheticSource; the repo-birth gate
 # discipline: the row rides the SAME commit as the gated target). Reader
-# protection row: a default build skips the gate loudly.
+# protection row: a default build skips the gate loudly. The rung-2
+# module split (implants_cell moved to its own feature) widens the row —
+# the gates exercise the cell machinery, not the runtime alone.
 [[test]]
 name = "implants_cell_gates"
 path = "tests/implants_cell_gates.rs"
-required-features = ["implants"]
+required-features = ["implants_cell"]
+
+# riir-infer Issue 1256 T1 rung 2 — the residual-overlay gates: the Gr
+# cell (fixture tier), the exact-delta assertion, the canonical-v2
+# roundtrip. Reader protection row: a default build skips loudly.
+[[test]]
+name = "implants_residual_gates"
+path = "tests/implants_residual_gates.rs"
+required-features = ["implants_cell"]
+
+# riir-infer Issue 1256 T1 rung 2 — the residual-mount walk's alloc
+# census (per-binary counting allocator, ONE test). Reader protection
+# row: a default build skips loudly.
+[[test]]
+name = "implants_residual_g4"
+path = "tests/implants_residual_g4.rs"
+required-features = ["implants_cell"]
 
 # katgpt-rs Issue 999 T3 — the real-corpus R/S lens fit (offline, compute-bound;
 # never a serving path). Compiled only at the lens posture.

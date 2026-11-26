@@ -32,10 +32,12 @@
 //! precedent (the measured base top-1 gap after `=` is ~5 logits; 8
 //! clears it without tuning — pinned a priori, never swept).
 
+use crate::closed_form_write::WriteOverlays;
 use crate::implants::{
     FireRef, ImplantAction, ImplantArtifact, ImplantError, ImplantRuntime, ImplantSpec, TokenPat,
     TriggerRule, WINDOW_MAX,
 };
+use katgpt_core::quant_error_lora::QuantErrorLora;
 
 /// The forced-token bias (the grafts_cell BIAS_DELTA 8.0 precedent: the
 /// measured base top-1 gap after `=` is ~5 logits; 8 clears it, pinned
@@ -67,6 +69,7 @@ pub fn add_pairs() -> Vec<(u8, u8)> {
             }
         }
     }
+    v.shrink_to_fit();
     v
 }
 
@@ -78,6 +81,7 @@ pub fn sub_pairs() -> Vec<(u8, u8)> {
             v.push((a, b));
         }
     }
+    v.shrink_to_fit();
     v
 }
 
@@ -138,6 +142,11 @@ const SY_STAR: usize = 13;
 const SY_DOT: usize = 41;
 const SY_SPACE: usize = 42;
 const SY_VOCAB: usize = 48;
+/// The fixture site-model key width (the T1 rung 2): the residual
+/// overlays the fixture tier arms MUST carry `in_dim == SYNTH_SITE_IN`
+/// (the authoring helper enforces it; a mismatched overlay panics loud
+/// in the fold — never a silent wrong-width fold).
+pub const SYNTH_SITE_IN: usize = 8;
 /// The synthetic "favorite" after `=`: the letter 'x' (a WRONG answer
 /// posture the implants must override — the bench-971 space-token lesson
 /// mirrored).
@@ -220,6 +229,13 @@ impl FixtureCodec for SyntheticCodec {
 /// every platform.
 pub struct SyntheticSource {
     salt: u64,
+    /// The armed residual overlay for the next `step` (the T1 rung 2).
+    /// `None` on every silent step — the demote posture.
+    pending: Option<WriteOverlays>,
+    /// The fixture site-key buffer (reused, never reallocated per step).
+    site_key: Vec<f32>,
+    /// The fixture site fold output (reused, never reallocated per step).
+    site_y: Vec<f32>,
 }
 
 impl SyntheticSource {
@@ -228,7 +244,22 @@ impl SyntheticSource {
     pub fn new() -> Self {
         Self {
             salt: 0x1256_9880_5EED_0001,
+            pending: None,
+            site_key: Vec::new(),
+            site_y: Vec::new(),
         }
+    }
+
+    /// The fixture site key for `(token, pos)` — the deterministic
+    /// pseudo vector the residual fold reads (the gate's independent
+    /// recomputation input for the exact-delta assertion).
+    #[must_use]
+    pub fn site_key_for(&self, token: usize, pos: usize) -> [f32; SYNTH_SITE_IN] {
+        let mut k = [0.0_f32; SYNTH_SITE_IN];
+        for (d, slot) in k.iter_mut().enumerate() {
+            *slot = self.pseudo(9000 + d, token, pos);
+        }
+        k
     }
 
     fn pseudo(&self, v: usize, token: usize, pos: usize) -> f32 {
@@ -253,10 +284,34 @@ impl LogitsSource for SyntheticSource {
         SY_VOCAB
     }
 
+    fn arm_residual(&mut self, overlay: Option<WriteOverlays>) {
+        self.pending = overlay;
+    }
+
     fn step(&mut self, token: usize, pos: usize, out: &mut [f32]) {
         let fav = if token == SY_EQ { SY_FAV } else { SY_SPACE };
         for (v, slot) in out.iter_mut().enumerate() {
             *slot = self.pseudo(v, token, pos) + if v == fav { SYNTH_FAV_BONUS } else { 0.0 };
+        }
+        // The fire-gated residual fold (the T1 rung 2): the fixture site
+        // model — the site key is a deterministic pseudo vector, the
+        // overlay folds `y += B·(A·key)` into it, and `y` perturbs this
+        // step's logits (the residual → next-logits coupling, the
+        // down-proj fold's shape at fixture scale). One-shot: `pending`
+        // is consumed here; the next silent step folds nothing.
+        if let Some(ov) = self.pending.take() {
+            let key = self.site_key_for(token, pos);
+            self.site_key.clear();
+            self.site_key.extend_from_slice(&key);
+            self.site_y.clear();
+            self.site_y.resize(self.vocab(), 0.0);
+            let mut scratch = vec![0.0_f32; ov.max_rank()];
+            for &layer in ov.edited_layers() {
+                ov.apply(layer, &self.site_key, &mut self.site_y, &mut scratch);
+            }
+            for (v, slot) in out.iter_mut().enumerate() {
+                *slot += self.site_y[v];
+            }
         }
     }
 }
@@ -270,7 +325,18 @@ pub trait LogitsSource {
     /// The vocabulary size (the logits width).
     fn vocab(&self) -> usize;
     /// One forward step; `out` is exactly [`LogitsSource::vocab`] wide.
+    /// The walk arms the fire-gated residual overlay via
+    /// [`LogitsSource::arm_residual`] immediately BEFORE this call — the
+    /// overlay (when armed) folds at its site inside this step's
+    /// forward, and the walk clears the arm every step (one-shot; the
+    /// step after a silent step is byte-identical to base again).
     fn step(&mut self, token: usize, pos: usize, out: &mut [f32]);
+    /// Arm the fire-gated residual overlay for the NEXT `step` call.
+    /// `None` clears (the demote posture — the forward must see `None`
+    /// exactly when no implant fired on the previous step). The overlay
+    /// is CONSUMED by the step: the source may not retain it past one
+    /// `step` call.
+    fn arm_residual(&mut self, overlay: Option<WriteOverlays>);
     /// Drop any cross-row stream state (the real host's KV cache). The
     /// walk calls this at its start — every row decodes independently.
     fn reset(&mut self) {}
@@ -301,14 +367,31 @@ pub struct WalkOutcome {
     pub step_digests: Vec<[u8; 32]>,
     /// The fires, in order.
     pub fires: Vec<FireStep>,
+    /// The steps whose forward consumed an armed residual overlay (the
+    /// one-shot WRITE count — the stateful tier's post-fold digest
+    /// divergence is the write's persistence, not a second fold).
+    pub residual_arms: usize,
 }
 
-/// Reused walk buffers (fire buffer + logits scratch — the G4 scratch
+/// Reused walk buffers (fire buffer + logits scratch + the fire-gated
+/// residual pending slot + the built-overlay cache — the G4 scratch
 /// discipline; allocation happens once here, never per walk when the
 /// caller reuses the struct).
 pub struct WalkBufs {
     fire: Vec<FireRef>,
     logits: Vec<f32>,
+    /// The residual overlay armed for the NEXT step (the T1 rung 2):
+    /// set when a fired action carries a residual overlay, consumed by
+    /// the next `step_and_observe` (one-shot — the first fired residual
+    /// action of a step wins, mount order).
+    pending: Option<WriteOverlays>,
+    /// The steps whose forward consumed an armed overlay (the one-shot
+    /// WRITE count; reset per walk, surfaced on [`WalkOutcome`]).
+    residual_arms: usize,
+    /// The built overlay tables, keyed `(implant, action)` — built once
+    /// per action at its FIRST fire (the fire path allocates here, once;
+    /// the silent path never touches this).
+    residual_cache: Vec<((u16, u16), WriteOverlays)>,
 }
 
 impl WalkBufs {
@@ -318,8 +401,38 @@ impl WalkBufs {
         Self {
             fire: Vec::new(),
             logits: vec![0.0; vocab],
+            pending: None,
+            residual_arms: 0,
+            residual_cache: Vec::new(),
         }
     }
+}
+
+/// Build the forward-facing overlay table for a fired action's residual
+/// spec (the T1 rung 2): the spec's raw pairs become
+/// `QuantErrorLora`s (same layout contract) folded by
+/// `closed_form_write::mount` into the per-layer table the decode
+/// forward reads off the armed scratch channel. Canonical pair order is
+/// preserved (the Issue-940 fold-order law).
+fn build_residual_table(res: &crate::implants::ResidualOverlay) -> WriteOverlays {
+    let rows: Vec<(usize, QuantErrorLora)> = res
+        .pairs
+        .iter()
+        .map(|p| {
+            (
+                res.layer as usize,
+                QuantErrorLora {
+                    a: p.a.clone(),
+                    b: p.b.clone(),
+                    alpha: p.alpha,
+                    rank: p.rank as usize,
+                    in_dim: p.in_dim(),
+                    out_dim: p.out_dim(),
+                },
+            )
+        })
+        .collect();
+    crate::closed_form_write::mount(rows)
 }
 
 /// First-index argmax (the Issue-940 strict tie rule: earliest index
@@ -349,7 +462,11 @@ fn top2(xs: &[f32]) -> [(usize, f32); 2] {
     best
 }
 
-/// One forward + observe + fold + digest step.
+/// One forward + observe + fold + digest step. The fire-gated residual
+/// overlay (the T1 rung 2) arms BEFORE the forward (a fire on the
+/// previous step set `pending`) and is consumed by this step's source;
+/// a fired residual action on THIS step arms the NEXT one (first fired
+/// residual action wins, mount order).
 fn step_and_observe<S: LogitsSource>(
     source: &mut S,
     runtime: &mut ImplantRuntime,
@@ -361,13 +478,41 @@ fn step_and_observe<S: LogitsSource>(
 ) -> [u8; 32] {
     {
         let logits: &mut [f32] = &mut bufs.logits;
+        let armed = bufs.pending.is_some();
+        let arm = bufs.pending.take();
+        source.arm_residual(arm);
         source.step(token, pos, logits);
+        if armed {
+            bufs.residual_arms += 1;
+        }
         bufs.fire.clear();
         runtime.observe_into(token as u32, &mut bufs.fire);
         for fire in bufs.fire.iter() {
             let action = runtime.action(fire);
             for &(t, b) in &action.biases {
                 logits[t as usize] += b;
+            }
+            // First fired residual action wins (mount order); the
+            // table builds once per (implant, action) and clones per
+            // fire (the priced fire-path alloc — fires are rare).
+            if bufs.pending.is_some() {
+                // An earlier fire this step already armed the overlay.
+            } else if let Some(res) = &action.residual {
+                let key = (fire.implant, fire.action);
+                let cached = bufs
+                    .residual_cache
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|(_, v)| v.clone());
+                let table = match cached {
+                    Some(t) => t,
+                    None => {
+                        let t = build_residual_table(res);
+                        bufs.residual_cache.push((key, t.clone()));
+                        t
+                    }
+                };
+                bufs.pending = Some(table);
             }
             fires.push(FireStep {
                 step,
@@ -401,6 +546,11 @@ pub fn decode_walk<S: LogitsSource>(
 ) -> WalkOutcome {
     debug_assert_eq!(bufs.logits.len(), source.vocab(), "logits width mismatch");
     source.reset();
+    // A previous walk may have ended with an armed residual overlay (a
+    // fire on its last step arms for a step that never ran) — clear it;
+    // every row decodes from the silent posture.
+    bufs.pending = None;
+    bufs.residual_arms = 0;
     let mut tokens = Vec::with_capacity(max_new);
     let mut step_digests = Vec::with_capacity(prompt.len() + max_new);
     let mut fires = Vec::new();
@@ -419,6 +569,7 @@ pub fn decode_walk<S: LogitsSource>(
         tokens,
         step_digests,
         fires,
+        residual_arms: bufs.residual_arms,
     }
 }
 
@@ -534,6 +685,7 @@ fn author_family<C: FixtureCodec>(
         });
         actions.push(ImplantAction {
             biases: vec![(forced as u32, IMPLANT_BIAS)],
+            residual: None,
         });
         table.push(TableRow {
             prompt,
@@ -1217,4 +1369,372 @@ impl SoloRig<'_> {
             .map_err(|e| format!("solo mount slot {}: {e}", self.slot))?;
         Ok(rt)
     }
+}
+
+// ── T1 rung 2 — the residual-overlay write ─────────────────────────────
+
+/// The residual-write site dims for one tier: the fixture tier uses
+/// (`SYNTH_SITE_IN`, `SY_VOCAB`, layer 0); the real tier uses
+/// (`config.mlp_hidden`, `config.n_embd`, a mid layer). The authoring
+/// helpers refuse a mismatch — a wrong-width overlay would fold a
+/// partial or out-of-range site (never silent).
+#[derive(Debug, Clone, Copy)]
+pub struct ResidualSiteDims {
+    /// The fold's input width (the down-proj input at the site).
+    pub in_dim: usize,
+    /// The fold's output width (the residual stream width at the site).
+    pub out_dim: usize,
+    /// The site layer index.
+    pub layer: u32,
+}
+
+/// Deterministic pseudo weight in [-1, 1) (splitmix64 finalizer, integer
+/// hashing only — identical bytes on every platform).
+fn site_weight(seed: u64) -> f32 {
+    let mut x = seed ^ 0x1256_9880_5EED_0002;
+    x = x.wrapping_mul(0x2545_F491_4F6C_DD1D);
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+    x ^= x >> 33;
+    ((x >> 11) as f64 / (1u64 << 53) as f64) as f32 * 2.0 - 1.0
+}
+
+/// Author the rung-2 residual overlay for `dims`: one rank-`rank` pair,
+/// `a` in [-1, 1), `b` scaled by `scale` (the fold magnitude lives in B;
+/// alpha pinned 1.0 — the scale is authored, never swept at run time).
+///
+/// # Errors
+/// [`ImplantError::Usage`] from the shape constructors (cannot fire for
+/// sane dims — returned as text by the callers).
+pub fn residual_overlay(
+    dims: &ResidualSiteDims,
+    rank: u32,
+    seed: u64,
+    scale: f32,
+) -> Result<crate::implants::ResidualOverlay, ImplantError> {
+    let r = rank as usize;
+    let mut a = Vec::with_capacity(r * dims.in_dim);
+    for i in 0..(r * dims.in_dim) {
+        a.push(site_weight(seed ^ (i as u64).wrapping_mul(0x9E37_79B9)));
+    }
+    let mut b = Vec::with_capacity(dims.out_dim * r);
+    for i in 0..(dims.out_dim * r) {
+        b.push(site_weight(seed ^ 0xABCD ^ (i as u64).wrapping_mul(0x85EB_CA77)) * scale);
+    }
+    crate::implants::ResidualOverlay::new(
+        dims.layer,
+        vec![crate::implants::ResidualPair::new(rank, 1.0, a, b)?],
+    )
+}
+
+/// What the rung-2 variant does to the authored lanes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResidualRungMode {
+    /// Every action of BOTH implants becomes residual-only (biases
+    /// cleared) — the pure-residual write shape.
+    ResidualOnly,
+    /// The addition implant's actions keep their biases AND gain the
+    /// residual overlay (the bias+residual co-write); the subtraction
+    /// implant stays bias-only (the control).
+    AddBiasPlusResidual,
+}
+
+/// Build the rung-2 variant of the lanes: same rules, transformed
+/// actions, re-validated through [`ImplantSpec::new`] (the bias-less
+/// action is legal only with a residual — the constructor enforces).
+///
+/// # Errors
+/// Any overlay/spec construction refusal (returned as text).
+pub fn residual_variant_lanes(
+    lanes: &AuthoredLanes,
+    dims: &ResidualSiteDims,
+    rank: u32,
+    seed: u64,
+    scale: f32,
+    mode: ResidualRungMode,
+) -> Result<AuthoredLanes, String> {
+    let ov =
+        residual_overlay(dims, rank, seed, scale).map_err(|e| format!("residual overlay: {e}"))?;
+    let mut out = lanes.clone();
+    match mode {
+        ResidualRungMode::ResidualOnly => {
+            for spec in [&mut out.add, &mut out.sub] {
+                for act in &mut spec.actions {
+                    act.biases.clear();
+                    act.residual = Some(ov.clone());
+                }
+            }
+        }
+        ResidualRungMode::AddBiasPlusResidual => {
+            for act in &mut out.add.actions {
+                act.residual = Some(ov.clone());
+            }
+        }
+    }
+    let mut specs = [&out.add, &out.sub];
+    for spec in specs.iter_mut() {
+        let s: &ImplantSpec = spec;
+        ImplantSpec::new(
+            s.name.clone(),
+            s.rules.clone(),
+            s.actions.clone(),
+            s.demote_env.clone(),
+        )
+        .map_err(|e| format!("{}: rung-2 revalidation: {e}", s.name))?;
+    }
+    Ok(out)
+}
+
+/// **Gr — the residual-overlay write cell (the T1 rung 2).** The write
+/// lands at the site INSIDE the step AFTER the fire (the bias's own
+/// effect on the sampled token has the same one-step lag), is one-shot
+/// (consumed by that step; the next silent step is byte-identical
+/// again), and is demoted by the same mount-time env. Arms:
+/// - **Gr1 silent identity** — the residual-only mount on silent rows ≡
+///   base (prompt-phase digests + first emission), and the demoted
+///   mount on a tabled row ≡ base (no fire → no fold).
+/// - **Gr2 fired one-shot** (residual-only) — on the first tabled row:
+///   fire-step digests ≡ base (nothing written AT the fire step),
+///   `tokens[0]` ≡ base (no bias), the NEXT step's digest diverges (the
+///   fold landed), the per-fire WRITE count holds (`residual_arms ==
+///   fires` — every fire arms exactly once, nothing stale; a chained
+///   fire legally arms again), the first post-fold argmax is disclosed
+///   (flip = the write steering immediately), and a stateful forward's
+///   later divergence is DISCLOSED as state steering — the fold
+///   persists in the KV by design; only a stateless source
+///   re-converges (the fixture gate asserts that half).
+/// - **Gr3 bias+residual co-write vs the bias-only control** — the
+///   control (original lanes) and the `AddBiasPlusResidual` variant
+///   share the forced token, so the paths agree through the fire step;
+///   the next step's digest differs (the residual's isolated effect on
+///   the SAME path), and the co-write holds exactness (the forced token
+///   still emitted). The subtraction row stays bias-only: its post-fire
+///   step is byte-identical to its control — the per-fire arming proof
+///   (no stale overlay crosses rows or implants).
+///
+/// `dims` names the tier's site (`ResidualSiteDims`); `rank`/`scale`
+/// pin the overlay content (`scale` small = the nudge posture — the
+/// fixture assertions rely on it, a flip is disclosed on any tier).
+///
+/// # Errors
+/// Encoding/mount failures (cell machinery misuse — never a measurement).
+pub fn cell_gr_residual_write<S: LogitsSource, C: FixtureCodec>(
+    source: &mut S,
+    codec: &C,
+    lanes: &AuthoredLanes,
+    dims: &ResidualSiteDims,
+    rank: u32,
+    scale: f32,
+    max_new: usize,
+) -> Result<CellResult, String> {
+    let mut cell = CellResult::new("Gr_residual_write");
+    let res_lanes = residual_variant_lanes(
+        lanes,
+        dims,
+        rank,
+        0x1256_9880_5EED_00A2,
+        scale,
+        ResidualRungMode::ResidualOnly,
+    )?;
+    let res_rig = ArmsRig::mint(&res_lanes);
+    let co_lanes = residual_variant_lanes(
+        lanes,
+        dims,
+        rank,
+        0x1256_9880_5EED_00A2,
+        scale,
+        ResidualRungMode::AddBiasPlusResidual,
+    )?;
+    let co_rig = ArmsRig::mint(&co_lanes);
+    let bufs = &mut WalkBufs::new(source.vocab());
+
+    // ── Gr1: silent identity (residual-only mount) ──
+    let mut silent_rows: Vec<String> = PROSE_PROMPTS.iter().map(|s| (*s).to_string()).collect();
+    silent_rows.extend(LOOKALIKE_PROMPTS.iter().map(|s| (*s).to_string()));
+    let mut silent_base = Vec::with_capacity(silent_rows.len());
+    let mut silent_res = Vec::with_capacity(silent_rows.len());
+    for row in &silent_rows {
+        let toks = codec.encode(row)?;
+        let mut rt = ArmsRig::mint(lanes).new_runtime(MountPosture::None)?;
+        silent_base.push(decode_walk(source, &toks, max_new, &mut rt, bufs));
+        let mut rt2 = res_rig.new_runtime(MountPosture::Armed)?;
+        silent_res.push(decode_walk(source, &toks, max_new, &mut rt2, bufs));
+    }
+    for (i, (b, s)) in silent_base.iter().zip(silent_res.iter()).enumerate() {
+        let p = codec.encode(&silent_rows[i])?.len();
+        cell = cell.check(
+            b.step_digests[..p] == s.step_digests[..p],
+            format!(
+                "Gr1: residual-mount prompt digests diverge on {:?}",
+                silent_rows[i]
+            ),
+        );
+        cell = cell.check(
+            b.tokens.first() == s.tokens.first(),
+            format!(
+                "Gr1: residual-mount first emission diverges on {:?}",
+                silent_rows[i]
+            ),
+        );
+        cell = cell.check(
+            s.fires.iter().filter(|f| f.step < p).count() == 0,
+            format!(
+                "Gr1: residual-mount fired during prompt on {:?}",
+                silent_rows[i]
+            ),
+        );
+    }
+
+    // ── Gr1b: the demoted residual mount on a tabled row ≡ base ──
+    let row0 = rig_first_row_prompt();
+    let toks0 = codec.encode(&row0)?;
+    let p0 = toks0.len();
+    let mut rt_base = ArmsRig::mint(lanes).new_runtime(MountPosture::None)?;
+    let base0 = decode_walk(source, &toks0, max_new, &mut rt_base, bufs);
+    let mut rt_dem = res_rig.new_runtime(MountPosture::Demoted)?;
+    let dem0 = decode_walk(source, &toks0, max_new, &mut rt_dem, bufs);
+    cell = cell.check(
+        base0.step_digests == dem0.step_digests && base0.tokens == dem0.tokens,
+        "Gr1b: demoted residual mount diverged on a tabled row".to_string(),
+    );
+    cell = cell.check(
+        dem0.fires.is_empty(),
+        "Gr1b: demoted residual mount fired".to_string(),
+    );
+
+    // ── Gr2: fired one-shot (residual-only) ──
+    let mut rt_res = res_rig.new_runtime(MountPosture::Armed)?;
+    let res0 = decode_walk(source, &toks0, max_new, &mut rt_res, bufs);
+    let f = p0 - 1; // the '=' completes the pattern at the prompt tail
+    let fired = res0.fires.iter().find(|fs| fs.step == f);
+    cell = cell.check(
+        fired.is_some(),
+        "Gr2: no fire at the tabled row's prompt tail".to_string(),
+    );
+    if let Some(fs) = fired {
+        cell = cell.check(
+            fs.implant == 0,
+            "Gr2: the tabled row's fire is not the addition implant".to_string(),
+        );
+    }
+    cell = cell.check(
+        res0.step_digests[..=f] == base0.step_digests[..=f],
+        "Gr2: fire-step digests diverge (the residual must not write at the fire step)".to_string(),
+    );
+    cell = cell.check(
+        res0.tokens.first() == base0.tokens.first(),
+        "Gr2: residual-only mount changed the fire-step argmax (a bias leak)".to_string(),
+    );
+    // The per-fire WRITE count: every fired step armed exactly once —
+    // nothing stale, nothing skipped. (A chained fire — the real tier's
+    // bench-971 continuation posture — legally arms again; the one-shot
+    // property is PER FIRE, not per walk.)
+    cell = cell.check(
+        res0.residual_arms == res0.fires.len(),
+        format!(
+            "Gr2: {} armed step(s) for {} fire(s) — per-fire arming broken",
+            res0.residual_arms,
+            res0.fires.len()
+        ),
+    );
+    if f + 1 < res0.step_digests.len() && f + 1 < base0.step_digests.len() {
+        cell = cell.check(
+            res0.step_digests[f + 1] != base0.step_digests[f + 1],
+            "Gr2: the fold did NOT land on the step after the fire".to_string(),
+        );
+        let first_held = res0.tokens.get(1) == base0.tokens.get(1);
+        cell = cell.count("gr2_argmax_flip_disclosed", usize::from(!first_held));
+        if first_held {
+            // The first post-fold argmax held, but a STATEFUL forward
+            // persists the fold in its KV — later steps may steer onto a
+            // different continuation. That is the write working, not a
+            // failure: disclosed as state steering, never failed.
+            let path_diverged = res0.tokens != base0.tokens;
+            cell = cell.count("gr2_state_steering_disclosed", usize::from(path_diverged));
+            let post_diverged = res0.step_digests[f + 2..] != base0.step_digests[f + 2..];
+            cell = cell.count(
+                "gr2_state_persistence_disclosed",
+                usize::from(post_diverged),
+            );
+        }
+    }
+
+    // ── Gr3: bias+residual co-write vs the bias-only control ──
+    let mut rt_ctl = ArmsRig::mint(lanes).new_runtime(MountPosture::Armed)?;
+    let ctl0 = decode_walk(source, &toks0, max_new, &mut rt_ctl, bufs);
+    let mut rt_co = co_rig.new_runtime(MountPosture::Armed)?;
+    let co0 = decode_walk(source, &toks0, max_new, &mut rt_co, bufs);
+    let forced0 = lanes
+        .table
+        .iter()
+        .find(|r| r.prompt == row0)
+        .ok_or_else(|| "Gr3: row0 missing from the authored table".to_string())?
+        .forced_token;
+    cell = cell.check(
+        ctl0.tokens.first() == Some(&forced0),
+        "Gr3: the bias-only control did not emit the forced token".to_string(),
+    );
+    cell = cell.check(
+        co0.tokens.first() == Some(&forced0),
+        "Gr3: the co-write walk did not emit the forced token".to_string(),
+    );
+    cell = cell.check(
+        ctl0.step_digests[..=f] == co0.step_digests[..=f],
+        "Gr3: co-write vs control diverge before the residual could land".to_string(),
+    );
+    if f + 1 < co0.step_digests.len() && f + 1 < ctl0.step_digests.len() {
+        cell = cell.check(
+            co0.step_digests[f + 1] != ctl0.step_digests[f + 1],
+            "Gr3: the co-write's residual did not land on the shared path".to_string(),
+        );
+        cell = cell.check(
+            co0.residual_arms == co0.fires.len(),
+            format!(
+                "Gr3: {} armed step(s) for {} fire(s) — per-fire arming broken",
+                co0.residual_arms,
+                co0.fires.len()
+            ),
+        );
+        let first_held = co0.tokens.get(1) == ctl0.tokens.get(1);
+        cell = cell.count("gr3_argmax_flip_disclosed", usize::from(!first_held));
+        if first_held {
+            let path_diverged = co0.tokens != ctl0.tokens;
+            cell = cell.count("gr3_state_steering_disclosed", usize::from(path_diverged));
+            let post_diverged = co0.step_digests[f + 2..] != ctl0.step_digests[f + 2..];
+            cell = cell.count(
+                "gr3_state_persistence_disclosed",
+                usize::from(post_diverged),
+            );
+        }
+    }
+
+    // ── Gr3b: the bias-only sibling row — no stale arming ──
+    let sub_row = lanes
+        .table
+        .iter()
+        .find(|r| r.implant == 1)
+        .ok_or_else(|| "Gr3: no subtraction row in the authored table".to_string())?;
+    let sub_toks = codec.encode(&sub_row.prompt)?;
+    let fs_idx = sub_toks.len() - 1;
+    let mut rt_sub_ctl = ArmsRig::mint(lanes).new_runtime(MountPosture::Armed)?;
+    let sub_ctl = decode_walk(source, &sub_toks, max_new, &mut rt_sub_ctl, bufs);
+    let mut rt_sub_co = co_rig.new_runtime(MountPosture::Armed)?;
+    let sub_co = decode_walk(source, &sub_toks, max_new, &mut rt_sub_co, bufs);
+    cell = cell.check(
+        sub_co.tokens.first() == Some(&sub_row.forced_token),
+        "Gr3b: the bias-only sibling row lost its forced token under the co-mount".to_string(),
+    );
+    if fs_idx + 1 < sub_ctl.step_digests.len() && fs_idx + 1 < sub_co.step_digests.len() {
+        cell = cell.check(
+            sub_ctl.step_digests[fs_idx + 1] == sub_co.step_digests[fs_idx + 1]
+                && sub_ctl.tokens.get(1) == sub_co.tokens.get(1),
+            "Gr3b: the bias-only sibling row's post-fire step diverged (a stale or cross-implant arming)".to_string(),
+        );
+    }
+
+    cell = cell
+        .count("silent_rows", silent_rows.len())
+        .count("tabled_rows", 1)
+        .count("sibling_rows", 1);
+    Ok(cell)
 }
