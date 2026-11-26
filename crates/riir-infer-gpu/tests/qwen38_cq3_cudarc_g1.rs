@@ -349,4 +349,18 @@ fn g2_words_row_len_matches_the_cubecl_form() {
             "words_row_len({d_in}, {b})"
         );
     }
+    // And the launcher's own buffer contract holds on a real packed tensor:
+    // `words` covers rows·words_row_len(d_in, b) (the launch's # Safety
+    // guarantee — a short words buffer is an OOB device read).
+    for &(d_out, d_in) in &[(8usize, 256usize), (4usize, 5120usize)] {
+        let cq = fixture_tensor(d_out, d_in, false);
+        let packed = PackedCq3Tensor::from_cq_tensor(&cq);
+        let (words, _, _) = device_form(&packed);
+        assert_eq!(
+            words.len(),
+            d_out * words_row_len(d_in, packed.b),
+            "words buffer contract (rows {d_out}, d_in {d_in}, b {})",
+            packed.b
+        );
+    }
 }
