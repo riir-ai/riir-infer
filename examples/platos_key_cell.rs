@@ -1297,17 +1297,558 @@ fn run_real(args: &RealArgs) -> Result<()> {
         );
     }
 
-    // ── P3: donor capture — the pending seam ──
-    eprintln!("[p3] donor capture…");
-    bail!(
-        "DONOR CAPTURE SEAM PENDING (exit 3): the ternary-path hidden-state \
-         capture hook (Ternary-Bonsai-2.5-27B donor, qwen35 GDN hybrid, the \
-         HybridForwardScratch harvest precedent) is its own G3-gated commit — \
-         the harness refuses here, never a silent half-run. The recipient-side \
-         phases above (P0 load/rope, P1 G3, P2 baseline gate {:.3}) are the \
-         download+baseline rig job's deliverables.",
-        baseline_acc
+    // ── P3: donor load + body detect + paired filter + key capture ──
+    eprintln!(
+        "[p3] donor: {} (body detect before any load — the dense loader mis-shapes a PQ2_0 file)",
+        args.donor
     );
+    #[cfg(not(feature = "deltanet_ternary_inference"))]
+    {
+        let _ = (&args, &usable, &tok, &config, &weights, rope_table);
+        bail!(
+            "DONOR PATH NEEDS THE TERNARY FEATURE (exit 3): rebuild with \
+             `--features deltanet_ternary_inference` — the donor of record \
+             (Ternary-Bonsai-2.5-27B PQ2_0) runs the ternary body; a feature-off \
+             build refuses, never a silent skip. Recipient phases above passed \
+             (baseline {:.3}).",
+            baseline_acc
+        );
+    }
+    #[cfg(feature = "deltanet_ternary_inference")]
+    {
+        run_donor_and_fit(
+            args,
+            &facts,
+            &usable,
+            &tok,
+            &config,
+            &weights,
+            &rope_table,
+            baseline_acc,
+        )
+    }
+}
+
+/// The ternary body discriminator (sink_audit's law): the globals tensor's
+/// dtype decides — Q2_0/PTQ1_0 = ternary — BEFORE any weight load.
+#[cfg(feature = "deltanet_ternary_inference")]
+fn donor_body_is_ternary(path: &Path) -> Result<bool> {
+    use riir_infer_core::gguf_loader::GgmlType;
+    let probe = GgufFile::open(path).with_context(|| format!("open {}", path.display()))?;
+    Ok(probe
+        .tensor_info("token_embd.weight")
+        .map(|info| matches!(info.ggml_type, GgmlType::Q2_0 | GgmlType::PTQ1_0))
+        .unwrap_or(false))
+}
+
+/// P3–P5: donor paired filter + key capture (P3), the band fit + layer
+/// selection (P4), the test arms + G1 verdict (P5). The 8-arg signature is
+/// the phase boundary — the recipient posture rides one struct-shaped seam.
+#[cfg(feature = "deltanet_ternary_inference")]
+#[allow(clippy::too_many_arguments)]
+fn run_donor_and_fit(
+    args: &RealArgs,
+    facts: &[FactDoc],
+    usable: &[(usize, Vec<usize>, usize)], // (fact idx, tokens, subject pos)
+    _recipient_tok: &BpeTokenizer,
+    rec_config: &riir_infer_core::types::Config,
+    rec_weights: &riir_infer_core::llama_layer::LlamaTransformerWeights,
+    rec_rope: &riir_infer_core::rope::RopeFreqTable,
+    baseline_acc: f64,
+) -> Result<()> {
+    use riir_infer_core::deltanet::forward::{
+        HybridCache, HybridForwardScratch, effective_rotary_dim,
+    };
+    use riir_infer_core::deltanet::ternary_forward::forward_qwen_deltanet_ternary_with_capture;
+    use riir_infer_core::gguf_loader::load_qwen_deltanet_ternary_weights_gguf;
+
+    let donor_path = PathBuf::from(&args.donor);
+    if !donor_body_is_ternary(&donor_path)? {
+        bail!(
+            "donor GGUF body is DENSE — the donor of record is the PQ2_0 ternary \
+             checkpoint; a dense-donor posture (A2-class) is not this cell's arm"
+        );
+    }
+    let (don_config, don_weights) = load_qwen_deltanet_ternary_weights_gguf(&donor_path)
+        .with_context(|| format!("load donor (ternary) {}", donor_path.display()))?;
+    let gguf = GgufFile::open(&donor_path)?;
+    let don_tok = BpeTokenizer::from_gguf(&gguf).context("donor BPE tokenizer")?;
+    drop(gguf);
+    // Issue-929 clamp: never the model's 128k-class block_size.
+    let mut don_config = don_config;
+    don_config.block_size = args.ctx;
+    let don_rope = riir_infer_core::rope::RopeFreqTable::new(
+        don_config.rope_theta,
+        effective_rotary_dim(&don_config),
+    );
+    eprintln!(
+        "[p3] donor: layers={} n_embd={} folded={} vocab={} ctx_clamped={}",
+        don_config.n_layer,
+        don_config.n_embd,
+        don_weights.rotation.is_some(),
+        don_config.vocab_size,
+        don_config.block_size
+    );
+
+    let don_band = depth_band(don_config.n_layer);
+    let rec_band: Vec<usize> = {
+        let lo = ((rec_config.n_layer as f64 * 0.22).round() as usize).max(1);
+        let hi = ((rec_config.n_layer as f64 * 0.38).round() as usize).min(rec_config.n_layer - 1);
+        (lo..=hi).collect()
+    };
+    eprintln!("[p3] bands: donor {don_band:?} recipient {rec_band:?}");
+
+    // ── P3a: the donor paired-recall filter + key capture, one prefill per
+    //    fact (capture rides `layer_capture`; the subject-position call arms
+    //    it, every other call is None) ──
+    let t0 = Instant::now();
+    let mut pairs: Vec<PairKeys> = Vec::new();
+    let mut donor_misses = 0usize;
+    let band_static: &'static [usize] = Box::leak(don_band.clone().into_boxed_slice());
+    for &(fi, ref tokens, subj_pos) in usable.iter() {
+        let fact = &facts[fi];
+        // Donor tokenization + subject boundary (its OWN tokenizer).
+        let Some((don_tokens, don_subj)) = subject_last_token(&don_tok, fact) else {
+            donor_misses += 1;
+            continue;
+        };
+        if don_tokens.len() + RECALL_FIRST_K + 1 > args.ctx {
+            donor_misses += 1;
+            continue;
+        }
+        let cache = &mut HybridCache::with_layer_types_bounded(
+            &don_config,
+            &don_weights.layer_types,
+            args.ctx,
+        );
+        let scratch = &mut HybridForwardScratch::new(&don_config);
+        // The forward returns a slice INTO the caller's buffer — read the
+        // returned slice per call (no copy_from_slice; it would double-borrow).
+        let mut logits = vec![0.0f32; don_config.vocab_size];
+        let mut don_band_keys: Vec<Vec<f32>> = don_band
+            .iter()
+            .map(|_| vec![0.0f32; don_config.n_embd])
+            .collect();
+        let mut gen_toks: Vec<usize> = Vec::with_capacity(RECALL_FIRST_K);
+        let mut last_logits: Vec<f32> = Vec::with_capacity(don_config.vocab_size);
+        for (pos, &t) in don_tokens.iter().enumerate() {
+            let capture = if pos == don_subj {
+                Some(&mut don_band_keys[..])
+            } else {
+                None
+            };
+            let out = forward_qwen_deltanet_ternary_with_capture(
+                &mut logits,
+                &don_weights,
+                cache,
+                t,
+                pos,
+                &don_config,
+                scratch,
+                &don_rope,
+                capture,
+            );
+            last_logits.clear();
+            last_logits.extend_from_slice(out);
+        }
+        // Greedy recall on the donor (the paired filter's donor half).
+        let mut next = argmax_first(&last_logits);
+        for _ in 0..RECALL_FIRST_K {
+            if next == don_tok.eos_id() {
+                break;
+            }
+            gen_toks.push(next);
+            let pos = don_tokens.len() + gen_toks.len() - 1;
+            let out = forward_qwen_deltanet_ternary_with_capture(
+                &mut logits,
+                &don_weights,
+                cache,
+                next,
+                pos,
+                &don_config,
+                scratch,
+                &don_rope,
+                None,
+            );
+            next = argmax_first(out);
+        }
+        let hit = recall_hit(&gen_toks, &fact.answer, &don_tok);
+        if !hit {
+            donor_misses += 1;
+            continue;
+        }
+        // Recipient band keys: one hooked prefill (capture at subject pos).
+        let rec_cache = &mut MultiLayerKVCache::new(rec_config);
+        let mut rec_ctx = ForwardContext::new(rec_config);
+        rec_ctx.rope_freq_table = rec_rope.clone();
+        let rec_band_static: &'static [usize] = Box::leak(rec_band.clone().into_boxed_slice());
+        let mut hook = CaptureHook::new(rec_band_static);
+        let mut rec_band_keys: Vec<Vec<f32>> = rec_band
+            .iter()
+            .map(|_| vec![0.0f32; rec_config.n_embd])
+            .collect();
+        for (pos, &t) in tokens.iter().enumerate() {
+            if pos == subj_pos {
+                hook = CaptureHook::new(rec_band_static);
+                let _ = forward_llama_hooked(
+                    &mut rec_ctx,
+                    rec_weights,
+                    rec_cache,
+                    t,
+                    pos,
+                    rec_config,
+                    &mut hook,
+                );
+            } else {
+                let _ = forward_llama(&mut rec_ctx, rec_weights, rec_cache, t, pos, rec_config);
+            }
+        }
+        for (slot, captured) in hook.captured.iter().enumerate() {
+            if let Some(v) = captured {
+                rec_band_keys[slot] = v.clone();
+            }
+        }
+        pairs.push(PairKeys {
+            fact: fi,
+            don_keys: don_band_keys,
+            rec_keys: rec_band_keys,
+        });
+        let _ = band_static;
+    }
+    let pair_count = pairs.len();
+    eprintln!(
+        "[p3] paired pool: {pair_count} (donor misses {donor_misses}) in {:.1?}",
+        t0.elapsed()
+    );
+    if pair_count < 32 {
+        bail!(
+            "paired pool {pair_count} below the minimum adjudicable set (32) \
+             after the donor filter"
+        );
+    }
+
+    // Deterministic split: train 70% / val 10% / test 20% (index-strided).
+    let n_train = pair_count * 7 / 10;
+    let n_val = pair_count / 10;
+    let (train, rest) = pairs.split_at(n_train);
+    let (val, test) = rest.split_at(n_val);
+    eprintln!(
+        "[p4] splits: train {} / val {} / test {}",
+        train.len(),
+        val.len(),
+        test.len()
+    );
+
+    // ── P4: fit every (ℓA, ℓB) combo; select on the VAL split ──
+    let r_pc = args.r_pc;
+    let seed = 0x1254u64;
+    let mut combos: Vec<(usize, usize, SwapMap)> = Vec::new();
+    for (ia, &la) in don_band.iter().enumerate() {
+        let don_train: Vec<Vec<f64>> = train
+            .iter()
+            .map(|p| p.don_keys[ia].iter().map(|&v| v as f64).collect())
+            .collect();
+        let pcs_don = fit_pca(&don_train, r_pc, seed ^ (0xD0CA7u64 + la as u64));
+        for (ib, &lb) in rec_band.iter().enumerate() {
+            let rec_train: Vec<Vec<f64>> = train
+                .iter()
+                .map(|p| p.rec_keys[ib].iter().map(|&v| v as f64).collect())
+                .collect();
+            let pcs_rec = fit_pca(&rec_train, r_pc, seed ^ (0xA11CEu64 + lb as u64));
+            let a: Vec<Vec<f64>> = train
+                .iter()
+                .map(|p| {
+                    pcs_don.project(&p.don_keys[ia].iter().map(|&v| v as f64).collect::<Vec<_>>())
+                })
+                .collect();
+            let b: Vec<Vec<f64>> = train
+                .iter()
+                .map(|p| {
+                    pcs_rec.project(&p.rec_keys[ib].iter().map(|&v| v as f64).collect::<Vec<_>>())
+                })
+                .collect();
+            let rot = procrustes(&a, &b);
+            let scale = spread_scale(&pcs_rec, &pcs_don, &rot, &rec_train, &don_train);
+            combos.push((
+                ia,
+                ib,
+                SwapMap {
+                    pcs: pcs_rec,
+                    pcs_donor: pcs_don.clone(),
+                    rot,
+                    scale,
+                },
+            ));
+        }
+    }
+    eprintln!("[p4] fits: {} (ℓA, ℓB) combos at r={r_pc}", combos.len());
+
+    // VAL selection: transfer hit rate per combo (greedy generation with the
+    // swap armed at the subject position; deterministic first-max tie rule).
+    let mut val_scores = vec![0.0f64; combos.len()];
+    for (ci, (ia, ib, swap)) in combos.iter().enumerate() {
+        let mut hits = 0usize;
+        for p in val {
+            let fact = &facts[p.fact];
+            let key = &p.don_keys[*ia];
+            let key_f64: Vec<f64> = key.iter().map(|&v| v as f64).collect();
+            let state: Vec<f32> = swap.apply(&key_f64).iter().map(|&v| v as f32).collect();
+            if swap_generate(
+                fact,
+                &state,
+                *ib,
+                args,
+                rec_config,
+                rec_weights,
+                rec_rope,
+                _recipient_tok,
+            ) {
+                hits += 1;
+            }
+        }
+        val_scores[ci] = hits as f64 / val.len() as f64;
+    }
+    let best = val_scores
+        .iter()
+        .enumerate()
+        .max_by(|(x, vx), (y, vy)| {
+            vx.partial_cmp(vy)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(y.cmp(x))
+        })
+        .map(|(i, _)| i)
+        .context("no combos fitted")?;
+    let (ia_best, ib_best, swap) = &combos[best];
+    eprintln!(
+        "[p4] selected: donor layer {} (idx {ia_best}) × recipient layer {} (idx {ib_best}), val transfer {:.3}",
+        don_band[*ia_best], rec_band[*ib_best], val_scores[best]
+    );
+
+    // ── P5: the test arms + the pre-registered G1 arithmetic ──
+    let r_dim = swap.rot.len();
+    let mut rng = SplitMix64::new(seed ^ 0x1D3A);
+    let random_rot = random_orthogonal(r_dim, &mut rng);
+    let identity: Vec<Vec<f64>> = (0..r_dim)
+        .map(|i| (0..r_dim).map(|j| if i == j { 1.0 } else { 0.0 }).collect())
+        .collect();
+    let ls = ls_scale(
+        &swap.pcs,
+        &swap.pcs_donor,
+        &swap.rot,
+        &train
+            .iter()
+            .map(|p| p.rec_keys[*ib_best].iter().map(|&v| v as f64).collect())
+            .collect::<Vec<_>>(),
+        &train
+            .iter()
+            .map(|p| p.don_keys[*ia_best].iter().map(|&v| v as f64).collect())
+            .collect::<Vec<_>>(),
+    );
+    let mk = |rot: Vec<Vec<f64>>, scale: f64| SwapMap {
+        pcs: swap.pcs.clone(),
+        pcs_donor: swap.pcs_donor.clone(),
+        rot,
+        scale,
+    };
+    let arms: [(&str, SwapMap, bool); 5] = [
+        ("transfer", mk(swap.rot.clone(), swap.scale), false),
+        ("identity", mk(identity, swap.scale), false),
+        ("random_rotation", mk(random_rot, swap.scale), false),
+        ("shuffled_donor", mk(swap.rot.clone(), swap.scale), true),
+        ("ls_scale", mk(swap.rot.clone(), ls), false),
+    ];
+    let mut table: Vec<(String, usize)> = arms
+        .iter()
+        .map(|(name, _, _)| (name.to_string(), 0usize))
+        .collect();
+    // The machinery ceiling (self-swap): the recipient's own key through its
+    // own PC round trip (read on the recipient's cached band keys — no
+    // forward needed).
+    let mut ceiling_hits = 0usize;
+    for p in test {
+        let rec_f64: Vec<f64> = p.rec_keys[*ib_best].iter().map(|&v| v as f64).collect();
+        let state: Vec<f32> = swap
+            .apply_self(&rec_f64)
+            .iter()
+            .map(|&v| v as f32)
+            .collect();
+        let fact = &facts[p.fact];
+        if generate_with_state(
+            fact,
+            Some((&state, *ib_best)),
+            args,
+            rec_config,
+            rec_weights,
+            rec_rope,
+            _recipient_tok,
+        ) {
+            ceiling_hits += 1;
+        }
+    }
+
+    for (ai, (_, arm_map, shuffled)) in arms.iter().enumerate() {
+        for (ti, p) in test.iter().enumerate() {
+            let fact = &facts[p.fact];
+            let src = if *shuffled {
+                &test[(ti + 101) % test.len()]
+            } else {
+                p
+            };
+            let key_f64: Vec<f64> = src.don_keys[*ia_best].iter().map(|&v| v as f64).collect();
+            let state: Vec<f32> = arm_map.apply(&key_f64).iter().map(|&v| v as f32).collect();
+            if generate_with_state(
+                fact,
+                Some((&state, *ib_best)),
+                args,
+                rec_config,
+                rec_weights,
+                rec_rope,
+                _recipient_tok,
+            ) {
+                table[ai].1 += 1;
+            }
+        }
+    }
+
+    let n_test = test.len();
+    let rate = |h: usize| h as f64 / n_test as f64;
+    let transfer = rate(table[0].1);
+    let identity_rate = rate(table[1].1);
+    let random_rate = rate(table[2].1);
+    let g1_abs = transfer >= 0.15;
+    let g1_vs_random = transfer >= 3.0 * random_rate;
+    let g1_vs_identity = transfer >= 2.0 * identity_rate;
+    let pass = g1_abs && g1_vs_random && g1_vs_identity;
+
+    println!(
+        "\n═══ platos_key_cell — REAL CELL (A1: Llama-3.2-3B BASE × Ternary-Bonsai-2.5-27B) ═══"
+    );
+    println!(
+        "baseline recipient {:.3} · paired pool {pair_count} (train {} / val {} / test {}) · r_pc={r_pc}",
+        baseline_acc,
+        train.len(),
+        val.len(),
+        n_test
+    );
+    println!(
+        "selected layers: donor ℓA={} × recipient ℓB={} (val transfer {:.3})",
+        don_band[*ia_best], rec_band[*ib_best], val_scores[best]
+    );
+    println!(
+        "  machinery ceiling (self round trip): {}/{} = {:.3}",
+        ceiling_hits,
+        n_test,
+        rate(ceiling_hits)
+    );
+    for (name, hits) in &table {
+        println!("  {name:>16}: {hits:>4}/{} = {:.3}", n_test, rate(*hits));
+    }
+    println!(
+        "G1: abs(≥0.15)={g1_abs}  ≥3×random={g1_vs_random}  ≥2×identity={g1_vs_identity}  ⇒ {}",
+        if pass {
+            "PASS"
+        } else {
+            "FAIL/NEGATIVE (A3 never drives this; the negative extends 424–427 only from A1)"
+        }
+    );
+    println!(
+        "scale law: spread {:.4} vs LS {:.4} — LS arm transfer {:.3}",
+        swap.scale,
+        ls,
+        rate(table[4].1)
+    );
+    println!(
+        "NOTE: first-run adjudication — the bench record (`.benchmarks/<next>_i1254_*`) lands with the rig run's tables."
+    );
+    Ok(())
+}
+
+/// Captured key pair (gated consumers live under
+/// `deltanet_ternary_inference`; a feature-off build compiles the struct to
+/// nothing but still parses it).
+#[allow(dead_code)]
+struct PairKeys {
+    fact: usize,
+    /// `[band_slot][embd]` — donor post-layer residual at the subject pos.
+    don_keys: Vec<Vec<f32>>,
+    /// `[band_slot][embd]` — recipient post-layer residual at the subject pos.
+    rec_keys: Vec<Vec<f32>>,
+}
+
+/// Greedy generation with an optional armed replace state (the swap hook at
+/// the subject position during prefill; the decode continues unarmed).
+#[cfg(feature = "deltanet_ternary_inference")]
+fn generate_with_state(
+    fact: &FactDoc,
+    state: Option<(&[f32], usize)>,
+    args: &RealArgs,
+    rec_config: &riir_infer_core::types::Config,
+    rec_weights: &riir_infer_core::llama_layer::LlamaTransformerWeights,
+    rec_rope: &riir_infer_core::rope::RopeFreqTable,
+    tok: &BpeTokenizer,
+) -> bool {
+    let Some((tokens, subj_pos)) = subject_last_token(tok, fact) else {
+        return false;
+    };
+    if tokens.len() + RECALL_FIRST_K + 1 > args.ctx {
+        return false;
+    }
+    let cache = &mut MultiLayerKVCache::new(rec_config);
+    let mut ctx = ForwardContext::new(rec_config);
+    ctx.rope_freq_table = rec_rope.clone();
+    let mut logits = Vec::new();
+    for (pos, &t) in tokens.iter().enumerate() {
+        let out = if let Some((s, layer)) = state
+            && pos == subj_pos
+        {
+            let mut hook = ReplaceHook {
+                layer,
+                state: s.to_vec(),
+            };
+            forward_llama_hooked(&mut ctx, rec_weights, cache, t, pos, rec_config, &mut hook)
+                .to_vec()
+        } else {
+            forward_llama(&mut ctx, rec_weights, cache, t, pos, rec_config).to_vec()
+        };
+        logits = out;
+    }
+    let mut gen_toks: Vec<usize> = Vec::with_capacity(RECALL_FIRST_K);
+    let mut next = argmax_first(&logits);
+    for _ in 0..RECALL_FIRST_K {
+        if next == tok.eos_id() {
+            break;
+        }
+        gen_toks.push(next);
+        let pos = tokens.len() + gen_toks.len() - 1;
+        let out = forward_llama(&mut ctx, rec_weights, cache, next, pos, rec_config).to_vec();
+        logits = out;
+        next = argmax_first(&logits);
+    }
+    recall_hit(&gen_toks, &fact.answer, tok)
+}
+
+/// The VAL-transfer wrapper (same generation path).
+#[cfg(feature = "deltanet_ternary_inference")]
+#[allow(clippy::too_many_arguments)]
+fn swap_generate(
+    fact: &FactDoc,
+    state: &[f32],
+    layer: usize,
+    args: &RealArgs,
+    rec_config: &riir_infer_core::types::Config,
+    rec_weights: &riir_infer_core::llama_layer::LlamaTransformerWeights,
+    rec_rope: &riir_infer_core::rope::RopeFreqTable,
+    tok: &BpeTokenizer,
+) -> bool {
+    generate_with_state(
+        fact,
+        Some((state, layer)),
+        args,
+        rec_config,
+        rec_weights,
+        rec_rope,
+        tok,
+    )
 }
 
 fn depth_band(n_layer: usize) -> Vec<usize> {
@@ -1318,15 +1859,18 @@ fn depth_band(n_layer: usize) -> Vec<usize> {
 
 struct RealArgs {
     recipient: String,
-    #[allow(dead_code)]
     donor: String,
     facts: String,
-    /// The report directory — consumed by the report-writing phase that
-    /// lands with the donor seam; created eagerly so a run's dir exists.
+    /// The report directory — the run's tables land here alongside the
+    /// report the bench record cites.
     #[allow(dead_code)]
     out: PathBuf,
     ctx: usize,
     baseline_floor: f64,
+    /// The shared PC-space rank (the paper's compression arm; 256 of record;
+    /// read under `deltanet_ternary_inference`).
+    #[allow(dead_code)]
+    r_pc: usize,
 }
 
 fn main() -> Result<()> {
@@ -1338,6 +1882,7 @@ fn main() -> Result<()> {
     let mut out = PathBuf::from(".platos_key_cell/");
     let mut ctx = 512usize;
     let mut baseline_floor = 0.4f64;
+    let mut r_pc = 256usize;
 
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -1354,6 +1899,13 @@ fn main() -> Result<()> {
                     .context("--ctx needs a value")?
                     .parse()
                     .context("--ctx must be an integer")?
+            }
+            "--r-pc" => {
+                r_pc = args
+                    .next()
+                    .context("--r-pc needs a value")?
+                    .parse()
+                    .context("--r-pc must be an integer")?
             }
             "--baseline-floor" => {
                 baseline_floor = args
@@ -1390,6 +1942,7 @@ fn main() -> Result<()> {
         out,
         ctx,
         baseline_floor,
+        r_pc,
     };
     let res = run_real(&real);
     if let Err(e) = &res {
