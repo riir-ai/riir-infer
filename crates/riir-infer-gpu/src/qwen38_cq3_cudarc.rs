@@ -336,6 +336,13 @@ extern "C" __global__ void cq3_quant_x8(
     for (int off = 16; off > 0; off >>= 1) {
         m = fmaxf(m, __shfl_down_sync(0xFFFFFFFFu, m, off));
     }
+    // Broadcast lane 0's reduced max: the down-shuffle ladder leaves the
+    // full max ONLY on lane 0 (lane k holds max of [k..31]), so without
+    // this every lane quantized its own elements with its own partial
+    // scale (the A2v2d read: elem 16 clamped to 127 where the host
+    // staged 114 — the global max lived in elems 1..15, visible to
+    // lanes 1..15, missed by lane 16's window).
+    m = __shfl_sync(0xFFFFFFFFu, m, 0);
     const float s = m / 127.0f;
     if (lane == 0) s_x[pos * groups + grp] = s;
     if (s > 0.f) {
