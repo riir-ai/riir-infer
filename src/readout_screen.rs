@@ -298,8 +298,9 @@ impl<'a> GgufReadoutSource<'a> {
 }
 
 /// Whole-file BLAKE3, streamed (a GB-class checkpoint hashes in about
-/// a second; the artifact binds to these bytes).
-fn file_digest_blake3(path: &std::path::Path) -> Option<[u8; 32]> {
+/// a second; the artifact binds to these bytes). `pub(crate)`: shared
+/// with the Issue-1251 trigger-vote source (same binding convention).
+pub(crate) fn file_digest_blake3(path: &std::path::Path) -> Option<[u8; 32]> {
     use blake3::Hasher;
     use std::io::Read;
     let mut f = std::fs::File::open(path).ok()?;
@@ -401,8 +402,15 @@ impl UnitRow {
 /// the top side; its mirror (value asc, token-asc ties) for the bottom
 /// side. Ascending-token scans never see a later token win a tie, so
 /// the running state IS the final selection.
+///
+/// `pub(crate)`: the Issue-1251 trigger-vote screen folds per-neuron
+/// top-15 selections with the SAME selection law — one bounded-select
+/// mechanism for the whole readout lane (no parallel re-derivation).
+/// The bottom-side (`largest = false`) mirror stays 1250's sign-trick
+/// lane; the vote lane only ever runs the largest side over `|Δ|`
+/// scores (already nonnegative).
 #[derive(Clone)]
-struct SideK {
+pub(crate) struct SideK {
     tokens: Vec<u32>,
     vals: Vec<f32>,
     cap: usize,
@@ -412,13 +420,25 @@ struct SideK {
 }
 
 impl SideK {
-    fn new(cap: usize, largest: bool) -> Self {
+    pub(crate) fn new(cap: usize, largest: bool) -> Self {
         Self {
             tokens: Vec::with_capacity(cap),
             vals: Vec::with_capacity(cap),
             cap,
             largest,
         }
+    }
+
+    /// No token retained (every candidate scored ≤ the abstain floor;
+    /// a `VOTES_PER_NEURON` > vocab source simply retains fewer — the
+    /// vote artifact pads with `u32::MAX`).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.vals.is_empty()
+    }
+
+    /// Consume the selection: `(tokens, vals)`, both best-first.
+    pub(crate) fn into_parts(self) -> (Vec<u32>, Vec<f32>) {
+        (self.tokens, self.vals)
     }
 
     /// Does candidate `(val, tok)` beat the current worst slot?
@@ -437,7 +457,7 @@ impl SideK {
     }
 
     #[inline]
-    fn push(&mut self, val: f32, tok: u32) {
+    pub(crate) fn push(&mut self, val: f32, tok: u32) {
         if !self.beats(val, tok) {
             return;
         }

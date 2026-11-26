@@ -184,6 +184,8 @@ pub mod neuron_census_fixture;
 #[cfg(feature = "neuron_census")]
 pub mod neuron_census_gguf;
 
+#[cfg(feature = "readout_screen")]
+pub mod readout_jshare;
 /// The static readout pre-screen (Issue 1250 T1 — katgpt-rs Research
 /// 693, the Anthropic Fellows pair distill): the weights-only logit
 /// lens over every down_proj column, sign-split (the type-2 finding),
@@ -199,8 +201,23 @@ pub mod neuron_census_gguf;
 pub mod readout_screen;
 #[cfg(feature = "readout_screen")]
 pub mod readout_screen_fixture;
+
+/// The trigger-vote screen (Issue 1251 T1 — katgpt-rs Research 693
+/// Part 2 App. C.4, the checkpoint-ingest backdoor probe; the
+/// published class is cited, never claimed): a weights-only vote over
+/// a (base, finetune) GGUF pair — per-neuron top-15 changed tokens by
+/// `|Δgate·e_t| + |Δup·e_t|`, the C.4 layer-band admission rule, and
+/// the pooled ranking over the admitted band. Opt-in under the same
+/// `readout_screen` feature (the vote shares the lane's pinned fold,
+/// selection and artifact conventions — zero new deps). Offline by
+/// construction (weights only, no forward pass, no serving path).
+/// Fixture gates live in `trigger_vote_fixture` (feature-gated, not
+/// test-gated: the `trigger-vote --self-test` bin posture drives the
+/// same source).
 #[cfg(feature = "readout_screen")]
-pub mod readout_jshare;
+pub mod trigger_vote;
+#[cfg(feature = "readout_screen")]
+pub mod trigger_vote_fixture;
 
 /// KL-vs-anchor ranked-selection census (Issue 1242 T1 — the QDA distill's
 /// anchor-KL instrument): per-token forward-KL from logits slices, the

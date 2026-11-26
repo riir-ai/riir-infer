@@ -920,6 +920,19 @@ name = "readout-jshare"
 path = "src/bin/readout-jshare.rs"
 required-features = ["readout_screen"]
 
+# Issue 1251 T1 — the trigger-vote front (the checkpoint-ingest
+# backdoor screen, katgpt-rs Research 693 Part 2 App. C.4): a
+# weights-only vote over a (base, finetune) GGUF pair. `--self-test`
+# runs the G1 fixture gates in-process (the canary vehicle);
+# `--base/--ft` is the T2/T4 cell (VOTE1 artifact + digest + report,
+# the ranked triggers decoded when the tokenizer loads). Reader
+# protection row (the green-zero law): a default build skips the bin
+# loudly.
+[[bin]]
+name = "trigger-vote"
+path = "src/bin/trigger-vote.rs"
+required-features = ["readout_screen"]
+
 # riir-train plan 503 T0.1 — the lattice-conditioning geometry census CLI:
 # one ternary pass per checkpoint over the first N tokens, per-head GDN
 # state geometry at the pinned capture positions, a fixed-precision
