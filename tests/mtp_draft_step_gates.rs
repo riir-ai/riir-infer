@@ -310,6 +310,109 @@ fn draft_step_compose_order_enorm_first() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// Arm 3b — the block's OWN attn_norm is APPLIED pre-qkv (the
+/// katgpt-rs-88 source-read class: loaded + pinned but never read)./// Construction: eh_proj one-hot onto concat[0] → h = [e0, 0…];
+/// attn_norm all-ones (pure RMS — NOT identity); attn_v row 0 one-hot →
+/// v[0] = normed_h[0]; attn_q zero except head 0's FIRST gate coordinate
+/// driven to ±hard so sigmoid(gate) = 1 (sign computed from the expected
+/// norm); k zero (t_n = 1 → softmax weight = 1 regardless); wo row 0
+/// one-hot. Then h[0] = inp_sa[0] + normed_h[0] — WITHOUT the fix the
+/// projection reads the RAW h and h[0] = 2·e0 instead.
+#[test]
+fn draft_step_applies_block_attn_norm() {
+    let (path, config, weights, mut block) = load_twin("riir_1253_t52_anorm");
+    let rope = rope_table(&config);
+    let n = config.n_embd;
+    let v = config.vocab_size;
+    let hd = config.head_dim;
+    let eps = config.rms_norm_eps;
+
+    // Zero the block; eh_proj row 0 selects concat[0] (the enorm half).
+    for field in [
+        &mut block.attn_q,
+        &mut block.attn_k,
+        &mut block.attn_v,
+        &mut block.attn_output,
+        &mut block.ffn_gate,
+        &mut block.ffn_up,
+        &mut block.ffn_down,
+    ] {
+        field.fill(0.0);
+    }
+    block.eh_proj.fill(0.0);
+    block.eh_proj[0] = 1.0;
+    block.enorm.fill(0.0);
+    block.enorm[0] = 1.0;
+    block.hnorm.fill(1.0);
+
+    // The compose output e0 (the same primitives the step runs).
+    let mut emb = vec![0.0f32; n];
+    weights.wte.dequant_row_into(0, &mut emb);
+    if let Some(rot) = &weights.rotation {
+        let signs = rot.signs_for_width(n).map(|s| s.to_vec());
+        if let Some(s) = &signs {
+            rotate_inverse_inplace(&mut emb[..n], Some(s), rot.block_size);
+        }
+    }
+    let mut e_normed = emb.clone();
+    rmsnorm_with_gamma_eps(&mut e_normed[..n], &block.enorm, eps);
+    let e0 = e_normed[0];
+    let h_in = vec![e0, 0.0f32]; // [e0, 0, 0, …]
+
+    // With attn_norm all-ones: normed_h = rmsnorm([e0, 0…]) → normed_h[0]
+    // = e0/rms = sqrt(n)·sign(e0). Compute via the SAME norm fn.
+    block.attn_norm.fill(1.0);
+    let mut normed = h_in.clone();
+    normed.resize(n, 0.0);
+    rmsnorm_with_gamma_eps(&mut normed[..n], &block.attn_norm, eps);
+    let normed0 = normed[0];
+    assert!(
+        normed0.abs() > 1.0,
+        "the probe needs a non-trivial norm scale"
+    );
+
+    // v[0] ← normed_h[0]; wo row 0 ← attn_out[0].
+    block.attn_v[0] = 1.0; // row 0, col 0 (row-major [kv_dim × n])
+    block.attn_output[0] = 1.0; // row 0, col 0 ([n × q_dim])
+    // Head 0's first gate coordinate: attn_q row = hd (q‖gate interleave).
+    // Drive the gate hard in the SIGN of normed0 so sigmoid → 1 exactly.
+    let gate_sign = if normed0 > 0.0 { 1.0f32 } else { -1.0 };
+    block.attn_q[hd * n] = 1000.0 * gate_sign;
+
+    let mut h = vec![0.0f32; n];
+    h[0] = e0;
+    let mut ds = MtpDraftStepScratch::new(&config);
+    let mut lg = vec![0.0f32; v];
+    mtp_draft_step(
+        &block,
+        &weights,
+        &mut KVCache::new(&config),
+        0,
+        &mut h,
+        0,
+        &config,
+        &rope,
+        &mut ds,
+        &mut lg,
+    )
+    .expect("probe step");
+
+    // sigmoid(1000·|normed0|) = 1.0 in f32 (|normed0| ≈ sqrt(n) = 32) →
+    // h[0] = inp_sa[0] + wo(attn_out[0]·1) = e0 + normed0.
+    let expect = e0 + normed0;
+    let tol = 1e-4;
+    assert!(h[0].is_finite());
+    assert!(h[1..n].iter().all(|v| v.abs() < tol));
+    assert!(
+        (h[0] - expect).abs() < tol,
+        "attn_norm must be applied pre-qkv: h[0] = {} vs expected e0 + normed0 = {expect} \
+         (the raw-projection bug reads 2·e0 = {})",
+        h[0],
+        2.0 * e0
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
 /// Arm 4 — the REAL teacher-forced cell (SKIP loud without MTP_GGUF;
 /// `--ignored` at release, the twin on disk). The T5.2 falsifier: the
 /// draft step teacher-forces the MAIN stack's own greedy continuation;

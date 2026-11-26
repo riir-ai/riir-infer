@@ -8,7 +8,9 @@
 //!    `hdmd->inv` arm; `token_embd.weight` is the one verified
 //!    inverse-after-lookup table);
 //! 2. `concat(enorm(embed), hnorm(h_prev))` → `eh_proj` — the compose head;
-//! 3. one gated-attention block (Issue-594 q‖gate split, per-head q/k
+//! 3. one block: the block's OWN `attn_norm` on the compose output (the
+//!    fork's `mtp_attn_norm`; the residual anchor stays pre-norm), then
+//!    gated attention (Issue-594 q‖gate split, per-head q/k
 //!    norms, partial RoPE, GQA over the block's OWN [`KVCache`]) →
 //!    residual → `post_attention_norm` → SwiGLU FFN → residual;
 //! 4. head norm (`shared_head_norm`, else the main stack's `output_norm`)
@@ -191,12 +193,23 @@ pub fn mtp_draft_step(
     // fold (Issue 940).
     dense_matvec(&block.eh_proj, n, 2 * n, &scratch.concat, h_prev);
 
-    // 3. The block: gated attention → residual → post-attn norm → SwiGLU
-    //    → residual. `inpSA` = the eh_proj output (the fork's residual
-    //    anchor for the attention leg) — saved in the SCRATCH (a per-call
-    //    `to_vec` here allocated every step; the verdict defect, fixed —
-    //    bar (c) is a pre-registered gate, not a doc aspiration).
+    // 3. The block: attn_norm → gated attention → residual → post-attn
+    //    norm → SwiGLU → residual. `inpSA` = the eh_proj output (the fork's
+    //    residual anchor for the attention leg) — saved in the SCRATCH (a
+    //    per-call `to_vec` here allocated every step; the verdict defect,
+    //    fixed — bar (c) is a pre-registered gate, not a doc aspiration).
     scratch.inp_sa[..n].copy_from_slice(&h_prev[..n]);
+    // 3.0. The block's OWN pre-attention norm (the fork's `mtp_attn_norm`,
+    //      prism fork qwen35.cpp:790-793 @73bfe6cc4 / master ~:576 —
+    //      `inpSA = cur; cur = build_norm(cur, layer.attn_norm, …)`), ON
+    //      the working copy; `inp_sa` keeps the pre-norm anchor. Found by
+    //      katgpt-rs-88's fork source read post-landing: the field was
+    //      loaded + shape-pinned but never READ — the projections consumed
+    //      the un-normed compose output, invisible to every synthetic arm
+    //      (the probe zeroes the projections; the fixture arms pin no
+    //      attention-leg value). Gated by the v-only single-position arm
+    //      in mtp_draft_step_gates.
+    rmsnorm_with_gamma_eps(&mut h_prev[..n], &block.attn_norm, config.rms_norm_eps);
 
     // 3a. Gated Q projection + split (the Issue-594 per-head interleave).
     dense_matvec(&block.attn_q, 2 * q_dim, n, &h_prev[..n], &mut scratch.qg);
