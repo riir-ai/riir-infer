@@ -73,14 +73,19 @@ pub trait Cq3SliceArg<T> {
     fn push_into<'a, 'b>(
         self,
         args: &'a mut cudarc::driver::LaunchArgs<'b>,
-    ) -> &'a mut cudarc::driver::LaunchArgs<'b>;
+    ) -> &'a mut cudarc::driver::LaunchArgs<'b>
+    where
+        Self: 'a;
 }
 
 impl<'b, T> Cq3SliceArg<T> for &'b CudaSlice<T> {
     fn push_into<'a, 'c>(
         self,
         args: &'a mut cudarc::driver::LaunchArgs<'c>,
-    ) -> &'a mut cudarc::driver::LaunchArgs<'c> {
+    ) -> &'a mut cudarc::driver::LaunchArgs<'c>
+    where
+        Self: 'a,
+    {
         // SAFETY: the arg impls push the device pointer + sync events (the
         // crate's own unsafe contract, satisfied by construction here).
         unsafe { args.arg(self) }
@@ -91,7 +96,10 @@ impl<'b, 'c, T> Cq3SliceArg<T> for &'b CudaView<'c, T> {
     fn push_into<'a, 'd>(
         self,
         args: &'a mut cudarc::driver::LaunchArgs<'d>,
-    ) -> &'a mut cudarc::driver::LaunchArgs<'d> {
+    ) -> &'a mut cudarc::driver::LaunchArgs<'d>
+    where
+        Self: 'a,
+    {
         // SAFETY: as above.
         unsafe { args.arg(self) }
     }
@@ -184,8 +192,8 @@ impl Cq3CudarcKernels {
         let shared = (g * std::mem::size_of::<f32>()) as u32;
         // SAFETY: caller contract above.
         unsafe {
-            let args = stream.launch_builder(&self.act_prep);
-            let args = Cq3SliceArg::push_into(x, args);
+            let mut builder = stream.launch_builder(&self.act_prep);
+            let args = Cq3SliceArg::push_into(x, &mut builder);
             args.arg(smooth)
                 .arg(perm)
                 .arg(s1)
@@ -224,8 +232,8 @@ impl Cq3CudarcKernels {
         let (g_i, tokens_i) = (g as i32, tokens as i32);
         // SAFETY: caller contract above.
         unsafe {
-            let args = stream.launch_builder(&self.quant_x8);
-            let args = Cq3SliceArg::push_into(xr, args);
+            let mut builder = stream.launch_builder(&self.quant_x8);
+            let args = Cq3SliceArg::push_into(xr, &mut builder);
             args.arg(x8)
                 .arg(s_x)
                 .arg(&g_i)
