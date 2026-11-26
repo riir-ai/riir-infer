@@ -38,15 +38,8 @@ With 100% acceptance every round emits γ+1 tokens for γ+1 draft steps (γ chai
 
 - First timed attempt (13:48): preflight PASSED at load 4.78 (`PROVENANCE: power=AC Power load=4.78 swap=4270.25M canary=skipped powermode=0(auto)`), but a sibling's compile swarm took load to 41.05 BEFORE the run started computing — every wall number landed under a REFUSED posture. **The rows file was deleted; none of those numbers are quoted anywhere.** (Identity receipts from that run were load-independent and re-proven by the landed identity run.)
 - Re-run attempt: the window was taken by the i216-merge gate lane (amo BUSY, load 20+).
-- **The pending arm:** in a preflight-PASS window (`../riir-reflex/scripts/bench_preflight.sh` PASS), re-run with `--fresh`:
-
-```bash
-CARGO_TARGET_DIR=/tmp/i1221t3b cargo run --release --features dory \
-  --example i1221_t4_self_spec_cell -- --fresh \
-  --provenance "<the preflight PROVENANCE line>"
-```
-
-The identity half needs no re-run (load-independent, landed); the timing half is the only open row. Budget ~15 min (the poisoned run's shape: ref ≈ 8 s/tok, spec γ=4 ≈ 12.75 s/tok UNDER LOAD 41 — direction consistent with the 1.25× structural ratio, never quotable).
+- **ARMED 2026-11-26 (zed-0cb06c5f@amo):** the pending arm is QUEUED as a bmo exclusive rig job (`01a2156c-4095`, --est 25m, notify amo) — self-gating (riir-infer == origin + clean check, `bench_preflight.sh` PASS or exit-3 retry-later, dory pin sha-printed + HF backup pull if absent, then the `--fresh --provenance "$PROV"` cell into `.benchmarks/i1221_t4_self_spec_cell/rows.jsonl`). Fires in the bmo exclusive queue (after the 1263-T3 bout, before the 932 window). On GREEN end-mail: fold the timing rows here + the 1221 T4 residue line, release the lease. A PREFLIGHT-REFUSED end is a reschedule, never a failure.
+- The identity half needs no re-run (load-independent, landed); the timing half is the only open row. Budget ~15 min (the poisoned run's shape: ref ≈ 8 s/tok, spec γ=4 ≈ 12.75 s/tok UNDER LOAD 41 — direction consistent with the 1.25× structural ratio, never quotable).
 
 ## Box state
 
