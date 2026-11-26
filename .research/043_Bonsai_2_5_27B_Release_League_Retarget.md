@@ -66,8 +66,8 @@ Kernels in testing (not yet released): chunk-staged Gated DeltaNet prefill; fuse
 
 ## 5. Follow-ups (proof-path-bearing; Issue 1253 carries the full list)
 
-- **T1 (done here)** header-probe + synthetic gate on the new checkpoint.
-- **T2** `-mtp` GGUF load tolerance census (unknown-tensor behavior of `gguf_loader`; refuse-loud vs skip classification).
+- **T1 (done here)** header-probe + synthetic gate on the new checkpoint. **amo advanced T3's cheap half 2026-11-26 (riir-ai Issue 1264 + `b1d79dc4f`): loader contract GREEN, top-1 11751 " Paris" UNCHANGED at 2.5 (CPU + Metal agree), top-5 moved 4/5 — the model swap is forward-verified at the first-token class. ai-1264 also found the four predecessor-pinned parity gates stale at develop (q8-activation default vs float-era bars + the G3 fingerprint drift, candidate `ternary_q2_resident`/Issue 935) — that finding is the controlling record for any "gates green" claim.**
+- **T2 — `-mtp` load census (DONE 2026-11-26)**: the `-mtp` twin loads correctly by design — PrismML ships the draft head as a nextn block (`block_count` 65 = 64 main + 1, `qwen35.nextn_predict_layers = 1`, draft tensors `blk.64.*` at Q4_0/F32), and our shipped nextn exclusion (Issue 742 T9.2, pinned test) keeps the main stack at 64; all types standard, the eager type walk passes loud-clean. Instrument: `examples/i1253_mtp_load_census.rs`. T5 needs NO new loader surface — the draft tensors stay readable by name via `tensor_slice`.
 - **T3** real-model G1: fork-parity class cell on 2.5 (the bonsai2_rotation_load doc's "real-file validation is the 4090-side G1" arm) + the Issue-594-style first-token sanity.
 - **T4** league re-bout on 2.5 (4090 CUDA + m5ultra rows; opponent = current fork + the upstream-Q2_0 stock lane; riir-ai Issue 1263 owns the riir-ai side incl. the four pin re-measures).
 - **T5** specdec intake: consume the MTP head through `mtp_head_acceptance` at the card's presets (3, 0.1 NVIDIA / 1–8 Apple); pre-registered bar = acceptance-rate + net tok/s vs plain decode on the league prompts, G1 exactness via the base-3 integer-verify idea (fusion, opt-in flag).
