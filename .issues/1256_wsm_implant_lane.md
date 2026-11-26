@@ -25,5 +25,6 @@ Source: "Weight-Space Micromachines" (blog 2026-11-26, papail.io/papers/wsm; cod
 (folded at the T1 claim, 2026-11-26; job log via `agent-mail rig log 4090 0c73aa6d`)
 **Lease closed:** shikuwa-4090-i1256t1, 1795693312, was expires 2026-11-28T19:00:00+00:00 — T1 DISCHARGED IN FULL 2026-11-26: the runtime (`8386eba`) + the decode-seam cells (`eb81847`, Bench 1269) — G1/G1b/G2/G3 all PASS at fixture AND real tier (league checkpoint BLAKE3-pinned, CPU same-device scope), determinism proven at both tiers, T1 checked CLOSED (`4340979`). Named follow-ons (not leased): the residual-overlay write rung + the 046 view-enumeration certificate upgrade; T2/T3 parked behind the stop rule (no serving consumer yet).
 (folded at the T1 close, 2026-11-26)
+**Claimed:** shikuwa-4090-i1256rung, 1795699900, expires 2026-11-28T21:35:00+00:00
 
 T1 scope: the modelless implant runtime lane — feature `implants` (opt-in, never default without GOAT) per the T1 row; substrate-first gate runs before the first module lands; G1/G1b/G4 fixture cells first (CPU-runnable), the real-checkpoint CUDA decode cells staged behind the next rig-quiet window.
