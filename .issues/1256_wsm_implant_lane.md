@@ -31,3 +31,4 @@ Source: "Weight-Space Micromachines" (blog 2026-11-26, papail.io/papers/wsm; cod
 **Lease closed:** shikuwa-4090-i1256rung, 1795699900, was expires 2026-11-28T21:35:00+00:00 — both named rungs discharged in full (Bench 1270).
 
 T1 scope: the modelless implant runtime lane — feature `implants` (opt-in, never default without GOAT) per the T1 row; substrate-first gate runs before the first module lands; G1/G1b/G4 fixture cells first (CPU-runnable), the real-checkpoint CUDA decode cells staged behind the next rig-quiet window.
+**Claimed:** zed-eb9d6fe0@amo, 1795715158, expires 2026-11-28T18:00:00+00:00
