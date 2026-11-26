@@ -102,21 +102,22 @@ fn main() {
     let args = parse_args();
     println!(
         "[i1243] dense golden census: gguf={} label={} corpus={} ctx={} chunk={} stride={} max_pos={}",
-        args.gguf, args.label, args.corpus, args.ctx_len, args.chunk, args.stride, args.max_positions
+        args.gguf,
+        args.label,
+        args.corpus,
+        args.ctx_len,
+        args.chunk,
+        args.stride,
+        args.max_positions
     );
 
     let gg = riir_infer_core::gguf_loader::GgufFile::open(PathBuf::from(&args.gguf).as_path())
         .unwrap_or_else(|e| panic!("[i1243] gguf open: {e}"));
-    let tok = BpeTokenizer::from_gguf(&gg)
-        .unwrap_or_else(|e| panic!("[i1243] tokenizer: {e}"));
+    let tok = BpeTokenizer::from_gguf(&gg).unwrap_or_else(|e| panic!("[i1243] tokenizer: {e}"));
     let vocab = tok.vocab_size();
     let text = load_corpus_text(PathBuf::from(&args.corpus).as_path())
         .unwrap_or_else(|e| panic!("[i1243] corpus: {e}"));
-    let ids: Vec<u32> = tok
-        .encode(&text)
-        .into_iter()
-        .map(|t| t as u32)
-        .collect();
+    let ids: Vec<u32> = tok.encode(&text).into_iter().map(|t| t as u32).collect();
     println!(
         "[i1243] corpus {} bytes -> {} tokens (vocab {vocab})",
         text.len(),
@@ -131,17 +132,27 @@ fn main() {
     let fp32_cliff = precision_cliff(FloatFormat::Fp32);
     let f64_cliff = precision_cliff(FloatFormat::Fp64);
 
-    let mut session = Qwen38WgpuForward::new(PathBuf::from(&args.gguf).as_path(), args.ctx_len, args.chunk)
-        .unwrap_or_else(|e| panic!("[i1243] session: {e}"));
+    let mut session = Qwen38WgpuForward::new(
+        PathBuf::from(&args.gguf).as_path(),
+        args.ctx_len,
+        args.chunk,
+    )
+    .unwrap_or_else(|e| panic!("[i1243] session: {e}"));
 
     let mut scratch = GoldenNllScratch::with_vocab(vocab);
 
     // The scored reading at one teacher-forced position.
+    // `argmax` rides the row (Issue 1186 T3-prep (c)): paired runs — one
+    // unarmed, one CQ3-armed — diff their argmax ids into the retention
+    // gate's flip census (overall + per-family via the family mask), and
+    // their pooled golden NLLs into Δ-NLL. The bin stays single-checkpoint;
+    // the paired diff is the cell, not this bin.
     struct Row {
         pos: usize,
         nll: f64,
         inc_nll: f64,
         top2_margin: f64,
+        argmax: u32,
     }
 
     let mut rows: Vec<Row> = Vec::new();
@@ -166,13 +177,15 @@ fn main() {
     {
         // Decode posture (stride 1): per-token, per-position scoring —
         // the posture the i1245 control proved sane.
-        session.ingest(&ids[..1], 0).unwrap_or_else(|e| panic!("[i1243] seed: {e}"));
+        session
+            .ingest(&ids[..1], 0)
+            .unwrap_or_else(|e| panic!("[i1243] seed: {e}"));
         let decode_limit = ids
             .len()
             .min(args.max_positions + 1)
             .min(args.ctx_len.saturating_sub(1));
         for t in 1..decode_limit {
-            let (_argmax, logits, _caps) = session
+            let (argmax, logits, _caps) = session
                 .forward_token_capture(ids[t - 1], t - 1, &[])
                 .unwrap_or_else(|e| panic!("[i1243] decode @{t}: {e}"));
             let target = ids[t] as usize;
@@ -186,12 +199,21 @@ fn main() {
                 sum += (f64::from(l) - f64::from(max_l)).exp();
             }
             let inc_nll = f64::from(max_l) + sum.ln() - f64::from(logits[target]);
-            rows.push(Row { pos: t - 1, nll: g.nll, inc_nll, top2_margin: g.top2_margin });
+            rows.push(Row {
+                pos: t - 1,
+                nll: g.nll,
+                inc_nll,
+                top2_margin: g.top2_margin,
+                argmax,
+            });
             scored += 1;
         }
     }
 
-    assert!(scored > 0, "no positions scored (corpus too short for the stride)");
+    assert!(
+        scored > 0,
+        "no positions scored (corpus too short for the stride)"
+    );
 
     // The census table — pooled golden reading + the confidence-band
     // split at the fp32/f64 cliffs (the shapes the si-lane prints, so
@@ -267,8 +289,19 @@ fn main() {
         out.push_str(&args.gguf);
         out.push_str("\",\"corpus\":\"");
         out.push_str(&args.corpus);
+        // Issue 1186 T3-prep (c) — the retention run's provenance rides the
+        // saved JSON: the CQ3 arming (if any) and the family mask (if any)
+        // are named beside the readings, so a paired diff can verify BOTH
+        // runs' postures came from the same build + corpus.
+        let cq3_env = std::env::var("RIIR_QWEN38_CQ3").unwrap_or_default();
+        let cq3_families_env = std::env::var("RIIR_QWEN38_CQ3_FAMILIES").unwrap_or_default();
         out.push_str(&format!(
-            "\",\"stride\":{},\"chunk\":{},\"scored\":{},\"digest\":\"{digest:016x}\",\"rows\":[",
+            ",\"cq3_artifact\":\"{}\",\"cq3_families\":\"{}\"",
+            cq3_env, cq3_families_env
+        ));
+        out.push_str(&format!(
+            "\",\"stride\":{},\"chunk\":{},\"scored\":{},\"digest\":\"{digest:016x}\",\"\
+             argmax_ids_saved\":true,\"rows\":[",
             args.stride, args.chunk, scored
         ));
         for (i, r) in rows.iter().enumerate() {
@@ -276,13 +309,16 @@ fn main() {
                 out.push(',');
             }
             out.push_str(&format!(
-                "{{\"pos\":{},\"nll\":{:.17e},\"inc\":{:.17e},\"margin\":{:.17e}}}",
-                r.pos, r.nll, r.inc_nll, r.top2_margin
+                "{{\"pos\":{},\"nll\":{:.17e},\"inc\":{:.17e},\"margin\":{:.17e},\"argmax\":{}}}",
+                r.pos, r.nll, r.inc_nll, r.top2_margin, r.argmax
             ));
         }
         out.push_str("]}\n");
         std::fs::write(save, out)
             .unwrap_or_else(|e| panic!("[i1243] save {}: {e}", save.display()));
-        println!("[i1243] readings saved to {}", save.display());
+        println!(
+            "[i1243] readings saved to {} (argmax ids per position — the paired flip census reads them)",
+            save.display()
+        );
     }
 }

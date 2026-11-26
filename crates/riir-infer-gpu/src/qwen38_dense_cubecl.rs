@@ -449,16 +449,20 @@ fn dequant_host_f32(
     n: usize,
     mask: Option<&LoadedMask>,
 ) -> Result<Vec<f32>, String> {
-    let mut host = dequant_host_f32_raw(gguf, name, m, n)?;
+    let host = dequant_host_f32_raw(gguf, name, m, n)?;
     #[cfg(feature = "deletion_mask")]
-    if let Some(mask) = mask {
-        let zeroed =
-            riir_infer_core::adapter::f32_apply::apply_mask_section_f32(mask, name, &mut host)
-                .map_err(|e| format!("mask: {name}: {e}"))?;
-        if zeroed > 0 {
-            eprintln!("[i1208] {name}: {zeroed} weights zeroed at load");
+    let host = {
+        let mut host = host;
+        if let Some(mask) = mask {
+            let zeroed =
+                riir_infer_core::adapter::f32_apply::apply_mask_section_f32(mask, name, &mut host)
+                    .map_err(|e| format!("mask: {name}: {e}"))?;
+            if zeroed > 0 {
+                eprintln!("[i1208] {name}: {zeroed} weights zeroed at load");
+            }
         }
-    }
+        host
+    };
     #[cfg(not(feature = "deletion_mask"))]
     {
         let _ = (mask, name);
@@ -1369,6 +1373,85 @@ impl Qwen38WgpuForward {
                 None
             }
         };
+        // Issue 1186 T3-prep (c) — the retention instrument's family mask:
+        // a csv of family_census slugs; presence arms it, unset/empty = every
+        // artifact tensor routes (the incumbent posture, byte-identical).
+        // Under a mask, a name the census grammar does not classify is
+        // DEFAULT-DENY (incumbent route) — a mask meant to isolate one
+        // family must never let an unclassifiable name through silently.
+        // Set without an artifact can never take effect and is refused loud
+        // (the ineffective-arm config is a false-green class).
+        #[cfg(feature = "cq3")]
+        let cq3_family_mask: Option<std::collections::HashSet<String>> = {
+            let raw = std::env::var("RIIR_QWEN38_CQ3_FAMILIES").unwrap_or_default();
+            if raw.is_empty() {
+                None
+            } else {
+                if cq3_artifact.is_none() {
+                    return Err(
+                        "RIIR_QWEN38_CQ3_FAMILIES set but RIIR_QWEN38_CQ3 is unset — \
+                                the mask can never take effect"
+                            .into(),
+                    );
+                }
+                let mut set = std::collections::HashSet::new();
+                for slug in raw.split(',') {
+                    let slug = slug.trim();
+                    if riir_infer_core::family_census::Family::parse(slug).is_none() {
+                        return Err(format!(
+                            "RIIR_QWEN38_CQ3_FAMILIES: unknown family slug '{slug}' \
+                             (see family_census::Family::ALL)"
+                        ));
+                    }
+                    set.insert(slug.to_string());
+                }
+                let (admitted, unclassified) = match &cq3_artifact {
+                    Some(a) => {
+                        let mut admitted = 0usize;
+                        let mut unclassified = 0usize;
+                        for t in &a.tensors {
+                            match riir_infer_core::family_census::classify(&t.name) {
+                                Some(c) => {
+                                    if set.contains(c.family.slug()) {
+                                        admitted += 1;
+                                    }
+                                }
+                                None => unclassified += 1,
+                            }
+                        }
+                        (admitted, unclassified)
+                    }
+                    None => (0, 0),
+                };
+                eprintln!(
+                    "[cq3-serving] RIIR_QWEN38_CQ3_FAMILIES armed: {raw} — routed {admitted} \
+                     of the artifact tensors, {unclassified} unclassified names default-denied"
+                );
+                Some(set)
+            }
+        };
+        // The routing predicate: no mask = every artifact tensor routes;
+        // under a mask, only names the census classifies INTO the mask's
+        // families route — everything else falls through to the incumbent
+        // weight route.
+        #[cfg(feature = "cq3")]
+        let cq3_routes = |name: &str| -> bool {
+            match &cq3_family_mask {
+                None => true,
+                Some(set) => riir_infer_core::family_census::classify(name)
+                    .is_some_and(|c| set.contains(c.family.slug())),
+            }
+        };
+        #[cfg(not(feature = "cq3"))]
+        {
+            if std::env::var("RIIR_QWEN38_CQ3_FAMILIES").is_ok() {
+                return Err(
+                    "RIIR_QWEN38_CQ3_FAMILIES set but this build lacks the `cq3` feature — \
+                     rebuild with --features cq3"
+                        .into(),
+                );
+            }
+        }
         #[cfg(not(feature = "cq3"))]
         {
             if std::env::var("RIIR_QWEN38_CQ3").is_ok() {
@@ -1401,6 +1484,7 @@ impl Qwen38WgpuForward {
                 #[cfg(feature = "cq3")]
                 if let Some(a) = &cq3_artifact
                     && a.tensor(&name).is_ok()
+                    && cq3_routes(&name)
                 {
                     return QuantWeight::from_cq3(&client, a, &name, m, n);
                 }
@@ -1415,6 +1499,7 @@ impl Qwen38WgpuForward {
                 #[cfg(feature = "cq3")]
                 if let Some(a) = &cq3_artifact
                     && a.tensor(&name).is_ok()
+                    && cq3_routes(&name)
                 {
                     return QuantWeight::from_cq3(&client, a, &name, m, n);
                 }
