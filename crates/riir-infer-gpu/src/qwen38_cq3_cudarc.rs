@@ -587,7 +587,7 @@ impl Cq3HandleCuda {
         let mut slot = self.decode_scratch.lock().expect("cq3 scratch lock");
         if slot.is_none() {
             let grown = self.grow_scratch(stream, 1)?;
-            drop(slot.insert(grown));
+            let _ = slot.insert(grown);
         }
         let s = slot.as_ref().expect("cq3 decode scratch grown above");
         // SAFETY: scratch covers 1·d_in / 1·groups; x covers d_in; y
@@ -668,7 +668,7 @@ impl Cq3HandleCuda {
         let cached = matches!(slot.as_ref(), Some((cached_p, _)) if *cached_p == p);
         if !cached {
             let grown = self.grow_scratch(stream, p)?;
-            drop(slot.insert((p, grown)));
+            let _ = slot.insert((p, grown));
         }
         let s = &slot.as_ref().expect("cq3 batch scratch grown above").1;
         // SAFETY: mirror of [`Self::gemv_decode`] at p tokens — the
