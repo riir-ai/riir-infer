@@ -4,6 +4,9 @@
 **Claimed:** zed-77b3f327@m3, 1795623876, expires 2026-11-27T16:24:36Z
 **Lane routing (not part of the claim):** T1 rides this commit; T2–T6 are unclaimed work — route to amo/bmo/4090 per box law
 
+**Claimed:** zed-c133e475@4090, 1795706388, expires 2026-11-28T15:20:00Z
+  — scope: T2 only — the `-mtp` GGUF load census: real-file typed outcome (7,492,338,944 B, sha256 `ededc9fc…6c23`), the loader's typed MTP-twin class (declare-or-refuse + loud disclosure) + synthetic gates + bench note. T3's 4090 fork-capture + T4's bout legs are NOT claimed here — they live in riir-ai Issue 1263's GPU-leg lane (amo, in flight on this box today); T5/T6 untouched.
+
 The league checkpoint target moved to `Ternary-Bonsai-2.5-27B-PQ2_0.gguf` (riir-train `data/`, pin row in BASE_MODELS.md / BACKUP_MANIFEST.tsv; released 2026-11-24, Apache-2.0, `prism-ml/Ternary-Bonsai-2.5-27B-GGUF`). Format unchanged from Bonsai 2 (whitepaper §1: "The ternary format, storage accounting, and rotated weight basis are unchanged"), so the `bonsai2_hadamard` lane loads it as-is. This issue carries what the retarget deliberately did NOT do.
 
 - [x] **T1 — retarget + local verification** (this commit): all live defaults swapped (src/bin + tests + riir-infer-gpu + riir-infer-dist + Cargo.toml comment + lane scripts); committed kvdiag fixture (`Ternary-Bonsai-2-27B-PQ2_0.kvdiag.json`) kept — it names the old checkpoint's captured bytes and stays the predecessor fixture; header probe on the downloaded file (arch/geometry census via `../riir-train/scripts/plan402_gguf_probe.py`); synthetic loader-contract gate `bonsai2_rotation_load` green.
