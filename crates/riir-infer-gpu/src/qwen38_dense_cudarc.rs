@@ -4284,15 +4284,17 @@ impl Qwen38DenseForward {
     fn gemv_quant(
         &self,
         w: &QuantW,
-        x_f32: &CudaView<f32>,
-        y: &CudaView<f32>,
+        x_f32: &CudaSlice<f32>,
+        y: &CudaSlice<f32>,
     ) -> Result<(), String> {
         // Issue 1186 T3-prep (a2) — the CQ3 arm: rotate → stage → never-unpack
         // dot straight off the f32 normed activation (the incumbent xq/xs path
         // is not touched; the engagement proof rides the handle's counters).
         #[cfg(feature = "cq3_cuda")]
         if let Some(h) = w.cq3.as_ref() {
-            return h.gemv_decode(&self.stream, x_f32, y);
+            // The whole-buffer slices ride as views (the kernel args are
+            // view-typed; PushKernelArg<&CudaView> is the inherent impl).
+            return h.gemv_decode(&self.stream, x_f32.as_view(), y.as_view());
         }
         #[cfg(not(feature = "cq3_cuda"))]
         let _ = x_f32;
@@ -4381,26 +4383,10 @@ impl Qwen38DenseForward {
         }
         // fused path: the leading norm was done by the previous site's
         // Issue-755 fused boundary kernel (run_layer_stack's site B).
-        self.gemv_quant(
-            lw.qkv.as_ref().unwrap(),
-            &self.x_norm.as_view(),
-            &self.qkv.as_view(),
-        )?;
-        self.gemv_quant(
-            lw.z.as_ref().unwrap(),
-            &self.x_norm.as_view(),
-            &self.z_buf.as_view(),
-        )?;
-        self.gemv_quant(
-            lw.alpha.as_ref().unwrap(),
-            &self.x_norm.as_view(),
-            &self.a_raw.as_view(),
-        )?;
-        self.gemv_quant(
-            lw.beta.as_ref().unwrap(),
-            &self.x_norm.as_view(),
-            &self.b_raw.as_view(),
-        )?;
+        self.gemv_quant(lw.qkv.as_ref().unwrap(), &self.x_norm, &self.qkv)?;
+        self.gemv_quant(lw.z.as_ref().unwrap(), &self.x_norm, &self.z_buf)?;
+        self.gemv_quant(lw.alpha.as_ref().unwrap(), &self.x_norm, &self.a_raw)?;
+        self.gemv_quant(lw.beta.as_ref().unwrap(), &self.x_norm, &self.b_raw)?;
         self.dn
             .launch_beta_decay(
                 stream,
@@ -4477,11 +4463,7 @@ impl Qwen38DenseForward {
             cfg.head_v_dim,
             cfg.rms_norm_eps,
         )?;
-        self.gemv_quant(
-            lw.ssm_out.as_ref().unwrap(),
-            &self.rec_normed.as_view(),
-            &self.y.as_view(),
-        )?;
+        self.gemv_quant(lw.ssm_out.as_ref().unwrap(), &self.rec_normed, &self.y)?;
         if !self.res_nq_fused {
             // fused path: the residual is folded into the next site's
             // Issue-755 fused boundary kernel (run_layer_stack's site A).
@@ -4511,11 +4493,7 @@ impl Qwen38DenseForward {
         }
         // fused path: norm done by the previous site's fused boundary
         // kernel; residual folded into the next site's.
-        self.gemv_quant(
-            lw.wq.as_ref().unwrap(),
-            &self.x_norm.as_view(),
-            &self.qg.as_view(),
-        )?;
+        self.gemv_quant(lw.wq.as_ref().unwrap(), &self.x_norm, &self.qg)?;
         self.attn
             .launch_split_qg(
                 stream,
@@ -4526,16 +4504,8 @@ impl Qwen38DenseForward {
                 cfg.n_head,
             )
             .map_err(|e| e.to_string())?;
-        self.gemv_quant(
-            lw.wk.as_ref().unwrap(),
-            &self.x_norm.as_view(),
-            &self.k.as_view(),
-        )?;
-        self.gemv_quant(
-            lw.wv.as_ref().unwrap(),
-            &self.x_norm.as_view(),
-            &self.v.as_view(),
-        )?;
+        self.gemv_quant(lw.wk.as_ref().unwrap(), &self.x_norm, &self.k)?;
+        self.gemv_quant(lw.wv.as_ref().unwrap(), &self.x_norm, &self.v)?;
         self.attn
             .launch_rmsnorm_batched(
                 stream,
@@ -4725,11 +4695,7 @@ impl Qwen38DenseForward {
             .launch_output_gate(stream, &self.attn_out, &self.gate, q_dim)
             .map_err(|e| e.to_string())?;
         self.quantize_x_for(lw.wo.as_ref().unwrap(), &self.attn_out, q_dim)?;
-        self.gemv_quant(
-            lw.wo.as_ref().unwrap(),
-            &self.attn_out.as_view(),
-            &self.y.as_view(),
-        )?;
+        self.gemv_quant(lw.wo.as_ref().unwrap(), &self.attn_out, &self.y)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel.
@@ -4751,12 +4717,8 @@ impl Qwen38DenseForward {
         // fused path: norm done by the previous site's fused boundary
         // kernel (run_layer_stack's site A); residual folded into the
         // next site's.
-        self.gemv_quant(
-            &lw.ffn_gate,
-            &self.x_norm.as_view(),
-            &self.mlp_gate.as_view(),
-        )?;
-        self.gemv_quant(&lw.ffn_up, &self.x_norm.as_view(), &self.mlp_up.as_view())?;
+        self.gemv_quant(&lw.ffn_gate, &self.x_norm, &self.mlp_gate)?;
+        self.gemv_quant(&lw.ffn_up, &self.x_norm, &self.mlp_up)?;
         self.ew
             .launch_swiglu(
                 stream,
@@ -4767,7 +4729,7 @@ impl Qwen38DenseForward {
             )
             .map_err(|e| e.to_string())?;
         self.quantize_x_for(&lw.ffn_down, &self.mlp_hidden, cfg.mlp_hidden)?;
-        self.gemv_quant(&lw.ffn_down, &self.mlp_hidden.as_view(), &self.y.as_view())?;
+        self.gemv_quant(&lw.ffn_down, &self.mlp_hidden, &self.y)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel (or the plain last-layer add).
@@ -4862,11 +4824,7 @@ impl Qwen38DenseForward {
         self.run_layer_stack(token, pos)?;
         let stream = &self.stream;
         self.rmsnorm_quant_x(&self.x, &self.weights.output_norm.dev, n, eps)?;
-        self.gemv_quant(
-            &self.weights.lm_head,
-            &self.x_norm.as_view(),
-            &self.logits.as_view(),
-        )?;
+        self.gemv_quant(&self.weights.lm_head, &self.x_norm, &self.logits)?;
         stream
             .memcpy_htod(ZERO_U64.as_slice(), &mut self.argmax_res)
             .map_err(|e| e.to_string())?;
@@ -4986,11 +4944,7 @@ impl Qwen38DenseForward {
         }
 
         self.rmsnorm_quant_x(&self.x, &self.weights.output_norm.dev, n, cfg.rms_norm_eps)?;
-        self.gemv_quant(
-            &self.weights.lm_head,
-            &self.x_norm.as_view(),
-            &self.logits.as_view(),
-        )?;
+        self.gemv_quant(&self.weights.lm_head, &self.x_norm, &self.logits)?;
         stream
             .memcpy_htod(ZERO_U64.as_slice(), &mut self.argmax_res)
             .map_err(|e| e.to_string())?;
@@ -5154,11 +5108,7 @@ impl Qwen38DenseForward {
         }
 
         self.rmsnorm_quant_x(&self.x, &self.weights.output_norm.dev, n, cfg.rms_norm_eps)?;
-        self.gemv_quant(
-            &self.weights.lm_head,
-            &self.x_norm.as_view(),
-            &self.logits.as_view(),
-        )?;
+        self.gemv_quant(&self.weights.lm_head, &self.x_norm, &self.logits)?;
         stream
             .memcpy_htod(ZERO_U64.as_slice(), &mut self.argmax_res)
             .map_err(|e| e.to_string())?;
@@ -5219,11 +5169,7 @@ impl Qwen38DenseForward {
             // The uploaded row IS the normed f32 (the DFlash2 contract) — the
             // cq3 arm consumes it directly, the incumbent quantize is skipped.
             self.quantize_x_for(&self.weights.lm_head, &self.x, n)?;
-            self.gemv_quant(
-                &self.weights.lm_head,
-                &self.x.as_view(),
-                &self.logits.as_view(),
-            )?;
+            self.gemv_quant(&self.weights.lm_head, &self.x, &self.logits)?;
             stream.synchronize().map_err(|e| e.to_string())?;
             let row = stream.clone_dtoh(&self.logits).map_err(|e| e.to_string())?;
             out.extend_from_slice(&row[..vocab]);
@@ -5327,11 +5273,7 @@ impl Qwen38DenseForward {
         self.run_layer_stack(0, 0)?;
         let stream = &self.stream;
         self.rmsnorm_quant_x(&self.x, &self.weights.output_norm.dev, n, eps)?;
-        self.gemv_quant(
-            &self.weights.lm_head,
-            &self.x_norm.as_view(),
-            &self.logits.as_view(),
-        )?;
+        self.gemv_quant(&self.weights.lm_head, &self.x_norm, &self.logits)?;
         stream
             .memset_zeros(&mut self.argmax_res)
             .map_err(|e| e.to_string())?;
@@ -5501,11 +5443,7 @@ impl Qwen38DenseForward {
 
         let stream = &self.stream;
         self.rmsnorm_quant_x(&self.x, &self.weights.output_norm.dev, n, cfg.rms_norm_eps)?;
-        self.gemv_quant(
-            &self.weights.lm_head,
-            &self.x_norm.as_view(),
-            &self.logits.as_view(),
-        )?;
+        self.gemv_quant(&self.weights.lm_head, &self.x_norm, &self.logits)?;
         stream.synchronize().map_err(|e| e.to_string())?;
         let logits = stream.clone_dtoh(&self.logits).map_err(|e| e.to_string())?;
         let mut best = 0usize;
@@ -6107,12 +6045,7 @@ impl Qwen38DenseForward {
                 p,
                 cq3_lm,
             )?;
-            self.gemv_quant_rows(
-                &self.weights.lm_head,
-                &self.cq3_xn.as_view(),
-                &v.logits.as_view(),
-                p,
-            )?;
+            self.gemv_quant_rows(&self.weights.lm_head, &self.cq3_xn, &v.logits, p)?;
         }
         {
             let stream = &self.stream;
@@ -6177,30 +6110,10 @@ impl Qwen38DenseForward {
             let cq3_in = false;
             self.rows_boundary(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p, cq3_in)?;
         }
-        self.gemv_quant_rows(
-            lw.qkv.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.qkv.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.z.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.z.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.alpha.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.a_raw.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.beta.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.b_raw.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.qkv.as_ref().unwrap(), &self.cq3_xn, &v.qkv, p)?;
+        self.gemv_quant_rows(lw.z.as_ref().unwrap(), &self.cq3_xn, &v.z, p)?;
+        self.gemv_quant_rows(lw.alpha.as_ref().unwrap(), &self.cq3_xn, &v.a_raw, p)?;
+        self.gemv_quant_rows(lw.beta.as_ref().unwrap(), &self.cq3_xn, &v.b_raw, p)?;
         self.dn
             .launch_beta_decay_rows(
                 stream,
@@ -6308,12 +6221,7 @@ impl Qwen38DenseForward {
                 .launch_z_gating(stream, &self.cq3_xn, &v.z, p * cfg.d_inner)
                 .map_err(|e| e.to_string())?;
         }
-        self.gemv_quant_rows(
-            lw.ssm_out.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.y.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.ssm_out.as_ref().unwrap(), &self.cq3_xn, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel.
@@ -6357,27 +6265,12 @@ impl Qwen38DenseForward {
             let cq3_in = false;
             self.rows_boundary(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p, cq3_in)?;
         }
-        self.gemv_quant_rows(
-            lw.wq.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.qg.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.wq.as_ref().unwrap(), &self.cq3_xn, &v.qg, p)?;
         self.attn
             .launch_split_qg_rows(stream, &v.qg, &v.q, &v.gate, cfg.head_dim, cfg.n_head, p)
             .map_err(|e| e.to_string())?;
-        self.gemv_quant_rows(
-            lw.wk.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.k.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.wv.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.vv.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.wk.as_ref().unwrap(), &self.cq3_xn, &v.k, p)?;
+        self.gemv_quant_rows(lw.wv.as_ref().unwrap(), &self.cq3_xn, &v.vv, p)?;
         self.attn
             .launch_rmsnorm_batched(
                 stream,
@@ -6498,12 +6391,7 @@ impl Qwen38DenseForward {
             .launch_output_gate(stream, &v.attn_out, &v.gate, q_dim * p)
             .map_err(|e| e.to_string())?;
         self.quantize_x_for(lw.wo.as_ref().unwrap(), &v.attn_out, q_dim * p)?;
-        self.gemv_quant_rows(
-            lw.wo.as_ref().unwrap(),
-            &v.attn_out.as_view(),
-            &v.y.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.attn_out, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel.
@@ -6845,12 +6733,7 @@ impl Qwen38DenseForward {
                 p,
                 cq3_lm,
             )?;
-            self.gemv_quant_rows(
-                &self.weights.lm_head,
-                &self.cq3_xn.as_view(),
-                &v.logits.as_view(),
-                p,
-            )?;
+            self.gemv_quant_rows(&self.weights.lm_head, &self.cq3_xn, &v.logits, p)?;
         }
         {
             let stream = &self.stream;
@@ -7242,12 +7125,7 @@ impl Qwen38DenseForward {
                 p,
                 cq3_lm,
             )?;
-            self.gemv_quant_rows(
-                &self.weights.lm_head,
-                &self.cq3_xn.as_view(),
-                &v.logits.as_view(),
-                p,
-            )?;
+            self.gemv_quant_rows(&self.weights.lm_head, &self.cq3_xn, &v.logits, p)?;
         }
         // Per-row argmax (zero via the capturable device memset — the eager
         // path's host memcpy would bake into the graph).
@@ -7305,30 +7183,10 @@ impl Qwen38DenseForward {
             let cq3_in = false;
             self.rows_boundary(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p, cq3_in)?;
         }
-        self.gemv_quant_rows(
-            lw.qkv.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.qkv.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.z.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.z.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.alpha.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.a_raw.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.beta.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.b_raw.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.qkv.as_ref().unwrap(), &self.cq3_xn, &v.qkv, p)?;
+        self.gemv_quant_rows(lw.z.as_ref().unwrap(), &self.cq3_xn, &v.z, p)?;
+        self.gemv_quant_rows(lw.alpha.as_ref().unwrap(), &self.cq3_xn, &v.a_raw, p)?;
+        self.gemv_quant_rows(lw.beta.as_ref().unwrap(), &self.cq3_xn, &v.b_raw, p)?;
         self.dn
             .launch_beta_decay_rows(
                 stream,
@@ -7442,12 +7300,7 @@ impl Qwen38DenseForward {
                 .launch_z_gating(stream, &self.cq3_xn, &v.z, p * cfg.d_inner)
                 .map_err(|e| e.to_string())?;
         }
-        self.gemv_quant_rows(
-            lw.ssm_out.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.y.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.ssm_out.as_ref().unwrap(), &self.cq3_xn, &v.y, p)?;
         if !self.res_nq_fused {
             self.ew
                 .launch_residual_add(stream, &v.xb_res, &v.y, &v.xb, n * p)
@@ -7500,27 +7353,12 @@ impl Qwen38DenseForward {
             let cq3_in = false;
             self.rows_boundary(&v.xb, &lw.input_norm.dev, n, cfg.rms_norm_eps, p, cq3_in)?;
         }
-        self.gemv_quant_rows(
-            lw.wq.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.qg.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.wq.as_ref().unwrap(), &self.cq3_xn, &v.qg, p)?;
         self.attn
             .launch_split_qg_rows(stream, &v.qg, &v.q, &v.gate, cfg.head_dim, cfg.n_head, p)
             .map_err(|e| e.to_string())?;
-        self.gemv_quant_rows(
-            lw.wk.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.k.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.wv.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.vv.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.wk.as_ref().unwrap(), &self.cq3_xn, &v.k, p)?;
+        self.gemv_quant_rows(lw.wv.as_ref().unwrap(), &self.cq3_xn, &v.vv, p)?;
         self.attn
             .launch_rmsnorm_batched(
                 stream,
@@ -7737,12 +7575,7 @@ impl Qwen38DenseForward {
             .launch_output_gate(stream, &v.attn_out, &v.gate, q_dim * p)
             .map_err(|e| e.to_string())?;
         self.quantize_x_for(lw.wo.as_ref().unwrap(), &v.attn_out, q_dim * p)?;
-        self.gemv_quant_rows(
-            lw.wo.as_ref().unwrap(),
-            &v.attn_out.as_view(),
-            &v.y.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.attn_out, &v.y, p)?;
         if !self.res_nq_fused {
             self.ew
                 .launch_residual_add(stream, &v.xb_res, &v.y, &v.xb, n * p)
@@ -8015,8 +7848,8 @@ impl Qwen38DenseForward {
     fn gemv_quant_rows(
         &self,
         w: &QuantW,
-        x_f32: &CudaView<f32>,
-        y: &CudaView<f32>,
+        x_f32: &CudaSlice<f32>,
+        y: &CudaSlice<f32>,
         p: usize,
     ) -> Result<(), String> {
         // Issue 1186 T3-prep (a2) — the CQ3 arm preempts every incumbent arm
@@ -8025,7 +7858,7 @@ impl Qwen38DenseForward {
         // one entry, disclosed — a second p re-grows it).
         #[cfg(feature = "cq3_cuda")]
         if let Some(h) = w.cq3.as_ref() {
-            return h.gemv_batched(&self.stream, x_f32, y, p);
+            return h.gemv_batched(&self.stream, x_f32.as_view(), y.as_view(), p);
         }
         #[cfg(not(feature = "cq3_cuda"))]
         let _ = x_f32;
@@ -8230,30 +8063,10 @@ impl Qwen38DenseForward {
         }
         // fused path: norm done by the previous site's fused boundary
         // kernel (the loop's site B); residual folded into the next site's.
-        self.gemv_quant_rows(
-            lw.qkv.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.qkv.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.z.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.z.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.alpha.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.a_raw.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.beta.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.b_raw.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.qkv.as_ref().unwrap(), &self.cq3_xn, &v.qkv, p)?;
+        self.gemv_quant_rows(lw.z.as_ref().unwrap(), &self.cq3_xn, &v.z, p)?;
+        self.gemv_quant_rows(lw.alpha.as_ref().unwrap(), &self.cq3_xn, &v.a_raw, p)?;
+        self.gemv_quant_rows(lw.beta.as_ref().unwrap(), &self.cq3_xn, &v.b_raw, p)?;
         self.dn
             .launch_beta_decay_rows(
                 stream,
@@ -8365,12 +8178,7 @@ impl Qwen38DenseForward {
                 .launch_z_gating(stream, &self.cq3_xn, &v.z, p * cfg.d_inner)
                 .map_err(|e| e.to_string())?;
         }
-        self.gemv_quant_rows(
-            lw.ssm_out.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.y.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.ssm_out.as_ref().unwrap(), &self.cq3_xn, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel.
@@ -8442,27 +8250,12 @@ impl Qwen38DenseForward {
         }
         // fused path: norm done by the previous site's fused boundary
         // kernel; residual folded into the next site's.
-        self.gemv_quant_rows(
-            lw.wq.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.qg.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.wq.as_ref().unwrap(), &self.cq3_xn, &v.qg, p)?;
         self.attn
             .launch_split_qg_rows(stream, &v.qg, &v.q, &v.gate, cfg.head_dim, cfg.n_head, p)
             .map_err(|e| e.to_string())?;
-        self.gemv_quant_rows(
-            lw.wk.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.k.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(
-            lw.wv.as_ref().unwrap(),
-            &self.cq3_xn.as_view(),
-            &v.vv.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.wk.as_ref().unwrap(), &self.cq3_xn, &v.k, p)?;
+        self.gemv_quant_rows(lw.wv.as_ref().unwrap(), &self.cq3_xn, &v.vv, p)?;
         self.attn
             .launch_rmsnorm_batched(
                 stream,
@@ -8837,12 +8630,7 @@ impl Qwen38DenseForward {
             .launch_output_gate(stream, &v.attn_out, &v.gate, q_dim * p)
             .map_err(|e| e.to_string())?;
         self.quantize_x_for(lw.wo.as_ref().unwrap(), &v.attn_out, q_dim * p)?;
-        self.gemv_quant_rows(
-            lw.wo.as_ref().unwrap(),
-            &v.attn_out.as_view(),
-            &v.y.as_view(),
-            p,
-        )?;
+        self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.attn_out, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel.
@@ -8875,13 +8663,8 @@ impl Qwen38DenseForward {
         }
         // fused path: norm done by the previous site's fused boundary
         // kernel (the loop's site A); residual folded into the next site's.
-        self.gemv_quant_rows(
-            &lw.ffn_gate,
-            &self.cq3_xn.as_view(),
-            &v.mlp_gate.as_view(),
-            p,
-        )?;
-        self.gemv_quant_rows(&lw.ffn_up, &self.cq3_xn.as_view(), &v.mlp_up.as_view(), p)?;
+        self.gemv_quant_rows(&lw.ffn_gate, &self.cq3_xn, &v.mlp_gate, p)?;
+        self.gemv_quant_rows(&lw.ffn_up, &self.cq3_xn, &v.mlp_up, p)?;
         self.ew
             .launch_swiglu(
                 stream,
@@ -8902,7 +8685,7 @@ impl Qwen38DenseForward {
                 cfg.mlp_hidden * p,
             )
         }?;
-        self.gemv_quant_rows(&lw.ffn_down, &v.mlp_hidden.as_view(), &v.y.as_view(), p)?;
+        self.gemv_quant_rows(&lw.ffn_down, &v.mlp_hidden, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
             // boundary kernel (or the plain last-layer add).
@@ -9294,12 +9077,7 @@ impl Qwen38DenseForward {
                 p,
                 cq3_lm,
             )?;
-            self.gemv_quant_rows(
-                &self.weights.lm_head,
-                &self.cq3_xn.as_view(),
-                &v.logits.as_view(),
-                p,
-            )?;
+            self.gemv_quant_rows(&self.weights.lm_head, &self.cq3_xn, &v.logits, p)?;
         }
         {
             let stream = &self.stream;
@@ -9501,12 +9279,7 @@ impl Qwen38DenseForward {
                     }
                 }
             } else {
-                self.gemv_quant_rows(
-                    &self.weights.lm_head,
-                    &self.cq3_xn.as_view(),
-                    &v.logits.as_view(),
-                    p,
-                )?;
+                self.gemv_quant_rows(&self.weights.lm_head, &self.cq3_xn, &v.logits, p)?;
             }
         }
         // Per-row argmax (zero via the capturable device memset - the
@@ -9811,7 +9584,7 @@ impl Qwen38DenseForward {
             // all p rows. Requires p % 16 == 0 for the argmax packing (the
             // wide path's p=64 pins that).
             assert!(p.is_multiple_of(16), "all-argmax tail requires p % 16 == 0");
-            self.gemv_quant_rows(w, &self.cq3_xn.as_view(), &v.logits.as_view(), p)?;
+            self.gemv_quant_rows(w, &self.cq3_xn, &v.logits, p)?;
         } else {
             // The T2 last-row-only tail: the routed lm_head takes the cq3
             // chain on cq3_xn's last row; the incumbent rides the production
