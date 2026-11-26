@@ -530,6 +530,15 @@ dllm = ["katgpt-core/dllm"]
 simd_lut_q4k = []
 causal_validation = ["katgpt-core/causal_head_importance"]
 deltanet_inference = ["katgpt-core/deltanet_inference"]
+# Issue 1253 T5.1 (plan 639): the GGUF-embedded MTP draft block's typed
+# admission — parse the 15 `blk.{n_main}` tensors (8 Q4_0 projections + 7
+# F32 norms, dequant to f32 through the existing arm) into `MtpDraftBlock`
+# beside the main stack. Opt-in: feature-off compiles the lane to nothing
+# (the T2 census gate is the default posture — the disclosure stays
+# "stays for the MTP lane"); the feature arms the second read + the
+# admitted-class disclosure. No new deps; consumes only gguf_loader's
+# existing dequant paths. The draft FORWARD rides T5.2 (CPU reference).
+mtp_draft_block = ["deltanet_inference"]
 gemma4_inference = ["katgpt-core/gemma4_inference"]
 q2_0_ternary_bridge = ["katgpt-core/ternary_group_scale"]
 # katgpt-rs Issue 935: int8-activation SDOT ternary matvec on every forward
@@ -854,6 +863,18 @@ required-features = ["deltanet_ternary_inference"]
 [[test]]
 name = "mtp_twin_real_file"
 required-features = ["deltanet_ternary_inference"]
+
+# Issue 1253 T5.1 (plan 639) — the typed draft-block admission gates:
+# declared twin admits (all 15 real-shape tensors pinned), torn-twin
+# (missing tensor) refuses loud naming the tensor, clean file refuses,
+# shape-mismatch refuses, the Q4_0 dequant round-trip is exact at the
+# fixture's f16-exact scale, and the admitted-class census predicate
+# (`draft_admittable`) reads false on clean/undeclared and true on the
+# declared twin. Pure-CPU synthetic (no model file); the real-file arm
+# rides the MTP_GGUF env when the twin is on the box.
+[[test]]
+name = "mtp_draft_block_gates"
+required-features = ["mtp_draft_block"]
 
 # Issue 1249 — the two-cell GDN erase-stability gate (pure-CPU; the shipped
 # scalar-beta step + the MemT channel-wise sweep; no GPU, no other features).

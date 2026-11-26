@@ -67,6 +67,7 @@ impl Val {
     }
 }
 
+#[derive(Clone)]
 pub struct TensorSpec {
     pub name: String,
     /// GGUF ne dims, ggml order: ne[0] = innermost (`in_features` for 2D weights).

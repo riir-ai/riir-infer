@@ -2767,6 +2767,209 @@ fn mtp_census_gate(gguf: &GgufFile) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+impl MtpTwinCensus {
+    /// Issue 1253 T5.1 — the ADMITTABLE predicate for the draft lane: the
+    /// file declares the draft block AND carries its tensors AND the
+    /// declaration covers them. Only then may `load_mtp_draft_block`
+    /// admit the block; a clean file (no declaration, no trailing
+    /// tensors) refuses loud — a draft lane on a plain file is a
+    /// mis-pack, never a silent empty drafter.
+    pub fn draft_admittable(&self) -> bool {
+        self.declared_nextn > 0 && self.trailing_tensors > 0 && self.covered()
+    }
+}
+
+/// Issue 1253 T5.1 (plan 639) — the GGUF-embedded MTP draft block, typed.
+///
+/// The real 2.5 MTP twin carries 15 tensors at `blk.{n_main}` (header
+/// verified 2026-11-27): 8 Q4_0 projections under the STANDARD main-layer
+/// names (`attn_q/k/v/output`, `ffn_gate/up/down` — the gated-attention
+/// q ‖ gate concat of Issue 594 lives in `attn_q`'s 12288 = 2·6144 output
+/// width) + `nextn.eh_proj`; 7 F32 norms (`attn_norm`, `attn_q_norm`,
+/// `attn_k_norm`, `post_attention_norm` — per-head q/k norms are
+/// [head_dim], broadcast) + `nextn.enorm/hnorm/shared_head_norm`. The
+/// fork's three OPTIONAL tensors (`nextn.embed_tokens`,
+/// `nextn.shared_head_head`) are absent from this file — the Options
+/// name the fallback to `wte` / `lm_head`/`output` the forward takes.
+///
+/// Projections dequant to f32 through the existing
+/// [`GgufFile::dequant_f16_to_f32`] arm (Q4_0 = 18-byte blocks; the
+/// "same tolerance the main stack uses" law is the loader's own dequant
+/// path, never a second decoder). Shapes are pinned against the config;
+/// a missing required tensor refuses LOUD (the torn-twin class).
+#[cfg(all(feature = "deltanet_inference", feature = "mtp_draft_block"))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct MtpDraftBlock {
+    /// The trailing block index the tensors were read from (`n_main`).
+    pub block_index: usize,
+    /// `blk.{i}.attn_q.weight` — [n_embd × 2·q_dim] (q ‖ gate, Issue 594).
+    pub attn_q: Vec<f32>,
+    /// `blk.{i}.attn_k.weight` — [n_embd × kv_dim].
+    pub attn_k: Vec<f32>,
+    /// `blk.{i}.attn_v.weight` — [n_embd × kv_dim].
+    pub attn_v: Vec<f32>,
+    /// `blk.{i}.attn_output.weight` — [q_dim × n_embd].
+    pub attn_output: Vec<f32>,
+    /// `blk.{i}.attn_q_norm.weight` — [head_dim], per-head broadcast.
+    pub attn_q_norm: Vec<f32>,
+    /// `blk.{i}.attn_k_norm.weight` — [head_dim], per-head broadcast.
+    pub attn_k_norm: Vec<f32>,
+    /// `blk.{i}.attn_norm.weight` — [n_embd], the block's pre-attention norm.
+    pub attn_norm: Vec<f32>,
+    /// `blk.{i}.post_attention_norm.weight` — [n_embd], pre-FFN norm.
+    pub post_attention_norm: Vec<f32>,
+    /// `blk.{i}.ffn_gate.weight` — [n_embd × mlp].
+    pub ffn_gate: Vec<f32>,
+    /// `blk.{i}.ffn_up.weight` — [n_embd × mlp].
+    pub ffn_up: Vec<f32>,
+    /// `blk.{i}.ffn_down.weight` — [mlp × n_embd].
+    pub ffn_down: Vec<f32>,
+    /// `blk.{i}.nextn.eh_proj.weight` — [2·n_embd × n_embd]; consumes
+    /// `concat(enorm(embed), hnorm(hidden))` (the fork's `graph_mtp`).
+    pub eh_proj: Vec<f32>,
+    /// `blk.{i}.nextn.enorm.weight` — [n_embd], the token-embed norm.
+    pub enorm: Vec<f32>,
+    /// `blk.{i}.nextn.hnorm.weight` — [n_embd], the hidden-state norm.
+    pub hnorm: Vec<f32>,
+    /// `blk.{i}.nextn.shared_head_norm.weight` — [n_embd]; absent ⇒ the
+    /// main stack's `output_norm` is the head norm (the real 2.5 twin
+    /// CARRIES it, so the Option is the contract, not the observed shape).
+    pub shared_head_norm: Option<Vec<f32>>,
+    /// `blk.{i}.nextn.shared_head_head.weight` — [n_embd × vocab]; absent
+    /// = the main stack's `lm_head` (the real 2.5 twin does not carry it).
+    pub shared_head_head: Option<Vec<f32>>,
+    /// `blk.{i}.nextn.embed_tokens.weight` — [vocab × n_embd]; absent =
+    /// the main stack's `wte` (the real 2.5 twin does not carry it).
+    pub embed_tokens: Option<Vec<f32>>,
+}
+
+/// Issue 1253 T5.1 — the typed admission of the GGUF-embedded MTP draft
+/// block. Reads the 15-tensor trailing block beside an ALREADY-LOADED main
+/// stack (same [`GgufFile`], the mmap is shared): a declared, covered
+/// census admits; anything else refuses loud with the class named.
+///
+/// Prints ONE admitted-class disclosure (the draft lane's counterpart of
+/// the main-stack load's "stays for the MTP lane" line):
+/// `[gguf_loader] MTP draft block admitted: blk.{i} ({n} trailing tensors
+/// in file) — the draft lane consumes it (Issue 1253 T5.1, feature
+/// mtp_draft_block).`
+///
+/// # Errors
+/// Refuses (never a silent empty block) on: an unadmittable census (no
+/// declaration, or a clean file), any missing required tensor (the
+/// torn-twin class — a file declaring layers but carrying a partial
+/// block), or any shape/pin mismatch against `config`.
+#[cfg(all(feature = "deltanet_inference", feature = "mtp_draft_block"))]
+pub fn load_mtp_draft_block(
+    gguf: &GgufFile,
+    config: &crate::types::Config,
+) -> Result<MtpDraftBlock> {
+    let census = mtp_twin_census(gguf);
+    if !census.draft_admittable() {
+        bail!(
+            "MTP draft-block admission refused: the file carries no admissible draft block \
+             (declared_nextn = {}, trailing_tensors = {}) — the draft lane needs a declared \
+             `-mtp` twin; a plain file drafts nothing (Issue 1253 T5.1)",
+            census.declared_nextn,
+            census.trailing_tensors,
+        );
+    }
+    let i = census.n_main;
+
+    let n_embd = config.n_embd;
+    let q_dim = config.n_head * config.head_dim;
+    let kv_dim = config.n_kv_head * config.head_dim;
+    let mlp = config.mlp_hidden;
+    let vocab = config.vocab_size;
+    let head_dim = config.head_dim;
+
+    // One read + one shape pin per tensor (the dequant is the loader's own
+    // Q4_0/F32 arm — never a second decoder). Shape layout mirrors the
+    // main-stack loader: ne[0] = in_features, ne[1] = out_features.
+    let read_proj = |name: &str, rows: usize, cols: usize| -> Result<Vec<f32>> {
+        let info = gguf
+            .tensor_info(name)
+            .with_context(|| format!("MTP draft block: tensor '{name}' not found — the torn-twin class refuses loud (Issue 1253 T5.1)"))?;
+        anyhow::ensure!(
+            info.shape.len() == 2 && info.shape[0] == cols && info.shape[1] == rows,
+            "MTP draft block: tensor '{name}' is {:?}, expected [{cols} × {rows}] (in × out) \
+             — refusing (Issue 1253 T5.1)",
+            info.shape,
+        );
+        gguf.dequant_f16_to_f32(name)
+    };
+    let read_norm = |name: &str, len: usize| -> Result<Vec<f32>> {
+        let info = gguf
+            .tensor_info(name)
+            .with_context(|| format!("MTP draft block: tensor '{name}' not found — the torn-twin class refuses loud (Issue 1253 T5.1)"))?;
+        anyhow::ensure!(
+            info.shape.len() == 1 && info.shape[0] == len,
+            "MTP draft block: tensor '{name}' is {:?}, expected [{len}] — refusing \
+             (Issue 1253 T5.1)",
+            info.shape,
+        );
+        gguf.dequant_f16_to_f32(name)
+    };
+    let read_opt_norm = |name: &str, len: usize| -> Result<Option<Vec<f32>>> {
+        if gguf.tensor_info(name).is_none() {
+            return Ok(None);
+        }
+        read_norm(name, len).map(Some)
+    };
+    let read_opt_proj = |name: &str, rows: usize, cols: usize| -> Result<Option<Vec<f32>>> {
+        if gguf.tensor_info(name).is_none() {
+            return Ok(None);
+        }
+        let info = gguf
+            .tensor_info(name)
+            .with_context(|| format!("MTP draft block: tensor '{name}' not found"))?;
+        anyhow::ensure!(
+            info.shape.len() == 2 && info.shape[0] == cols && info.shape[1] == rows,
+            "MTP draft block: tensor '{name}' is {:?}, expected [{cols} × {rows}] — refusing \
+             (Issue 1253 T5.1)",
+            info.shape,
+        );
+        gguf.dequant_f16_to_f32(name).map(Some)
+    };
+
+    let block = MtpDraftBlock {
+        block_index: i,
+        attn_q: read_proj(&format!("blk.{i}.attn_q.weight"), 2 * q_dim, n_embd)?,
+        attn_k: read_proj(&format!("blk.{i}.attn_k.weight"), kv_dim, n_embd)?,
+        attn_v: read_proj(&format!("blk.{i}.attn_v.weight"), kv_dim, n_embd)?,
+        attn_output: read_proj(&format!("blk.{i}.attn_output.weight"), n_embd, q_dim)?,
+        attn_q_norm: read_norm(&format!("blk.{i}.attn_q_norm.weight"), head_dim)?,
+        attn_k_norm: read_norm(&format!("blk.{i}.attn_k_norm.weight"), head_dim)?,
+        attn_norm: read_norm(&format!("blk.{i}.attn_norm.weight"), n_embd)?,
+        post_attention_norm: read_norm(&format!("blk.{i}.post_attention_norm.weight"), n_embd)?,
+        ffn_gate: read_proj(&format!("blk.{i}.ffn_gate.weight"), mlp, n_embd)?,
+        ffn_up: read_proj(&format!("blk.{i}.ffn_up.weight"), mlp, n_embd)?,
+        ffn_down: read_proj(&format!("blk.{i}.ffn_down.weight"), n_embd, mlp)?,
+        eh_proj: read_proj(&format!("blk.{i}.nextn.eh_proj.weight"), n_embd, 2 * n_embd)?,
+        enorm: read_norm(&format!("blk.{i}.nextn.enorm.weight"), n_embd)?,
+        hnorm: read_norm(&format!("blk.{i}.nextn.hnorm.weight"), n_embd)?,
+        shared_head_norm: read_opt_norm(&format!("blk.{i}.nextn.shared_head_norm.weight"), n_embd)?,
+        shared_head_head: read_opt_proj(
+            &format!("blk.{i}.nextn.shared_head_head.weight"),
+            vocab,
+            n_embd,
+        )?,
+        embed_tokens: read_opt_proj(&format!("blk.{i}.nextn.embed_tokens.weight"), vocab, n_embd)?,
+    };
+
+    // The q/k per-head norms are [head_dim] broadcast across heads — the
+    // [head_dim] pin above IS the broadcast contract; a per-head-stacked
+    // spelling ([q_dim]) fails LOUD here at admission, not mid-forward.
+
+    eprintln!(
+        "[gguf_loader] MTP draft block admitted: blk.{i} (15-tensor class, {} trailing \
+         tensors in file) — the draft lane consumes it (Issue 1253 T5.1, feature \
+         mtp_draft_block).",
+        census.trailing_tensors,
+    );
+    Ok(block)
+}
+
 ///
 /// Returns `(Config, layer_types)` since `layer_types` is needed during weight loading.
 ///
