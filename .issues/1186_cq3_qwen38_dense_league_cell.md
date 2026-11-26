@@ -184,6 +184,16 @@ The gate loop (r1–r9 + the warning-clean pass, each round a 4090 worktree `car
 - **VERDICT: compile GREEN, zero errors** at `9fa38396` (warm 2.4s)/`0d6d8125` (fresh 13.9s) on the 4090 worktree; the one residual warning is the crate's BUILD SCRIPT compilation, not the lane's code (build.rs untouched by every commit in the arc; no cq3 content in it).
 - Loop-lesson riders: (c) python scripted edits that assert-then-write ABORT before writing on a mid-script assert failure — every half-applied sweep must be re-read from disk before the next edit (two rounds of the sweep landed with earlier hunks silently missing, both caught by the 4090 gate, never by the local default-posture check — the gated module compiles to nothing on macOS); (d) rustfmt AFTER each scripted sweep changes the formatting variants the next script matches — match on stable anchors, never on freshly formatted spans.
 
+## A2g — the UNARMED-compile defect (2026-11-27T02:5x–03:3xZ, reported by zed-a6affa9f i678 T8(b) + the 4090 rig)
+
+**`7ab240dd` broke UNARMED non-macOS builds** — two 4090 windows died exit 3 (34 errors), the riir-train dev-dep chain blocked (plan-514 T2 waiting). Root cause, two classes my gate loop never saw: (1) the `cq3_xn` FIELD was cfg-gated but **42 funnel call sites** reference it ungated (the ignored `x_f32` arg — the reporter named the first 2; the per-site dual-gate is absurd at this scale); (2) the cfg-gated `On` variant left `Cq3RouteRef`'s lifetime parameter unused unarmed (E0392). **My gate loop ran the ARMED posture only — the unarmed non-macOS check was the missing leg** (the macOS preflight cannot see the class: the module is not(macos), so default-features macOS compiles the whole file out).
+
+**The fix `8efe6a88`**: the `cq3_xn` field + alloc UNGATED (unarmed builds pay the ~393 KB alloc and never write it — the writers are all cfg-gated; the field doc carries the defect note); `Cq3Route` gains the unarmed empty struct (`On` exists at both postures, never constructed unarmed); `upload_quant_for`'s route param silenced under cfg-off.
+
+**BOTH-posture gate GREEN on the 4090 worktree at `2ce12e53`**: UNARMED `cargo check -p riir-infer-gpu` Finished 43.09s zero errors (the previously-broken posture); ARMED `--features cq3_cuda` Finished 7.44s zero errors (no regression).
+
+**Standing gate law for this lane (and any not(macos)-gated module):** every gate round runs BOTH postures on the 4090 — armed + unarmed. The armed-only loop is a green-zero over the unarmed class.
+
 ## Refs
 
 - katgpt-rs `.issues/987_cactus_neurips2026_follow_ups.md` lead A3 · Research 657 §A3 · Cactus "Whole-Model Quantization Below 4 Bits Per Weight for On-Device Multimodal Models" (NeurIPS 2026, Mosoyan et al. — title/venue verified on cactuscompute.com/research 2026-11-08; paper-claim numbers ride Research 657's distillation)
