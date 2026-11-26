@@ -1209,6 +1209,11 @@ required-features = ["qwen38_specdec"]
 # forward, --metal). Durable state dir + --resume (T3). Moved from
 # riir-infer-core per the boundary law (the core carries no riir-* deps).
 [[bin]]
+name = "i1253_t3_metal_sanity"
+path = "src/bin/i1253_t3_metal_sanity.rs"
+required-features = ["production"]
+
+[[bin]]
 name = "flashmemory_decode_gate"
 path = "src/bin/flashmemory_decode_gate.rs"
 required-features = ["flashmemory_budget_gate"]
