@@ -70,17 +70,17 @@ use cudarc::driver::safe::{
 /// tail calls). Push with UFCS — `Cq3SliceArg::push_into(x, &mut args)` —
 /// since a trait method can't extend the foreign `LaunchArgs` chain.
 pub trait Cq3SliceArg<T> {
-    fn push_into<'a>(
+    fn push_into<'a, 'b>(
         self,
-        args: &'a mut cudarc::driver::LaunchArgs<'_>,
-    ) -> &'a mut cudarc::driver::LaunchArgs<'_>;
+        args: &'a mut cudarc::driver::LaunchArgs<'b>,
+    ) -> &'a mut cudarc::driver::LaunchArgs<'b>;
 }
 
 impl<'b, T> Cq3SliceArg<T> for &'b CudaSlice<T> {
-    fn push_into<'a>(
+    fn push_into<'a, 'c>(
         self,
-        args: &'a mut cudarc::driver::LaunchArgs<'_>,
-    ) -> &'a mut cudarc::driver::LaunchArgs<'_> {
+        args: &'a mut cudarc::driver::LaunchArgs<'c>,
+    ) -> &'a mut cudarc::driver::LaunchArgs<'c> {
         // SAFETY: the arg impls push the device pointer + sync events (the
         // crate's own unsafe contract, satisfied by construction here).
         unsafe { args.arg(self) }
@@ -88,10 +88,10 @@ impl<'b, T> Cq3SliceArg<T> for &'b CudaSlice<T> {
 }
 
 impl<'b, 'c, T> Cq3SliceArg<T> for &'b CudaView<'c, T> {
-    fn push_into<'a>(
+    fn push_into<'a, 'd>(
         self,
-        args: &'a mut cudarc::driver::LaunchArgs<'_>,
-    ) -> &'a mut cudarc::driver::LaunchArgs<'_> {
+        args: &'a mut cudarc::driver::LaunchArgs<'d>,
+    ) -> &'a mut cudarc::driver::LaunchArgs<'d> {
         // SAFETY: as above.
         unsafe { args.arg(self) }
     }
