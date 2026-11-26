@@ -238,8 +238,10 @@ expressive exactly where the paper says the shared space is a ROTATED view
 mean-displacement coherence ≈ 0 there, Procrustes residual tiny). The paper's
 chaining law (A→B→C ≈ 99% of A→C) also collapses an N² pairwise functor table
 to N rotations into one shared functor space. Upgrade cell filed as
-**riir-ai Issue 1264** (three arms on the module's own existing gate + the
-discriminating rotated-view fixture). The rulewright/consumer half below STAYS
+**riir-ai Issue 1265** (`1265_cross_game_procrustes_estimator_upgrade.md`,
+landed `ff4bfc109`; first filed as 1264 in a shared checkout and renumbered
+after origin independently allocated 1264 — INDEPENDENT dual allocation,
+renumber note in the file). The rulewright/consumer half below STAYS
 thin — grep-confirmed: no embedder-version/seed machinery exists in
 reflex+refine src (one embedder, shared by all corpora), and the determinism
 law (BLAKE3 byte-identity pins on frozen picks) fights an approximate
