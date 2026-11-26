@@ -135,9 +135,33 @@ recall facts and has no subject-token layer; `Ternary-Bonsai-2/2.5` are `qwen35`
   paired-recall floor (the paired pool ≥ the run's min-pairs); a recipient
   whose baseline recall is broken (tokenizer mismatch, rope mis-applied) is a
   REFUSAL naming the phase, never a transfer table.
-- **Download provenance:** the recipient GGUF records source URL + sha256 in
-  the run report (the pre-registered DOWNLOAD step); ungated mirror acceptable;
-  Llama 3.2 Community License noted; local use only.
+- **Download provenance:** the recipient of record is
+  `https://huggingface.co/RichardErkhov/1024m_-_Llama-3.2-3B-Base-gguf`
+  → `Llama-3.2-3B-Base.Q8_0.gguf` (3.42 GB; the straight mirror of the
+  official llama.cpp conversion; sha256 recorded at the run). Disclosed
+  deviation: Q8_0 weights vs the paper's full precision — no F16 BASE GGUF
+  mirror exists (checked 2026-11-26: the only BASE GGUF repos carry quants
+  up to Q8_0; the Instruct F16 mirrors violate the BASE protocol);
+  per-weight 8-bit noise sits ~2 orders below the 15% effect bar, and the
+  activations stay f32 either way — recorded in the run report, never
+  silently. The recipient config carries **llama3 rope_scaling (factor 32,
+  llama3 type)** — the `rope_freqs.weight` loader arm this cell added is
+  load-bearing (the verdict round-1 finding, confirmed at the source
+  config). Llama 3.2 Community License — LOCAL USE ONLY, never a shipped
+  artifact.
+- **Donor side (landed `af50b72`, superseding the "seam pending" note):**
+  the ternary-path capture ALREADY existed — the ternary forward's
+  `layer_capture` tap (the fork's `l_out` snapshot: post-layer residual per
+  layer, copies only when a buffer is supplied, unarmed byte-identical by
+  construction). The harness's P3 = donor body detect (globals-tensor dtype
+  discriminator, sink_audit's law, before any load) → PQ2_0 ternary load →
+  Issue-929 ctx clamp → per-fact prefill with `layer_capture` armed at the
+  subject position (the 22–38% band) → donor greedy-recall paired filter →
+  recipient band capture via the Issue-395 hook. P4 = deterministic
+  70/10/20 split, PCA r=256 per band side, Procrustes per (ℓA, ℓB) combo,
+  VAL-split layer selection. P5 = the test arms + the machinery ceiling +
+  the G1 arithmetic verbatim. The A2-class MUTATE hook on the ternary path
+  stays a named future seam (cost named, not assumed shared).
 - **Arms per pair:** transfer (primary) · controls: identity map, random rotation,
   shuffled donor keys · self-swap ceiling at ℓB · mKNN-selected-layer contrast ·
   **scale-law arm** (spread-match scale vs least-squares scale — if LS ≈ spread,
