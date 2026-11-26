@@ -1512,6 +1512,17 @@ name = "i701_precomp_fit"
 path = "examples/i701_precomp_fit.rs"
 required-features = ["closed_form_write"]
 
+# Issue 1255 T0 — the SNMF group-feature fixture cell (research 695): the
+# capture rides the closed_form_write CaptureSink seam (down-proj input
+# rows = the SwiGLU activations; one prefill, all layers — the
+# spike-code-census bin shape), then semi-NMF (multiplicative Y updates,
+# closed-form ridge Z, hard WTA top-1%) per representative layer + the
+# mixer-type statistics cell. Fixture-tier receipt, never a serving path.
+[[example]]
+name = "snmf_census_cell"
+path = "examples/snmf_census_cell.rs"
+required-features = ["closed_form_write"]
+
 [dev-dependencies]
 # The laya encoder lane — the capture driver's checkpoint source (CPU
 # backend; the capture hook rides the same-named `twt_profile` feature).
