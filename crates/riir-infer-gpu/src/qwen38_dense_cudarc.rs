@@ -4690,7 +4690,7 @@ impl Qwen38DenseForward {
         self.attn
             .launch_output_gate(stream, &self.attn_out, &self.gate, q_dim)
             .map_err(|e| e.to_string())?;
-        self.quantize_x_for(&lw.wo, &self.attn_out, q_dim)?;
+        self.quantize_x_for(lw.wo.as_ref().unwrap(), &self.attn_out, q_dim)?;
         self.gemv_quant(lw.wo.as_ref().unwrap(), &self.attn_out, &self.y)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
