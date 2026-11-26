@@ -460,6 +460,19 @@ sink_audit = [
 # None check on the armed path only.
 grafts_cell = ["katgpt-core/grafts", "deltanet_inference"]
 
+# implants (riir-infer Issue 1256 T1, 2026-11-26): the exact-implant
+# runtime lane — N silent modules over a bounded token-id window (exact
+# read tables → pure-function fire gate → sampling-seam bias writes),
+# per-implant fire counters + demote envs, the A2 monotonic mount (law
+# re-stated, surgical_read_patch precedent). Pure-local opt-in, zero new
+# deps (blake3 in-tree), zero serving-path cost: a default build compiles
+# the module to nothing (the byte-identical-off law). The real-checkpoint
+# decode cells (G1 byte-identity vs the league checkpoint on CUDA) stage
+# behind the next rig-quiet window; the fixture cells (roundtrip, A2 law
+# matrix, silent identity, false-fire, composition, ring bounds) run in
+# the lib tests at this feature.
+implants = []
+
 
 
 # fitted_v_tables (riir-infer Issue 013 T1, 2026-09-28): the model-bound P1
@@ -1440,6 +1453,15 @@ required-features = ["dory"]
 name = "i1221_t4_sampling_gates"
 path = "tests/i1221_t4_sampling_gates.rs"
 required-features = ["dory"]
+
+# riir-infer Issue 1256 T1 — the implant observe path's G4 alloc census
+# (the repo-birth gate discipline: the row rides the SAME commit as the
+# gated target — a missing row is the green-zero trap). Reader protection
+# row: a default build skips the gate loudly.
+[[test]]
+name = "implants_g4_alloc"
+path = "tests/implants_g4_alloc.rs"
+required-features = ["implants"]
 
 # katgpt-rs Issue 999 T3 — the real-corpus R/S lens fit (offline, compute-bound;
 # never a serving path). Compiled only at the lens posture.

@@ -96,6 +96,16 @@ pub mod deltanet;
 #[cfg(feature = "closed_form_write")]
 pub mod closed_form_write;
 
+/// Issue 1256 T1 — the exact-implant runtime lane: N silent modules over a
+/// bounded token-id window (exact read tables → pure-function fire gate →
+/// sampling-seam bias writes), per-implant fire counters + demote envs,
+/// and the A2 monotonic mount (law re-stated, surgical_read_patch
+/// precedent — the grafts probe modality stays katgpt-core's). Gated
+/// wholesale: a default build compiles it to nothing (the byte-identical
+/// -off law); the observe path is zero-alloc (fixture-pinned G4).
+#[cfg(feature = "implants")]
+pub mod implants;
+
 /// The katgpt-rs issue-988 T2b real-activation cell (riir-infer Issue
 /// 1206): the capture seam + the offline graft fit/eval harness over the
 /// dense qwen35-hybrid body. The PRIMITIVE is katgpt-core's (`grafts`,
