@@ -2702,8 +2702,10 @@ pub fn load_weights_gpu(
         };
         match artifact {
             Some(artifact) => {
-                let kernels = crate::qwen38_cq3_cudarc::Cq3CudarcKernels::new(ctx)
-                    .map_err(|e| e.to_string())?;
+                let kernels = std::sync::Arc::new(
+                    crate::qwen38_cq3_cudarc::Cq3CudarcKernels::new(ctx)
+                        .map_err(|e| e.to_string())?,
+                );
                 Some(Cq3Route {
                     artifact,
                     kernels,
@@ -4055,12 +4057,14 @@ impl Qwen38DenseForward {
         if cq3_fed {
             self.cq3_norm_rows(x, gamma, n, eps, p)?;
             let v = &self.verify;
-            // SAFETY: cq3_xn covers p*n; v.xq/xs/xsum are sized for
-            // p*mlp_hidden ⊇ p*n; n*p % 16 == 0 (every site dim is).
+            // SAFETY: cq3_xn holds QWEN38_VERIFY_MAX_P · max(n_embd, d_inner)
+            // ⊇ p·n elements and the kernel reads exactly n = p·n of them
+            // from the base pointer; v.xq/xs/xsum are sized for
+            // p·mlp_hidden ⊇ p·n; n·p % 16 == 0 (every site dim is).
             unsafe {
                 self.dense.launch_quant_x_q8(
                     &self.stream,
-                    &self.cq3_xn.slice(0..p * n),
+                    &self.cq3_xn,
                     &v.xq,
                     &v.xs,
                     &v.xsum,
@@ -4074,10 +4078,12 @@ impl Qwen38DenseForward {
         self.rmsnorm_quant_x_rows(x, gamma, n, eps, p)
     }
 
-    /// The f32 normed rows (`cq3 fallback`): per-row
-    /// `ElementwiseKernels::launch_rmsnorm` into `cq3_xn` — the same norm
-    /// kernel the fused twins derive from, so the f32 the cq3 quantizer
-    /// consumes is bit-identical to what the incumbent path would have read.
+    /// The f32 normed rows (the cq3 boundary fallback): ONE batched per-head
+    /// launch — `[p]` heads of `head_dim = n` — into `cq3_xn`. Whole buffers,
+    /// no views. Disclosed: the batched kernel's per-head reduction order
+    /// differs in the last ulp from the fused twins' single-block
+    /// `rmsnorm_f32` order — the cq3 arm is retention-gated, never a
+    /// bit-identity claim (every cq3 rows site carries the same note).
     #[cfg(feature = "cq3_cuda")]
     fn cq3_norm_rows(
         &self,
@@ -4087,19 +4093,9 @@ impl Qwen38DenseForward {
         eps: f32,
         p: usize,
     ) -> Result<(), String> {
-        for r in 0..p {
-            self.ew
-                .launch_rmsnorm(
-                    &self.stream,
-                    &x.slice(r * n..(r + 1) * n),
-                    gamma,
-                    &self.cq3_xn.slice(r * n..(r + 1) * n),
-                    n,
-                    eps,
-                )
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(())
+        self.attn
+            .launch_rmsnorm_batched(&self.stream, x, gamma, &self.cq3_xn, p, n, eps)
+            .map_err(|e| e.to_string())
     }
 
     /// Whether the Issue-755 fused boundary chain is active (the
@@ -6390,11 +6386,7 @@ impl Qwen38DenseForward {
         self.attn
             .launch_output_gate(stream, &v.attn_out, &v.gate, q_dim * p)
             .map_err(|e| e.to_string())?;
-        // SAFETY: flat buffers, q_dim*p multiple of 16.
-        unsafe {
-            self.dense
-                .launch_quant_x_q8(stream, &v.attn_out, &v.xq, &v.xs, &v.xsum, q_dim * p)
-        }?;
+        self.quantize_x_for(lw.wo.as_ref().unwrap(), &v.attn_out, q_dim * p)?;
         self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.attn_out, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused
@@ -7578,11 +7570,7 @@ impl Qwen38DenseForward {
         self.attn
             .launch_output_gate(stream, &v.attn_out, &v.gate, q_dim * p)
             .map_err(|e| e.to_string())?;
-        // SAFETY: flat buffers, q_dim*p multiple of 16.
-        unsafe {
-            self.dense
-                .launch_quant_x_q8(stream, &v.attn_out, &v.xq, &v.xs, &v.xsum, q_dim * p)
-        }?;
+        self.quantize_x_for(lw.wo.as_ref().unwrap(), &v.attn_out, q_dim * p)?;
         self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.attn_out, &v.y, p)?;
         if !self.res_nq_fused {
             self.ew
@@ -8637,11 +8625,7 @@ impl Qwen38DenseForward {
         self.attn
             .launch_output_gate(stream, &v.attn_out, &v.gate, q_dim * p)
             .map_err(|e| e.to_string())?;
-        // SAFETY: flat buffers, q_dim*p multiple of 16.
-        unsafe {
-            self.dense
-                .launch_quant_x_q8(stream, &v.attn_out, &v.xq, &v.xs, &v.xsum, q_dim * p)
-        }?;
+        self.quantize_x_for(lw.wo.as_ref().unwrap(), &v.attn_out, q_dim * p)?;
         self.gemv_quant_rows(lw.wo.as_ref().unwrap(), &v.attn_out, &v.y, p)?;
         if !self.res_nq_fused {
             // fused path: residual folded into the next site's fused

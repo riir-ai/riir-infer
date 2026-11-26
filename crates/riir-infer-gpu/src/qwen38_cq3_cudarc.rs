@@ -59,7 +59,53 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream};
+use cudarc::driver::safe::{
+    CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, CudaView,
+};
+
+/// The device-buffer arg the CQ3 launchers accept: `&CudaSlice<T>` or a
+/// `&CudaView<T>` (a `CudaSlice::slice()`). Both carry the device pointer +
+/// stream-sync metadata the `LaunchArgs::arg` impls need, and `gemv_decode`/
+/// `gemv_batched` must accept both (whole-buffer decode calls + row-sliced
+/// tail calls). Push with UFCS — `Cq3SliceArg::push_into(x, &mut args)` —
+/// since a trait method can't extend the foreign `LaunchArgs` chain.
+pub trait Cq3SliceArg<T> {
+    fn push_into(
+        self,
+        args: &mut cudarc::driver::LaunchArgs<'_>,
+    ) -> &mut cudarc::driver::LaunchArgs<'_>;
+}
+
+impl<'b, T> Cq3SliceArg<T> for &'b CudaSlice<T> {
+    fn push_into(
+        self,
+        args: &mut cudarc::driver::LaunchArgs<'_>,
+    ) -> &mut cudarc::driver::LaunchArgs<'_> {
+        // SAFETY: the arg impls push the device pointer + sync events (the
+        // crate's own unsafe contract, satisfied by construction here).
+        unsafe { args.arg(self) }
+    }
+}
+
+impl<'b, 'c, T> Cq3SliceArg<T> for &'b CudaView<'c, T> {
+    fn push_into(
+        self,
+        args: &mut cudarc::driver::LaunchArgs<'_>,
+    ) -> &mut cudarc::driver::LaunchArgs<'_> {
+        // SAFETY: as above.
+        unsafe { args.arg(self) }
+    }
+}
+
+impl<'b, 'c, T> Cq3SliceArg<T> for &&'b CudaView<'c, T> {
+    fn push_arg<'a>(
+        self,
+        args: &mut cudarc::driver::LaunchArgs<'a>,
+    ) -> &mut cudarc::driver::LaunchArgs<'a> {
+        // SAFETY: as above.
+        unsafe { args.arg(*self) }
+    }
+}
 
 /// Words per row on the device form: `ceil(d_in·b/32)` (`d_in` is a
 /// multiple of g ≥ 16, b ≤ 8 — exact).
@@ -124,10 +170,10 @@ impl Cq3CudarcKernels {
     /// f32 (else it is a non-empty dummy — a size-0 buffer arg corrupts
     /// the launch, the measured trap).
     #[allow(clippy::too_many_arguments)]
-    pub unsafe fn launch_act_prep(
+    pub unsafe fn launch_act_prep<X: Cq3SliceArg<f32>>(
         &self,
         stream: &CudaStream,
-        x: &CudaSlice<f32>,
+        x: X,
         smooth: &CudaSlice<f32>,
         perm: &CudaSlice<u32>,
         s1: &CudaSlice<f32>,
@@ -148,10 +194,9 @@ impl Cq3CudarcKernels {
         let shared = (g * std::mem::size_of::<f32>()) as u32;
         // SAFETY: caller contract above.
         unsafe {
-            stream
-                .launch_builder(&self.act_prep)
-                .arg(x)
-                .arg(smooth)
+            let args = stream.launch_builder(&self.act_prep);
+            let args = Cq3SliceArg::push_into(x, args);
+            args.arg(smooth)
                 .arg(perm)
                 .arg(s1)
                 .arg(s2)
@@ -176,10 +221,10 @@ impl Cq3CudarcKernels {
     ///
     /// Caller guarantees `xr`/`x8` cover `tokens·d_in`, `s_x` covers
     /// `tokens·groups`.
-    pub unsafe fn launch_quant_x8(
+    pub unsafe fn launch_quant_x8<X: Cq3SliceArg<f32>>(
         &self,
         stream: &CudaStream,
-        xr: &CudaSlice<f32>,
+        xr: X,
         x8: &CudaSlice<i32>,
         s_x: &CudaSlice<f32>,
         g: usize,
@@ -189,10 +234,9 @@ impl Cq3CudarcKernels {
         let (g_i, tokens_i) = (g as i32, tokens as i32);
         // SAFETY: caller contract above.
         unsafe {
-            stream
-                .launch_builder(&self.quant_x8)
-                .arg(xr)
-                .arg(x8)
+            let args = stream.launch_builder(&self.quant_x8);
+            let args = Cq3SliceArg::push_into(xr, args);
+            args.arg(x8)
                 .arg(s_x)
                 .arg(&g_i)
                 .arg(&tokens_i)
@@ -215,7 +259,7 @@ impl Cq3CudarcKernels {
     /// `tokens·d_in`, `s_x` covers `tokens·groups`, `out` covers
     /// `tokens·rows`, and the shared budget is `groups·4` bytes.
     #[allow(clippy::too_many_arguments)]
-    pub unsafe fn launch_gemv_tiled(
+    pub unsafe fn launch_gemv_tiled<Y: Cq3SliceArg<f32>>(
         &self,
         stream: &CudaStream,
         words: &CudaSlice<u32>,
@@ -223,7 +267,7 @@ impl Cq3CudarcKernels {
         c8: &CudaSlice<i32>,
         x8: &CudaSlice<i32>,
         s_x: &CudaSlice<f32>,
-        out: &CudaSlice<f32>,
+        out: Y,
         g: usize,
         b: u32,
         s_c: f32,
@@ -243,15 +287,10 @@ impl Cq3CudarcKernels {
         let shared = (groups * std::mem::size_of::<f32>()) as u32;
         // SAFETY: caller contract above.
         unsafe {
-            stream
-                .launch_builder(&self.gemv_tiled)
-                .arg(words)
-                .arg(scales)
-                .arg(c8)
-                .arg(x8)
-                .arg(s_x)
-                .arg(out)
-                .arg(&g_i)
+            let args = stream.launch_builder(&self.gemv_tiled);
+            args.arg(words).arg(scales).arg(c8).arg(x8).arg(s_x);
+            let args = Cq3SliceArg::push_into(out, args);
+            args.arg(&g_i)
                 .arg(&b_i)
                 .arg(&s_c)
                 .arg(&tokens_i)
@@ -578,11 +617,11 @@ impl Cq3HandleCuda {
     ///
     /// # Errors
     /// Launch failures name the stage loud.
-    pub fn gemv_decode(
+    pub fn gemv_decode<X: Cq3SliceArg<f32>, Y: Cq3SliceArg<f32>>(
         &self,
         stream: &Arc<CudaStream>,
-        x: &CudaSlice<f32>,
-        y: &CudaSlice<f32>,
+        x: X,
+        y: Y,
     ) -> Result<(), String> {
         let mut slot = self.decode_scratch.lock().expect("cq3 scratch lock");
         if slot.is_none() {
@@ -647,11 +686,11 @@ impl Cq3HandleCuda {
     ///
     /// # Errors
     /// Launch / grow failures name the stage loud.
-    pub fn gemv_batched(
+    pub fn gemv_batched<X: Cq3SliceArg<f32> + Copy, Y: Cq3SliceArg<f32> + Copy>(
         &self,
         stream: &Arc<CudaStream>,
-        x: &CudaSlice<f32>,
-        y: &CudaSlice<f32>,
+        x: X,
+        y: Y,
         p: usize,
     ) -> Result<(), String> {
         if p == 1 {
