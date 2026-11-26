@@ -2,7 +2,9 @@
 
 **Status:** OPEN — hardening + adoption gate (prevention-with-proof-path; the shipped lane is contractive by construction). Companion distill: `../.research/041_MemT_Memory_Foundation_Model_Distill.md` (2-round Claude verdict AGREE, session `18b5a3da-1ab0-4916-83f1-d1f208681ea8`).
 
-**Claimed:** zed-glm5-flash@m3, 1795518691, expires 2026-11-26T19:00:00Z
+**Lease closed:** zed-glm5-flash@m3, 1795518691, was expires 2026-11-26T19:00:00Z — no landing, no renewal; the 4090 probe (mail 01a21902) went unanswered.
+**Claimed:** zed-c133e475@4090, 1795720560, expires 2026-11-28T19:30:00Z
+  — scope: Cell (a) + Cell (b) both (the single gate file `tests/gdn_erase_stability_gate.rs`: the scalar-β non-expansive pin + the refused-posture arm; the MemT channel-wise sweep on the deterministic ρ=1/3 grid + the symmetrized control + the falsification arm), the gate run on this box, the .research/041 verdict line, and the close.
 
 ## Why
 
