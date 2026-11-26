@@ -26,14 +26,13 @@ OUT=$W/bout_metal_cell1
 MODELS=$W/models
 LC=$W/llama.cpp
 BF16=$MODELS/Qwen3.8-27B-BF16-00001-of-00002.gguf
-declare -A OURS=(
-  [b1]=$MODELS/Qwen3.8-27B-CQ3-g32-b3-cal-v1.cq3
-  [b2p]=$MODELS/Qwen3.8-27B-CQ3-g32-b3-cal-v2tail.cq3
-)
-declare -A OPP=(
-  [b1]=$MODELS/qwen38-Q3_K-cal-v1-n2048.gguf
-  [b2p]=$MODELS/qwen38-Q3_K-cal-v2tail-n2048.gguf
-)
+# Bash-3.2 constraint: macOS /bin/bash 3.2.57 (and sh posix mode) has no
+# associative arrays and parses [b1] subscripts as arithmetic under set -u.
+# Plain variables + a case dispatch only; no bash-4-isms anywhere.
+OURS_b1=$MODELS/Qwen3.8-27B-CQ3-g32-b3-cal-v1.cq3
+OURS_b2p=$MODELS/Qwen3.8-27B-CQ3-g32-b3-cal-v2tail.cq3
+OPP_b1=$MODELS/qwen38-Q3_K-cal-v1-n2048.gguf
+OPP_b2p=$MODELS/qwen38-Q3_K-cal-v2tail-n2048.gguf
 PREFLIGHT=/Users/katopz/git/riir-reflex/scripts/bench_preflight.sh
 DECODE_STEPS=128
 WALK_N=32
@@ -60,7 +59,7 @@ body_provenance() {
   # GPU-exclusivity probe (the correctness-law probe, recorded beside the rows)
   { echo "gpu-consumers:"; ps aux | grep -iE "python.*aned|powermetrics|mps" | grep -v grep || echo "  none"; } > "$OUT/gpu_probe.txt"
   cat "$OUT/gpu_probe.txt"
-  for f in "$BF16" "${OURS[b1]}" "${OURS[b2p]}" "${OPP[b1]}" "${OPP[b2p]}"; do
+  for f in "$BF16" "$OURS_b1" "$OURS_b2p" "$OPP_b1" "$OPP_b2p"; do
     [ -f "$f" ] || die "missing artifact $f"
   done
   echo "build: $(git rev-parse --short=12 HEAD)"
@@ -87,7 +86,7 @@ body_engagement() {
   echo "[engagement] unarmed incumbent walk (baseline ids)"
   "$BENCH" --gguf "$BF16" --walk-tokens $WALK_N > "$OUT/walk_incumbent.txt" 2>&1 || die "incumbent walk refused"
   echo "[engagement] armed walk (b1)"
-  RIIR_QWEN38_CQ3="${OURS[b1]}" "$BENCH" --gguf "$BF16" --walk-tokens $WALK_N > "$OUT/walk_b1.txt" 2>&1 || die "armed walk refused"
+  RIIR_QWEN38_CQ3="$OURS_b1" "$BENCH" --gguf "$BF16" --walk-tokens $WALK_N > "$OUT/walk_b1.txt" 2>&1 || die "armed walk refused"
   grep -m1 "\[cq3-serving\] RIIR_QWEN38_CQ3 armed" "$OUT/walk_b1.txt" || die "no cq3 construction line — the arm did not route"
   local i1 a1
   i1=$(grep -m1 '\[walk\] ids:' "$OUT/walk_incumbent.txt" || die "no incumbent walk ids")
@@ -101,9 +100,14 @@ body_engagement() {
 body_ours_cells() {
   local BENCH=target/release/qwen38_wgpu_bench
   for arm in b1 b2p; do
+    case $arm in
+      b1) OURS_PATH=$OURS_b1 ;;
+      b2p) OURS_PATH=$OURS_b2p ;;
+      *) die "unknown arm $arm" ;;
+    esac
     for run in a b; do
       echo "[ours] arm=$arm run=$run (one load: pp + decode + decode-ctx + walk)"
-      RIIR_QWEN38_CQ3="${OURS[$arm]}" "$BENCH" --gguf "$BF16" \
+      RIIR_QWEN38_CQ3="$OURS_PATH" "$BENCH" --gguf "$BF16" \
         --pp "$PP_SHAPES" --decode $DECODE_STEPS --decode-ctx 2048 \
         --walk-tokens $WALK_N \
         > "$OUT/ours_${arm}_${run}.txt" 2>&1 || die "ours cell arm=$arm run=$run refused"
@@ -120,8 +124,13 @@ body_ours_cells() {
 
 body_opponent_cells() {
   for arm in b1 b2p; do
+    case $arm in
+      b1) OPP_PATH=$OPP_b1 ;;
+      b2p) OPP_PATH=$OPP_b2p ;;
+      *) die "unknown arm $arm" ;;
+    esac
     echo "[opponent] arm=$arm llama-bench (pp $PP_SHAPES, tg $DECODE_STEPS)"
-    "$LC/build/bin/llama-bench" -m "${OPP[$arm]}" -p "$PP_SHAPES" -n "$DECODE_STEPS" \
+    "$LC/build/bin/llama-bench" -m "$OPP_PATH" -p "$PP_SHAPES" -n "$DECODE_STEPS" \
       -ngl 99 -r 3 -t 8 > "$OUT/opponent_${arm}.txt" 2>&1 || die "llama-bench refused arm=$arm"
     tail -4 "$OUT/opponent_${arm}.txt"
   done
