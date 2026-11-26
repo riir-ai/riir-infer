@@ -43,6 +43,21 @@ Defect caught in-pass (the cell's own stats, fixed before landing): the first ku
 - The capture repeats bit-identically across runs (same corpus file, same window) — the capture digests above are stable artifact identities for T1 (input map + SNMFM1 artifact) and T2 (recursive hierarchy cell) to consume.
 - Amo-side harvest disclosure: no prior census_screen harvest artifact existed on this box (the T0-prep record in the issue); the fresh-capture arm is the disclosed posture. The corpus + window + digests pin it for later re-use.
 
+## T1 addendum (same day, same cell — the input map + readability census + SNMFM1 artifact)
+
+The cell extended with phase F (T1, no SNMF changes — determinism still bit-identical):
+
+| layer | readable features (≥1 wordish top-8 token) | band readable [Q0..Q3] (Y-energy quartiles, 25/band) | SNMFM1 digest |
+|---|---|---|---|
+| 0 deltanet | **92/100** | [18, 24, 25, 25] | `1eab8ead6d6259e867bd3ada4e34f3e1c1c66019460d25c12ce6ce3b09619448` (1,747,331 B) |
+| 3 attention | **90/100** | [19, 22, 24, 25] | `bdb9358e2d4f18c771c3fdc3e52eed457b38db8099bf396889bfafa97dd193ad` (1,747,331 B) |
+
+- The band gradient is the 1250-shape finding: HIGH-Y-energy features carry the cleanest token attribution (Q3 25/25 readable at layer 3, wordish tokens 86 → 128 across bands at layer 3) — the strongest features read best, monotone in 3 of 4 comparisons.
+- Sample maps (top-8 corpus samples per feature, decoded): layer 0 feature 0 = `What | what | AF | y | distribution | istribution | the | the` (interrogative cluster); layer 3 feature 1 = `emissions | of | Sm | negotiated | open | sm | the | ust` (emissions/negotiation topic); layer 3 feature 0 = `MI | EMI | negotiated | or | British` (finance cluster) — ag_news's own topic structure surfacing through Y with ZERO attribution passes, the paper's free-input-map property confirmed on OUR checkpoint.
+- Honest caveat: at 768 news-wire samples the map is LEXICAL/function-word heavy (an `and|and|and…` feature ranks top-8 wordish 8/8 — a pure function-word direction). Semantic feature quality scales with sample diversity + count — a T2/k-sensitivity disclosure, never claimed away.
+- Readability rule pinned in-cell: token wordish = trimmed ≥3 chars, all ASCII alphanumeric or ` -'`; feature readable = ≥1 wordish top-8 token. Bands = Y-row-energy quartiles by rank, band 0 = highest energy.
+- Artifact: `SNMFM1\x01` — header (layer/k/d/n/λ-bits/wta u32s + capture-digest blake3 + corpus-digest blake3) + per-feature support (neuron u32 + z f32-bits) + per-feature top-8 (sample u32 + y f32-bits) + BLAKE3 trailer. z/y ride f32-as-bits (the RDMAP1 precedent, precision disclosed by the version byte). 36×4 + 8×8 bytes per feature row + 60-byte header + 32-byte trailer = 1,747,331 B at k=100, d=3584.
+
 ## Runbook
 
 ```bash

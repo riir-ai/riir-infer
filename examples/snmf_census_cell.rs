@@ -29,6 +29,11 @@
 //!      features-per-neuron overlap), objective trace
 //!   E. determinism tripwire — the SNMF re-runs on the same capture +
 //!      seed; the final Z/Y digest must be bit-identical
+//!   F. T1 input map — Y's per-feature top tokens named against the
+//!      corpus (decode via the GGUF BPE tokenizer), the readability
+//!      census in the 1250 T1 shape (readable-features count + per-band
+//!      rollups over Y-energy quartiles), and the `SNMFM1` artifact
+//!      (canonical bytes + BLAKE3 trailer, digest printed)
 //!
 //! Determinism posture: every cross-cell float reduction folds chunk
 //! partials COLLECTED IN ORDER (rayon `collect` is order-preserving, the
@@ -550,6 +555,74 @@ fn act_stats(rows: &[Vec<f64>]) -> (f64, f64, f64, f64, f64) {
     (mean, std, kurt, nearz_frac, top_share)
 }
 
+/// Top samples named per feature in the input map.
+const TOP_TOKENS_PER_FEATURE: usize = 8;
+
+/// The T1 artifact: `SNMFM1` canonical bytes — header + per-feature
+/// support (neuron u32 + z f32-bits) + per-feature top samples (sample
+/// u32 + y f32-bits) + BLAKE3 trailer over everything before. The layer,
+/// k, d_a, n, lambda, wta and BOTH digests bind the identity; z/y ride
+/// f32-as-bits (the RDMAP1 precedent) — precision loss disclosed by the
+/// version byte.
+#[allow(clippy::too_many_arguments)]
+fn write_snmfm1(
+    path: &std::path::Path,
+    layer: usize,
+    k: usize,
+    d: usize,
+    n: usize,
+    lambda: f64,
+    wta: usize,
+    capture_digest: &str,
+    corpus_digest: &str,
+    z: &[f64],
+    y: &[f64],
+    top: &[Vec<(usize, f64)>],
+) -> Result<String> {
+    use blake3::Hasher;
+    let mut b = Vec::new();
+    b.extend_from_slice(b"SNMFM1\x01");
+    b.extend_from_slice(&(layer as u32).to_le_bytes());
+    b.extend_from_slice(&(k as u32).to_le_bytes());
+    b.extend_from_slice(&(d as u32).to_le_bytes());
+    b.extend_from_slice(&(n as u32).to_le_bytes());
+    b.extend_from_slice(&lambda.to_bits().to_le_bytes());
+    b.extend_from_slice(&(wta as u32).to_le_bytes());
+    let cap = blake3::hash(capture_digest.as_bytes());
+    b.extend_from_slice(cap.as_bytes());
+    let cor = blake3::hash(corpus_digest.as_bytes());
+    b.extend_from_slice(cor.as_bytes());
+    for v in z {
+        b.extend_from_slice(&(*v as f32).to_bits().to_le_bytes());
+    }
+    for v in y {
+        b.extend_from_slice(&(*v as f32).to_bits().to_le_bytes());
+    }
+    for t in top {
+        for (s, v) in t {
+            b.extend_from_slice(&(*s as u32).to_le_bytes());
+            b.extend_from_slice(&(*v as f32).to_bits().to_le_bytes());
+        }
+    }
+    let mut h = Hasher::new();
+    h.update(&b);
+    let trailer = h.finalize();
+    b.extend_from_slice(trailer.as_bytes());
+    std::fs::write(path, &b).with_context(|| format!("write {}", path.display()))?;
+    Ok(trailer.to_hex().to_string())
+}
+
+/// The 1250-T1-shape readability rule, pinned: a decoded token is WORD-ish
+/// when its trimmed text is >= 3 chars and every char is ASCII
+/// alphanumeric or one of ` -'`; a FEATURE reads readable when >= 1 of its
+/// top-8 tokens is word-ish.
+fn token_is_wordish(text: &str) -> bool {
+    let t = text.trim();
+    t.chars().count() >= 3
+        && t.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '\'')
+}
+
 fn main() -> Result<()> {
     let args = parse_args()?;
     if !args.corpus.exists() {
@@ -787,9 +860,16 @@ fn main() -> Result<()> {
         );
     }
 
-    // Phases C+D+E: SNMF on the two representative layers + determinism.
+    // Phases C+D+E+F: SNMF on the two representative layers + determinism
+    // + the T1 input map + artifact.
     let reps = [first_dn, first_at];
     let mut receipt = String::new();
+    let tok = BpeTokenizer::from_gguf(&probe).context("BPE tokenizer from gguf (T1)")?;
+    let decoded: Vec<String> = seq.iter().map(|&t| tok.decode(&[t])).collect();
+    println!(
+        "# T1: {} window samples named (corpus decode ready)",
+        decoded.len()
+    );
     receipt.push_str(&format!(
         "# Issue 1255 T0 — SNMF group-feature fixture cell receipt\n\n\
          - model: {} (layers={n_layers} n_embd={} mlp={mlp})\n\
@@ -910,6 +990,89 @@ fn main() -> Result<()> {
             );
         }
 
+        // ── T1: the input map — Y's per-feature top tokens ──
+        let k = snmf.k;
+        let n = snmf.n;
+        let mut top_samples: Vec<Vec<(usize, f64)>> = Vec::with_capacity(k);
+        let mut input_map_lines = String::new();
+        let mut readable_features = 0usize;
+        let mut y_energy: Vec<(f64, usize)> = Vec::with_capacity(k);
+        for j in 0..k {
+            let row = &snmf.y[j * n..(j + 1) * n];
+            let mut ord: Vec<(f64, usize)> = row
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(s, v)| (v, s))
+                .collect();
+            ord.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+            let tops: Vec<(usize, f64)> = ord
+                .iter()
+                .take(TOP_TOKENS_PER_FEATURE)
+                .map(|&(v, s)| (s, v))
+                .collect();
+            y_energy.push((row.iter().sum::<f64>(), j));
+            let toks: Vec<String> = tops
+                .iter()
+                .map(|&(s, _)| decoded[s].trim().to_string())
+                .collect();
+            let n_wordish = toks.iter().filter(|t| token_is_wordish(t)).count();
+            if n_wordish > 0 {
+                readable_features += 1;
+            }
+            input_map_lines.push_str(&format!(
+                "  - feature {j}: {} (wordish {n_wordish}/{})\n",
+                toks.join(" | "),
+                toks.len()
+            ));
+            top_samples.push(tops);
+        }
+        // Per-band rollup over Y-energy quartiles (sorted by row energy,
+        // quartile membership by index; band 0 = highest energy).
+        y_energy.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let q = (k / 4).max(1);
+        let mut band_readable = [0usize; 4];
+        let mut band_wordish_tokens = [0usize; 4];
+        for (rank, &(energy, j)) in y_energy.iter().enumerate() {
+            let band = (rank / q).min(3);
+            let _ = energy;
+            let row_tops = &top_samples[j];
+            let n_wordish = row_tops
+                .iter()
+                .map(|&(s, _)| usize::from(token_is_wordish(decoded[s].trim())))
+                .sum::<usize>();
+            band_wordish_tokens[band] += n_wordish;
+            if n_wordish > 0 {
+                band_readable[band] += 1;
+            }
+        }
+        println!(
+            "# T1 input map: {readable_features}/{k} features readable (>=1 wordish top token) | band readable [Q0..Q3] = {band_readable:?}/{k} per band of {q} | band wordish tokens {band_wordish_tokens:?}"
+        );
+        for line in input_map_lines.lines().take(6) {
+            println!("# {line}");
+        }
+
+        // ── T1 artifact: SNMFM1 ──
+        std::fs::create_dir_all(&args.out)
+            .with_context(|| format!("mkdir {}", args.out.display()))?;
+        let art_path = args.out.join(format!("snmfm1_layer{layer}.bin"));
+        let art_digest = write_snmfm1(
+            &art_path,
+            layer,
+            k,
+            snmf.d,
+            n,
+            args.lambda,
+            snmf.wta,
+            &c.capture_digest,
+            &corpus_digest,
+            &snmf.z,
+            &snmf.y,
+            &top_samples,
+        )?;
+        println!("# SNMFM1: {} ({})", art_path.display(), art_digest);
+
         let (first_it, first_r) = trace.first().copied().unwrap_or((0, f64::NAN));
         let (last_it, last_r) = trace.last().copied().unwrap_or((0, f64::NAN));
         receipt.push_str(&format!(
@@ -919,7 +1082,10 @@ fn main() -> Result<()> {
              - objective trace: it {first_it} → {last_it} ({first_r:.4} → {last_r:.4})\n\
              - support: {} neurons/feature | union {} | features-per-neuron max {max_overlap} mean {mean_overlap:.2}\n\
              - determinism: bit-identical re-run ({det})\n\n\
-             ### support sample\n{support_sample}\n",
+             - readable features: {readable_features}/{k} | band readable [Q0..Q3] = {band_readable:?}\n\
+             - artifact: SNMFM1 {art_digest}\n\n\
+             ### support sample\n{support_sample}\n\
+             ### input map (top-8 samples per feature)\n{input_map_lines}\n",
             snmf.wta,
             union.len(),
             mix = c.mixer,
