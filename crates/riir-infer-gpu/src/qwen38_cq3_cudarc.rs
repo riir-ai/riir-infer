@@ -137,10 +137,12 @@ impl Cq3CudarcKernels {
         groups: usize,
     ) -> Result<(), String> {
         let inv = 1.0f32 / (g as f32).sqrt();
-        // Fixed-size array, never a Vec: `[T; N]` is the DeviceRepr shape
-        // the launcher accepts (a Vec does not implement it) and the hot
-        // path stays alloc-free.
-        let params: [f32; 4] = [g as f32, smooth_len as f32, inv, tokens as f32];
+        // Scalar-arg shape (the dense module's proven one): ONE scalar per
+        // `.arg`, `&i32`/`&f32` push their own bytes. An ARRAY reference
+        // would push its 8-byte HOST address — pointer-sized, so the
+        // launch's size check passes and the kernel dereferences a stack
+        // address on the device (the measured A2v2c illegal-access class).
+        let (g_i, smooth_len_i, tokens_i) = (g as i32, smooth_len as i32, tokens as i32);
         let shared = (g * std::mem::size_of::<f32>()) as u32;
         // SAFETY: caller contract above.
         unsafe {
@@ -152,7 +154,10 @@ impl Cq3CudarcKernels {
                 .arg(s1)
                 .arg(s2)
                 .arg(out)
-                .arg(&params)
+                .arg(&g_i)
+                .arg(&smooth_len_i)
+                .arg(&inv)
+                .arg(&tokens_i)
                 .launch(LaunchConfig {
                     grid_dim: (groups as u32, tokens as u32, 1),
                     block_dim: (32, 1, 1),
@@ -179,7 +184,7 @@ impl Cq3CudarcKernels {
         tokens: usize,
         groups: usize,
     ) -> Result<(), String> {
-        let params: [f32; 2] = [g as f32, tokens as f32];
+        let (g_i, tokens_i) = (g as i32, tokens as i32);
         // SAFETY: caller contract above.
         unsafe {
             stream
@@ -187,7 +192,8 @@ impl Cq3CudarcKernels {
                 .arg(xr)
                 .arg(x8)
                 .arg(s_x)
-                .arg(&params)
+                .arg(&g_i)
+                .arg(&tokens_i)
                 .launch(LaunchConfig {
                     grid_dim: (groups as u32, tokens as u32, 1),
                     block_dim: (32, 1, 1),
@@ -223,16 +229,15 @@ impl Cq3CudarcKernels {
         groups: usize,
         rows: usize,
     ) -> Result<(), String> {
-        // `f32::from(u32)` does not exist — a widening `as` cast, exact
-        // for the b ≤ 8 domain.
-        let params: [f32; 6] = [
-            g as f32,
-            b as f32,
-            s_c,
-            tokens as f32,
-            groups as f32,
-            rows as f32,
-        ];
+        // Scalar-arg shape (see launch_act_prep) — b rides as i32, so the
+        // f32 round trip the old params array needed is gone entirely.
+        let (g_i, b_i, tokens_i, groups_i, rows_i) = (
+            g as i32,
+            b as i32,
+            tokens as i32,
+            groups as i32,
+            rows as i32,
+        );
         let shared = (groups * std::mem::size_of::<f32>()) as u32;
         // SAFETY: caller contract above.
         unsafe {
@@ -244,7 +249,12 @@ impl Cq3CudarcKernels {
                 .arg(x8)
                 .arg(s_x)
                 .arg(out)
-                .arg(&params)
+                .arg(&g_i)
+                .arg(&b_i)
+                .arg(&s_c)
+                .arg(&tokens_i)
+                .arg(&groups_i)
+                .arg(&rows_i)
                 .launch(LaunchConfig {
                     grid_dim: (rows as u32, tokens as u32, 1),
                     block_dim: (1, 1, 1),
@@ -278,12 +288,8 @@ extern "C" __global__ void cq3_act_prep(
     const float* __restrict__ s1,
     const float* __restrict__ s2,
     float* __restrict__ out,
-    const float* __restrict__ params)
+    const int g, const int smooth_len, const float inv, const int tokens)
 {
-    const int g = (int)params[0];
-    const int smooth_len = (int)params[1];
-    const float inv = params[2];
-    const int tokens = (int)params[3];
     const int grp = blockIdx.x;
     const int pos = blockIdx.y;
     const int d_in = gridDim.x * g;
@@ -312,10 +318,8 @@ extern "C" __global__ void cq3_quant_x8(
     const float* __restrict__ xr,
     int* __restrict__ x8,
     float* __restrict__ s_x,
-    const float* __restrict__ params)
+    const int g, const int tokens)
 {
-    const int g = (int)params[0];
-    const int tokens = (int)params[1];
     const int grp = blockIdx.x;
     const int pos = blockIdx.y;
     const int groups = gridDim.x;
@@ -353,14 +357,8 @@ extern "C" __global__ void cq3_gemv_tiled(
     const int* __restrict__ x8,
     const float* __restrict__ s_x,
     float* __restrict__ out,
-    const float* __restrict__ params)
+    const int g, const int b, const float s_c, const int tokens, const int groups_in, const int rows)
 {
-    const int g = (int)params[0];
-    const int b = (int)params[1];
-    const float s_c = params[2];
-    const int tokens = (int)params[3];
-    const int groups_in = (int)params[4];
-    const int rows = (int)params[5];
     const int row = blockIdx.x;
     const int pos = blockIdx.y;
     if (row >= rows || pos >= tokens) return;
@@ -372,14 +370,18 @@ extern "C" __global__ void cq3_gemv_tiled(
     const unsigned int mask = ((unsigned int)b >= 32u)
         ? 0xFFFFFFFFu
         : ((1u << (unsigned int)b) - 1u);
-    const size_t row_word0 = (size_t)row * (size_t)((d_in * b + 31) / 32);
+    // The row's FIRST BIT position: row·d_in·b — the row offset is in
+    // BITS (the per-row WORD count mixed into this bit-space shift read
+    // row 1+ from the wrong words: in-bounds, so parity-only — the
+    // A2v2c read).
+    const size_t row_bit0 = (size_t)row * (size_t)(d_in * b);
 
     for (int grp = 0; grp < groups_in; grp++) {
         int acc = 0;
         for (int m = 0; m < g; m++) {
-            const size_t pos_w = row_word0 + (size_t)(grp * g + m) * (size_t)b;
-            const size_t w = pos_w >> 5;
-            const unsigned int off = (unsigned int)(pos_w & 31u);
+            const size_t pos_b = row_bit0 + (size_t)(grp * g + m) * (size_t)b;
+            const size_t w = pos_b >> 5;
+            const unsigned int off = (unsigned int)(pos_b & 31u);
             unsigned int pv = words[w] >> off;
             if (off + (unsigned int)b > 32u) {
                 pv |= words[w + 1] << (32u - off);
