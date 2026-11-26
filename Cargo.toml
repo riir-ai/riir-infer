@@ -839,6 +839,22 @@ required-features = ["ternary_q8_act", "bonsai2_hadamard"]
 name = "bonsai2_rotation_load"
 required-features = ["bonsai2_hadamard"]
 
+# Issue 1253 T2 — the MTP-twin load-census gates (synthetic): the declared
+# class loads with the draft block excluded + the disclosure; the undeclared
+# class refuses loud (the Issue-742 declare-or-refuse law); a clean file
+# keeps an empty census (the no-false-positive arm). Requires the ternary
+# chain (implies deltanet_inference — both cfg arms of the census compile).
+[[test]]
+name = "mtp_twin_load_gates"
+required-features = ["deltanet_ternary_inference"]
+
+# Issue 1253 T2 — the real-file census gate over the 2.5 -mtp twin (skip
+# loud when the file is absent; the full-load proof arm rides --ignored at
+# release, minutes + ~2 GiB host RAM).
+[[test]]
+name = "mtp_twin_real_file"
+required-features = ["deltanet_ternary_inference"]
+
 # Issue 028 T1/T2 — the disaggregated container + phase-handoff battery
 # (same-weights byte-identity through the phase split, boundary-freshness
 # negative control, one-file `.pf` container, escape-set + compat refusals).

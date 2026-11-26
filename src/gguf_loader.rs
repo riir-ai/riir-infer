@@ -2417,6 +2417,14 @@ pub fn load_qwen_deltanet_ternary_from_gguf_scoped(
     let scope = scope(&config);
     scope.validate(n_layer).map_err(anyhow::Error::msg)?;
 
+    // Issue 1253 T2 — the MTP-twin census. The config path already excludes
+    // the trailing nextn blocks from the main stack (n_main); these checks
+    // make the LOAD side say so: a file carrying block tensors at indices
+    // >= n_main either declares them (loud disclosure — this load does not
+    // honor the draft head) or refuses (undeclared — the Issue-742 garbage
+    // class: the block would be typed and consumed as a main layer).
+    mtp_census_gate(gguf)?;
+
     // Issue 980 (T1): a file declaring prism.hadamard must be honored or
     // refused LOUDLY. Without the bonsai2_hadamard feature we cannot apply
     // the rotation, so a folded file refuses here instead of producing
@@ -2611,6 +2619,154 @@ pub fn load_qwen_deltanet_ternary_from_gguf_scoped(
 
     Ok((config, weights))
 }
+// ── Issue 1253 T2 — the MTP-twin census helpers ───────────────────────────
+
+/// The trailing-block index of a tensor name: `blk.64.nextn.eh_proj.weight`
+/// names block 64; non-block names yield `None`.
+#[cfg(feature = "deltanet_inference")]
+fn tensor_block_index(name: &str) -> Option<usize> {
+    let rest = name.strip_prefix("blk.")?;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse::<usize>().ok()
+    }
+}
+
+/// True when the tensor name carries the MTP draft-head component
+/// (`blk.{n_main}.nextn.*` — eh_proj/enorm/hnorm/shared_head_norm and
+/// friends). The main-stack name sets never contain a `nextn` component.
+#[cfg(feature = "deltanet_inference")]
+fn tensor_is_nextn(name: &str) -> bool {
+    name.split('.').any(|c| c == "nextn")
+}
+
+/// The typed MTP-twin census (Issue 1253 T2): what a qwen35 GGUF carries
+/// beyond its main stack, derived from the header + tensor table only —
+/// never a weight read. The two loader classes ground on it:
+/// declare-or-refuse (the undeclared class refuses loud) and loud
+/// disclosure (the declared class loads, naming what it does not honor).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MtpTwinCensus {
+    /// `qwen35.nextn_predict_layers` as declared (0 = absent).
+    pub declared_nextn: usize,
+    /// The main-stack count: `block_count − declared_nextn`.
+    pub n_main: usize,
+    /// Tensors at block indices >= `n_main` (the trailing block(s)).
+    pub trailing_tensors: usize,
+    /// Highest trailing block index, if any.
+    pub highest_block: Option<usize>,
+    /// Tensors carrying a `nextn` name component. Nonzero together with
+    /// `declared_nextn == 0` is the UNDECLARED class — the file carries a
+    /// draft head the config path does not know about, so the trailing
+    /// block would be typed and consumed as main-stack layers (the
+    /// Issue-742 T9.2 garbage class).
+    pub nextn_names: usize,
+    /// First trailing tensor name, if any (the census sample).
+    pub sample: Option<String>,
+}
+
+impl MtpTwinCensus {
+    /// The declare-or-refuse predicate. Clean files are vacuously covered.
+    /// Two uncovered shapes: `nextn_names > 0` with `declared_nextn == 0`
+    /// (undeclared draft head), and a highest trailing block at or beyond
+    /// `n_main + declared_nextn` (the declaration does not cover the file).
+    pub fn covered(&self) -> bool {
+        if self.nextn_names > 0 && self.declared_nextn == 0 {
+            return false;
+        }
+        match self.highest_block {
+            None => true,
+            Some(h) => h < self.n_main + self.declared_nextn,
+        }
+    }
+
+    /// The typed refusal message for an uncovered census (the load path
+    /// bails with this — never a silent partial load).
+    pub fn refusal(&self) -> String {
+        if self.nextn_names > 0 && self.declared_nextn == 0 {
+            return format!(
+                "GGUF carries {n} MTP draft-head tensor(s) named `nextn.*` (e.g. '{sample}') but declares no qwen35.nextn_predict_layers — the trailing block would be typed and loaded as main-stack layers (structurally valid names, semantically garbage). Declare nextn_predict_layers or use a file without the draft head — refusing (Issue 1253 T2, the Issue-742 declare-or-refuse law)",
+                n = self.nextn_names,
+                sample = self.sample.as_deref().unwrap_or("?"),
+            );
+        }
+        format!(
+            "GGUF carries {count} tensor(s) at block indices >= {n_main} (highest blk.{highest}, e.g. '{sample}') but qwen35.nextn_predict_layers = {declared} does not cover them — the trailing block(s) would be typed and loaded as main-stack layers (structurally valid names, semantically garbage). Fix the declaration or the file — refusing (Issue 1253 T2, the Issue-742 declare-or-refuse law)",
+            count = self.trailing_tensors,
+            n_main = self.n_main,
+            highest = self.highest_block.unwrap_or(0),
+            sample = self.sample.as_deref().unwrap_or("?"),
+            declared = self.declared_nextn,
+        )
+    }
+}
+
+/// The census itself — a header + tensor-table read, never a weight read.
+#[cfg(feature = "deltanet_inference")]
+pub fn mtp_twin_census(gguf: &GgufFile) -> MtpTwinCensus {
+    let declared_nextn = gguf
+        .metadata_u64("qwen35.nextn_predict_layers")
+        .unwrap_or(0) as usize;
+    let n_main = (gguf.metadata_u64("qwen35.block_count").unwrap_or(24) as usize)
+        .saturating_sub(declared_nextn);
+    let mut highest: Option<usize> = None;
+    let mut trailing = 0usize;
+    let mut nextn_names = 0usize;
+    let mut sample: Option<String> = None;
+    for info in &gguf.tensor_infos {
+        let name = info.name.as_str();
+        if tensor_is_nextn(name) {
+            nextn_names += 1;
+            if sample.is_none() {
+                sample = Some(info.name.clone());
+            }
+        }
+        if let Some(idx) = tensor_block_index(name)
+            && idx >= n_main
+        {
+            trailing += 1;
+            if highest.is_none_or(|h| idx > h) {
+                highest = Some(idx);
+            }
+            if sample.is_none() {
+                sample = Some(info.name.clone());
+            }
+        }
+    }
+    MtpTwinCensus {
+        declared_nextn,
+        n_main,
+        trailing_tensors: trailing,
+        highest_block: highest,
+        nextn_names,
+        sample,
+    }
+}
+
+/// Issue 1253 T2 — the load-path census gate: an uncovered census refuses
+/// (never a silent partial load); a covered one with trailing tensors
+/// discloses ONCE, loudly, naming what stays for the MTP lane. A clean
+/// census prints nothing. Lives on the TERNARY cfg: its only callers are
+/// the ternary load path (the inference-only posture compiles it out).
+#[cfg(feature = "deltanet_ternary_inference")]
+fn mtp_census_gate(gguf: &GgufFile) -> Result<(), anyhow::Error> {
+    let census = mtp_twin_census(gguf);
+    if !census.covered() {
+        anyhow::bail!("{}", census.refusal());
+    }
+    if census.declared_nextn > 0 && census.trailing_tensors > 0 {
+        eprintln!(
+            "[gguf_loader] MTP-twin file: {count} draft-head tensor(s) at block              indices >= {n_main} are present but NOT consumed by this main-stack              load (qwen35.nextn_predict_layers = {declared}); the draft head              stays for the MTP lane (Issue 1253 T5).",
+            count = census.trailing_tensors,
+            n_main = census.n_main,
+            declared = census.declared_nextn,
+        );
+    }
+    Ok(())
+}
+
 ///
 /// Returns `(Config, layer_types)` since `layer_types` is needed during weight loading.
 ///

@@ -1,7 +1,7 @@
 # Issue 1253: Bonsai-2.5 league adoption — follow-up cells
 
 **Status:** Open — filed 2026-11-25 with the retarget landing (riir-infer Research 043)
-**Claimed:** zed-77b3f327@m3, 1795623876, expires 2026-11-27T16:24:36Z
+**Lease closed:** zed-77b3f327@m3, 1795623876, was expires 2026-11-27T16:24:36Z — T1 landed with the filing; the routing note stands (T2–T6 unclaimed per-box).
 **Lane routing (not part of the claim):** T1 rides this commit; T2–T6 are unclaimed work — route to amo/bmo/4090 per box law
 
 **Claimed:** zed-c133e475@4090, 1795706388, expires 2026-11-28T15:20:00Z
