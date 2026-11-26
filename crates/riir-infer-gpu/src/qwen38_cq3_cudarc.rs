@@ -590,7 +590,7 @@ impl Cq3HandleCuda {
     ) -> Result<(), String> {
         let mut slot = self.decode_scratch.lock().expect("cq3 scratch lock");
         if slot.is_none() {
-            let grown = self.grow_scratch(stream, 1)?;
+            let grown = self.grow_scratch(1)?;
             slot.insert(grown);
         }
         let s = slot.as_ref().expect("cq3 decode scratch grown above");
@@ -664,7 +664,7 @@ impl Cq3HandleCuda {
         let mut slot = self.batch_scratch.lock().expect("cq3 scratch lock");
         let cached = matches!(slot.as_ref(), Some((cached_p, _)) if *cached_p == p);
         if !cached {
-            let grown = self.grow_scratch(stream, p)?;
+            let grown = self.grow_scratch(p)?;
             slot.insert((p, grown));
         }
         let s = &slot.as_ref().expect("cq3 batch scratch grown above").1;
@@ -718,15 +718,20 @@ impl Cq3HandleCuda {
     }
 
     /// Grow a p-token scratch (rotated f32 + staged i32 + scales f32).
-    fn grow_scratch(&self, stream: &Arc<CudaStream>, p: usize) -> Result<Cq3DecodeScratch, String> {
+    /// Allocations land on the CONTEXT (`alloc_zeros` is a `CudaContext`
+    /// method — the A2g read); the slices launch on the caller's stream.
+    fn grow_scratch(&self, p: usize) -> Result<Cq3DecodeScratch, String> {
         let groups = self.groups();
-        let x_rot = stream
+        let x_rot = self
+            .ctx
             .alloc_zeros::<f32>(p * self.d_in)
             .map_err(|e| format!("cq3 scratch x_rot: {e}"))?;
-        let x8 = stream
+        let x8 = self
+            .ctx
             .alloc_zeros::<i32>(p * self.d_in)
             .map_err(|e| format!("cq3 scratch x8: {e}"))?;
-        let s_x = stream
+        let s_x = self
+            .ctx
             .alloc_zeros::<f32>(p * groups)
             .map_err(|e| format!("cq3 scratch s_x: {e}"))?;
         Ok(Cq3DecodeScratch { x_rot, x8, s_x })
