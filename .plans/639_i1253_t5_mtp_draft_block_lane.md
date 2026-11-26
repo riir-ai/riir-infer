@@ -3,6 +3,7 @@
 - [ ] Plan 639 — slices T5.1–T5.5 below; measured cells pre-registered here, executed in quiet windows only.
 
 **Status:** FILED 2026-11-26 (session zed-i1253t3@amo, epoch 1795719635) — the lane breakdown for `.issues/1253` T5; claim slices individually, this plan is not a claim.
+**Progress:** T5.1 + T5.2 LANDED 2026-11-27 (`a3b455cd` + `fbf10fe3`, zed-ecba9366@amo) — the typed admission + the CPU reference forward, synthetic gates green; T5.3 (the drafter seat) + T5.4/T5.5 (the measured cells, quiet-window-only) remain unclaimed.
 **Depends:** T2 (loader tolerance — LANDED `5d1e2cf`, Bench 1271) + T3 (model verified — cheap half LANDED `dc90cdaa`, Bench 1272; 4090 parity arm open with the GPU lane).
 
 ## The target (what T5 consumes)
@@ -36,23 +37,33 @@ filed-and-parked like 1207.
 
 ## Slices
 
-- [ ] **T5.1 — the draft block's typed admission** (`riir-infer-core`, opt-in feature
-  `mtp_draft_block`): a typed `MtpDraftBlock` load alongside the main stack — parse the
-  15 `blk.{n_main}.nextn.*` + block-norm tensors into the struct (dequant Q4_0 → the
-  runtime's working precision, the same tolerance the main stack uses), extend
-  `MtpTwinCensus` with a `draft_admitted` class (declared + admitted loads BOTH the main
-  stack and the block; the disclosure line changes from "stays for the MTP lane" to
-  "admitted to the draft lane"), feature-off byte-identical (the T2 census gate is the
-  default posture; the feature arms the second read). Synthetic-gate battery: declared
-  admits (typed fields pinned), undeclared still refuses, missing-tensor refuses loud
-  (a file declaring layers but carrying a partial block is the torn-twin class).
-- [ ] **T5.2 — the draft forward (CPU reference first)**: one nextn block step —
-  `enorm`/`hnorm` + `eh_proj` compose the block input from (prev hidden, prev token
-  embed), the block runs attention (own KV over draft positions) + FFN, then
-  `shared_head_norm` + the main lm_head produce draft logits. Bit-parity law: the CPU
-  reference is the oracle (the reference-keeps-the-job law); the G1 target the issue
-  names — integer base-3 collapse verify — pins the draft-block math against the
-  whitepaper §6's Lean-exact kernel precedent (the fold-order laws ride Issue 940).
+- [x] **T5.1 — the draft block's typed admission** (`riir-infer-core`, opt-in feature
+  `mtp_draft_block`, LANDED 2026-11-27 `a3b455cd`): a typed `MtpDraftBlock` load alongside the main stack —
+  the 15 `blk.{n_main}` tensors parsed into the struct (real names + geometry pinned from the actual 2.5
+  MTP twin header 2026-11-27: 11 attention/FFN tensors under the STANDARD main-layer names + 4
+  `nextn.*`; attn_q [5120 × 12288] = the Issue-594 q‖gate concat, eh_proj [10240 × 5120], per-head
+  norms [256]; Q4_0 dequant through the loader's existing arm — never a second decoder),
+  `MtpTwinCensus::draft_admittable` (declared + covered + trailing > 0), per-tensor shape pins vs
+  config, torn-twin refuses LOUD naming the tensor, feature-off compiles to nothing (the T2 census
+  gate is the default posture). Synthetic-gate battery `mtp_draft_block_gates` 6/6: declared admits
+  (shapes pinned + the Q4_0 round-trip EXACT at the fixture's f16-exact scale), torn/clean/shape
+  refusals, undeclared census; the real-file arm rides `MTP_GGUF` (SKIPs loud without the twin).
+- [x] **T5.2 — the draft forward (CPU reference)**: LANDED 2026-11-27 `fbf10fe3` —
+  `src/mtp_draft.rs` `mtp_draft_step` mirrors the fork's `graph_mtp`: wte row inverse-rotated to
+  primal (the latent-lookup law), concat(enorm(embed), hnorm(h)) → eh_proj (primal in/out — the
+  real twin's draft tensors carry ZERO hadamard weight_names entries, header-verified 2026-11-27),
+  gated attention over the block's OWN KVCache (Issue-594 q‖gate split, per-head q/k norms,
+  partial RoPE, GQA), post-attn norm → SwiGLU → residual anchored on the SAVED pre-norm value,
+  head = shared_head_norm (else output_norm) normed on a COPY → forward-rotated → folded lm_head
+  matvec (the `ternary_lm_head_into` mirror; `shared_head_head` present refuses loud — the dense
+  arm is T5.4). The BASIS CONTRACT pinned in the module doc: the residual stream is PRIMAL (folds
+  apply D·H at each folded matmul's input; the hidden variant returns the rotated head-basis copy
+  — the caller recovers with `rotate_inverse_inplace`, the Issue-1111 recipe). TWO real bugs the
+  compose-order probe caught + fixed pre-landing: the FFN residual anchor (norming h_prev in place
+  without the pre-norm save fed the NORMED value into the final add) and the head norm destroying
+  the caller's h_draft. Gates `mtp_draft_step_gates` 3/3 + the `--ignored` real teacher-forced arm
+  (`MTP_GGUF`, bar (a) ≥ 0.4353 = the 924 prior): end-to-end determinism bit-identical ×2,
+  primal-vs-rotated basis observable, enorm-first/hnorm-second compose order.
 - [ ] **T5.3 — the drafter seat**: `MtpDraftBlockDrafter` as a `DraftSource` over the
   typed block; K presets map to the card cells (K=3 + min-prob 0.10 = the NVIDIA card;
   K∈1..8 = the Apple card); greedy-draft by default (the acceptance harness's teacher
