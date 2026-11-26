@@ -70,17 +70,17 @@ use cudarc::driver::safe::{
 /// tail calls). Push with UFCS — `Cq3SliceArg::push_into(x, &mut args)` —
 /// since a trait method can't extend the foreign `LaunchArgs` chain.
 pub trait Cq3SliceArg<T> {
-    fn push_into(
+    fn push_into<'a>(
         self,
-        args: &mut cudarc::driver::LaunchArgs<'_>,
-    ) -> &mut cudarc::driver::LaunchArgs<'_>;
+        args: &'a mut cudarc::driver::LaunchArgs<'_>,
+    ) -> &'a mut cudarc::driver::LaunchArgs<'_>;
 }
 
 impl<'b, T> Cq3SliceArg<T> for &'b CudaSlice<T> {
-    fn push_into(
+    fn push_into<'a>(
         self,
-        args: &mut cudarc::driver::LaunchArgs<'_>,
-    ) -> &mut cudarc::driver::LaunchArgs<'_> {
+        args: &'a mut cudarc::driver::LaunchArgs<'_>,
+    ) -> &'a mut cudarc::driver::LaunchArgs<'_> {
         // SAFETY: the arg impls push the device pointer + sync events (the
         // crate's own unsafe contract, satisfied by construction here).
         unsafe { args.arg(self) }
@@ -88,22 +88,12 @@ impl<'b, T> Cq3SliceArg<T> for &'b CudaSlice<T> {
 }
 
 impl<'b, 'c, T> Cq3SliceArg<T> for &'b CudaView<'c, T> {
-    fn push_into(
+    fn push_into<'a>(
         self,
-        args: &mut cudarc::driver::LaunchArgs<'_>,
-    ) -> &mut cudarc::driver::LaunchArgs<'_> {
+        args: &'a mut cudarc::driver::LaunchArgs<'_>,
+    ) -> &'a mut cudarc::driver::LaunchArgs<'_> {
         // SAFETY: as above.
         unsafe { args.arg(self) }
-    }
-}
-
-impl<'b, 'c, T> Cq3SliceArg<T> for &&'b CudaView<'c, T> {
-    fn push_arg<'a>(
-        self,
-        args: &mut cudarc::driver::LaunchArgs<'a>,
-    ) -> &mut cudarc::driver::LaunchArgs<'a> {
-        // SAFETY: as above.
-        unsafe { args.arg(*self) }
     }
 }
 
@@ -287,8 +277,8 @@ impl Cq3CudarcKernels {
         let shared = (groups * std::mem::size_of::<f32>()) as u32;
         // SAFETY: caller contract above.
         unsafe {
-            let args = stream.launch_builder(&self.gemv_tiled);
-            args.arg(words).arg(scales).arg(c8).arg(x8).arg(s_x);
+            let mut builder = stream.launch_builder(&self.gemv_tiled);
+            let args = builder.arg(words).arg(scales).arg(c8).arg(x8).arg(s_x);
             let args = Cq3SliceArg::push_into(out, args);
             args.arg(&g_i)
                 .arg(&b_i)
