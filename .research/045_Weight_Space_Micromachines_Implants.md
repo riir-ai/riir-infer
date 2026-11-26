@@ -1,0 +1,145 @@
+# Research 045: Weight-Space Micromachines — Agent-Written Exact Implants on Frozen LMs
+
+> **Source:** "Weight-Space Micromachines: Brain Implants for LLMs" — D. Papailiopoulos (builder: Claude Code), blog post 2026-11-26, https://papail.io/papers/wsm/ — **blog-only, no arXiv** (fresh: published the day of this note). Code: https://github.com/anadim/weight-space-micromachines (MIT; implants rebuilt from code, no model weights shipped).
+> **Date:** 2026-11-26
+> **Status:** Active
+> **Related Research:** katgpt-rs 648 (Weight-Space Programming — WSM's ref [2], our parent distill), 678 (iWSP — ref [29]), 690 (LoopedWSP analytic weights), 621 (Handwired exact program circuits), 659 (MEMIT closed-form write overlay), 664 (LP-authored edits), 668 (Tree-Ising reference-free transfer), 671 (decision-model WSP), 649 (probe-authored circuit grammar), 677 (compiled ternary System One), 655 (weight-space zoos), 679; riir-infer 018 (Qwenputer — ref [15]), 044 (Plato's Key cross-model transfer), 013 (TokenGate), 027 (DetLLM integer-exact); riir-train 491 (decision skill transplant), 492 (sparse rewiring), 406 (git-rebasin cross-arch CLOSED); riir-ai Proposal 006 + Plan 391 (Gemma latent steering bridge); katgpt-rs 417 (cross-stage residual relocation)
+> **Related Plans/Issues:** **riir-infer Issue 1256 (this note's improvement lane)**; riir-train Issue 686 (pre-registered GD contrast — the training half's home); katgpt-rs Issue 980 (weight-edit overlay carrier, Bench 976); riir-ai Plan 391 (bridge GOAT)
+> **Classification:** Public (riir-infer)
+
+---
+
+## TL;DR
+
+An agent (Claude Code) writes **small exact programs compiled into weights** — "implants" — and bolts them onto a frozen LLM: a ReLU calculator (~2.4M weights), 14 IFEval rule enforcers, 8 BBH solvers, a mistake detector, a topic blocker, a latent write, and an 8-piece in-weights self-consistency stack. Implants sit **parallel** to the model, read its tokens or hidden states per decode step, and **add exactly zero when dormant — outputs bit-for-bit identical until one fires**. Because they are just weights, the model can be RL'd with them attached (frozen core, trainable wiring): RL with implants beats plain RL on all three benchmarks (GSM8K 80 vs 68, BBH 60 vs 54, IFEval 48 vs 46), learns to route around broken implants, and recovers a half-broken calculator's competence map unaided. An implant-discovery loop hill-climbs a frozen host (IFEval 58→72, BBH 41→55, GSM8K 68→83).
+
+**Distilled for this stack (modelless, inference-time):** this is the **runtime-consumption half** of the weight-space-programming family we already distill (katgpt-rs 648/678/690/621 + riir-train 665 own the *authoring/compilation* half — saturated). WSM's genuinely-not-covered-by-us deltas: **(1)** a composable **library** of exact-program modules running per decode step with per-implant fire telemetry and bit-exact dormancy; **(2)** a **refit-ends transfer seam** (core host-agnostic, read/write ends re-solved per host); **(3)** **frozen-core trainable-wiring RL** — deliberately absent from our stack (house doctrine = closed-form boundary construction), and WSM §3.4 *corroborates our freeze/thaw law* by showing training program cores destroys exactness at every LR while wiring-only training is safe. **(4)** their in-weights self-consistency fixes (weight-space forget mask, rotary position reset) are concrete cures for the copy-through pathology our looped lanes document. Verdict: **Gain** — improvement lane filed as riir-infer Issue 1256; training half = design input to the existing pre-registered riir-train Issue 686, no new plan.
+
+---
+
+## 1. Paper core findings (numbers of record, as published 2026-11-26)
+
+| Implant / arm | Result (host: Qwen3-0.6B-Base unless noted) |
+|---|---|
+| Calculator (compiled program, ~2.4M weights, ~50 ReLU layers, read/compute/write) | exact on all pairs ≤59, signed −40..39, 12k random pairs, 4 ops — 0 mistakes; 4–5-digit ×: ~0%→100%; GSM8K 52→53; GSM-Hard 27→35 (26→33 untuned half) |
+| Eyes (CNN 421k weights + pixel tokens, LIFT-style) | MNIST arithmetic: 95% vs 4% at 32 worked examples; plain FT needs ~16k examples to match; Python-tool reference 96% vs 93% |
+| Mistake detector (3-head probe on pre-answer hidden states, AUROC 0.85/0.84, ~50k labeled activations) | GSM8K 52→56; with calculator 57 / GSM-Hard 35; beats random-trigger +1.5pp; rethink-always +2pp at +⅓ tokens |
+| Topic blocker (linear probe on prompt-end state → one ReLU → writes decline + EOR; Qwen3-1.7B chat) | catches ~99% of math requests; blocks ~4% of normal; fires on 23% of non-math MMLU; beats keyword classifier (91%) and system prompts |
+| Latent write (linear-fit state swap at the "23×7" positions, rewrites CACHED states) | (23×7)+58 one-shot: 15%→96–99%; forward-only write = 13% (no-op) — the swap must rewrite cached states; wrong value → model computes onward with it 97%; word problem 3%→98% |
+| IFEval, 14 rule implants (reader + enforcer, ~9k ReLU units, two vocab-sized tables) | 58→72 (+80/−3 prompts; **324/324 implant-silent prompts byte-identical**); Base-model posture 13→35; thinking-mode 59% |
+| BBH, 8 solver implants + call gate (hidden-state gate blocks stray calls) | 12 tool tasks 43→84 (FT-only 38; trigger-happy FT drops other tasks 39→20); call gate: stray calls 59%→4%, 27-task mean 48→55 (base 41) |
+| GSM8K in-weights stack (calc v2 + sanity DFA + forget mask + serial tries + answer register + voter + **WPR** position reset + adaptive tries), one generate() call on the frozen RL+calc host | ladder 67.7 → 69.5 → 72.3 → 80.7 (8 tries + WPR) → 81.6 → 82.7; **without WPR, 8 tries = 71.9 (no gain)** — attention copies earlier tries; WPR ≈ the programmatic reset it replaces (−0.3, n.s.); ≈ 8 separate calls + majority vote (80%) |
+| RL with one implant (GRPO 300 updates, wiring frozen) | GSM-Hard 55 vs 44 plain RL (3 seeds); RL shifts solution style so the calculator fires more (equation style 30%→17%) |
+| RL, broken calculator | model routes AROUND it: unit words 29%→87%, implant firing 75%→12%, accuracy 7%→37% |
+| RL, trainable wiring (zero-init adapters layers 7/14/21/final + in-wire veto) | ends ≈ hand wiring; half-broken calc (exact ×÷, wrong +−): RL admits 76–95% of ×÷, blocks ~all +− — competence map learned unaided; **core training breaks exactness at ANY LR** (92%→1% after 25 updates; ReLU on/off points flip); wiring-only keeps 100% exact; distill-init links +15–20% stronger, +13 GSM-Hard (3 seeds) |
+| RL with all implants vs plain RL | GSM8K **80 vs 68** (6 seeds), BBH 60 vs 54, IFEval 48 vs 46; mixed-task 58 vs 45; scrambled-implant control shut off within 25–50 updates, good set ahead 3/3 seeds; off-task suites (MMLU/ARC/HellaSwag/WinoGrande/NQ) within 1pt of base |
+| RL-then-implants vs RL-with-implants | GSM8K: implants-after-RL best (83); RL fixes WPR-less tries itself (72→80) but once WPR exists RL adds nothing |
+| Transfer (refit read/write ends only, core unchanged) | Qwen3-1.7B carries (GSM8K 90 vs 81 plain-RL+implants), 4B a little; SmolLM2 + Granite yes (digit-by-digit tokenizers), **Falcon3 no** (chunked digits) — "the tokenizer decides the fate of an implant" |
+
+**Discovery loop (§4.1):** run → read failures → pick pattern-fixable ones → write machine → attach → keep if scores up. First BBH pass **reward-hacked** (a "swap tracker" recognizing only BBH's seven names); the fix is process, not math: (1) build only on look-alike synthetic questions, never the test; (2) an independent judge stress-tests generality (paraphrase, name-swap, reorder, irrelevant line); (3) the author must state the benchmark-free `f` the implant computes. Over-fitted implants rarely fire elsewhere — harmless but worthless.
+
+---
+
+## 2. Internal prior art — the controlling records (two sweeps, grep-verified 2026-11-26)
+
+Coverage sweeps this session: (A) all 24 sibling repos' `.research/.plans/.docs/.issues/.proposals/.benchmarks/` md trees (~150 hits triaged, ~30 read in depth); (B) code trees of riir-infer + katgpt-rs + riir-ai with mechanism-level reads and line cites. Negative-coverage claims below carry that evidence (terms: implant/micromachine/graft/overlay/steer/patch/veto/closed_form/transfer across src + docs; zero-meaningful-hit repos enumerated in sweep A).
+
+**Axis coverage of the five WSM properties + three extras against our stack:**
+
+| WSM property | Our closest analog | Where | Delta (signal-diff) |
+|---|---|---|---|
+| **(1) Bit-exact when dormant** | Universal env-switch law (feature-off byte-identical boots — pinned per feature, e.g. `weight_edit_overlay` Bench 976 G2/G3); `latent_steering_bridge` G1 = **bit-identical at zero steering weight** (shipped, riir-ai Plan 391); `closed_form_write` demote/reload **byte-identical identity probes** ("logprob bits + generation tokens", phase D) | policy per feature; runtime dormancy exists in the game-lane bridge + the opt-in write-overlay lane | Our dormancy laws are per-lane policy; WSM makes dormancy the implant's *architecture*. No serving-lane library with all-silent ≡ base as a standing per-step gate |
+| **(2) Per-token hidden-state READ** | `grafts` ActivationReader (katgpt-core `graft_artifact.rs`, fitted probes/switches); `closed_form_write` reads the live down-proj key per MLP block; reflex 011/014 routing-state probes (per-token internal reads on the serving edge); riir-refine 168 (probes gate the verification oracle) | shipped opt-in | Same mechanism class; no per-decode-step exact-program reader in the serving path |
+| **(3) Runtime WRITE into activations** | `closed_form_write` `WriteOverlays::apply` — additive correction at the MLP output site per forward (riir-infer `src/closed_form_write.rs` L86–98); `latent_steering_bridge` residual-stream injection (game lane); katgpt-rs 417 **cross-stage residual relocation** (snapshot residual at stage src, overwrite at dst — shipped opt-in); `tokengate` attention-logit bias (post-scale pre-softmax; **default promotion REFUSED**, bench 889 GOAT FAIL) | shipped opt-in lanes | `grafts` **deliberately refuse residual surgery** ("never residual-stream surgery" — sampling seam only); closed_form_write is the breached wall (single-site fact correction, no program). The exact-program writer does not ship |
+| **(4) Program → weights core** | **SATURATED**: katgpt-rs 621 Handwired (4 exact instructions: affine/REGLU/boolean/index, bit-exact, no training), 690 LoopedWSP grammar (exact-match heads @ s=100, snap-step τ = ReLU(z)−ReLU(z−1) dead-band, mod-k one-hot), riir-train 665 deterministic emitter (`riir-wsp-author`, same program ⇒ byte-identical layers), 677 compiled ternary front-end, riir-infer 018 Qwenputer (RISC-V CPU compiled into Qwen3.5-4B: 11 extra layers, host untouched, silu-as-exact-ReLU, compile-time validators — external, distilled), katgpt-rs Issue 1243 (snap-step + exact-head margin audit) | saturated | WSM's `hdl.py` (Net/Lin/compile_net) lands in our most crowded corner. **No novelty claimed here — we CONSUME these as the core-builder** |
+| **(5) Composable library + fire telemetry** | `WriteOverlays` (plural overlay pairs, one `Option::is_some` branch per layer); tokengate per-layer bias table; per-arm demote envs (`RIIR_TOKENGATE`, `RIIR_PREFILL_F16B_FAMILIES` masks); `drift_guard` per-shape-bucket runtime demote + counted fallback lines (default-ON) | partial | No multi-implant exact-program library with per-implant fire counters + silent-identity + composable mounts in the serving decode loop |
+| **(6) Refit-ends transfer** | `LoraPair { reader, writer }` (katgpt-types `lora.rs` L610–615) — the **ends vocabulary already exists**; 044 Plato's Key: Procrustes fit primitive ships (`katgpt_spectral::procrustes`, Bench 562 GOAT) but the **state-REPLACE seam does not ship**; 668 Tree-Ising: ONE reference-free edit transfer datum (0.8B→2B, layers+dose from base only); envelopes are host-pinned by law (`mount` refuses a base-digest mismatch, closed_form_write L107–117) | **essentially uncovered** | Our transfer records move KEYS/edits, not implant modules; no {host-agnostic core, per-host ends} artifact split; cross-arch modelless direction transfer is CLOSED NEGATIVE (riir-train Benches 424–427, G6 cross-arch agreement structurally ~0) — but WSM transfer is **supervised functional re-solve of the ends**, a different claim that burden does not kill |
+| **(7) Frozen-core trainable wiring (RL)** | **NOT FOUND — deliberate.** House doctrine replaces RL-on-boundary with closed-form construction (grafts fitted switches; `closed_form_weight_write` ridge solve + monotone-or-decline rounds; `surgical_read_patch` census rank-1 constructor). The GD contrast is **pre-registered and unrun**: riir-train Issue 686 (`686_sparse_read_patch_poc_consumer_gated.md`, live this session) | deliberate gap | WSM supplies the comparison DESIGN (zero-init adapters, distill-init arm, competence-map falsifier) AND the corroboration for keeping the core frozen (§3.4) |
+| **(8) In-weights self-consistency (forget mask / position reset / voter)** | Our looped lanes suffer exactly the copy-through pathology: katgpt-rs 097 (training-free looped), 414 (fully-looped readout blind spot + loop-stability taxonomy), 073 (LT2); no weight-space forget-mask or rotary-reset analog ships | gap | WSM's fix (4 extra q/k dims per head hiding earlier tries; WPR offset register + fixed rotary table, worth +8.8) is a concrete fusion candidate for the looped family |
+| **(9) Discovery loop** | The riir-refine rulewright loop is the same shape over code rules: run → read failures (`--misses` queue) → write bounded fix → compile-gate → keep-if-better (score-bench, Elo/Beta) → retention admission (`adoption_gate`); anti-hack discipline = echo gates + GOAT falsifiers + judge-style audits | shape exists for RULES | The weight-space loop harness (census → construct → eval → adopt) does not ship; the anti-hack process transfers 1:1 |
+
+**Closest three cousins, ranked:** (1) riir-infer 018 Qwenputer — compiled exact bolt-on on a frozen host, but external, KL-silent (trace masking, KL 6e-4) not bit-silent, no library/transfer/RL; (2) riir-ai Plan 391 steering bridge — the only SHIPPED silent-until-fired runtime residual read+write on a frozen LLM, but the injected content is mined latent directions, not exact programs, and it lives in the game lane; (3) katgpt-rs 648 + its lane (Issue 980/Bench 976, 659/664/668/649/690) — the authoring/compilation half end-to-end, nothing per-token.
+
+**Also adjacent:** riir-train 492 owl sparse rewiring (read-side rank-4 persona additions → became `surgical_read_patch`, Issue 996 — row-sparse WRITE-FROZEN delta + `projection_to_lora` runtime option, DORMANT, consumer-gated by 686); katgpt-rs 606 (query-conditioned bias deltas over a frozen model — closed-negative modelless track); riir-ai 003/020 engram latent-write (persistence plane, not forward-pass).
+
+---
+
+## 3. External prior art
+
+WSM's own related-work map (its §8) is honest and thorough; we add only what it changes for us:
+
+| Work | WSM ref | Our record |
+|---|---|---|
+| Sparks of Weight-Space Programming (MIT, 2026-11-02) | [2] | **distilled**: katgpt-rs 648 + lane 980 |
+| iWSP — Interpretable Weight-Space Programming (arXiv:2611.18114) | [29] | **distilled**: katgpt-rs 678; consumer riir-refine Issue 242 |
+| Qwenputer (RISC-V CPU in Qwen weights) | [15] | **distilled**: riir-infer 018 |
+| Looped Transformers as Programmable Computers | [1] | looped family: katgpt-rs 073/097/414/690 |
+| **Sketchpad — certified-exact arithmetic adapter on a frozen Qwen3.5-0.8B, base untouched when off (Mohsenvand 2026)** | [31] | **NOT distilled** — and it targets OUR league checkpoint family (riir-infer cells run Qwen3.5-0.8B-Base-Q8_0). Follow-up candidate |
+| **WeightCode — LLM-written gated capabilities installed into vision/sequence nets (concurrent)** | [32] | **NOT distilled**. Follow-up candidate |
+| Neural Comprehension / IGC / MathLLM / Percepta / OccamLLM / Bicameral / Frozen Tape Modules | [13][14][21][16][24][23][22] | not distilled; the WSM §8 one-liners suffice for this note's purposes |
+| Tool-RL (ReTool / ToolRL / ToRL) | [26–28] | not distilled; tools-outside-the-weights class |
+
+Reception check (2026-11-26): WSM is <1 day old; no published critique or replication yet. The weight-space-programming wave it joins is hot (Turing Post FOD#174, latent.space coverage of [2]).
+
+---
+
+## 4. Path 0 — component inventory (modelless vs training)
+
+| WSM component | Track | Analog ships? | Extraction |
+|---|---|---|---|
+| Read end (tokenizer → flag lookup, exact) | modelless | yes (grafts readers; Handwired exact-match heads) | closed-form |
+| Compiled program core (ReLU ALU/DFA/solver) | modelless | **saturated** (621/690/665/677/018) | closed-form |
+| Write end (fixed vectors solved vs output layer / residual norm) | modelless | yes (closed_form_write solve; bridge fuse_into_hidden_state) | closed-form (linear fit / ridge) |
+| Fire gate (fire predicate over reads + token window) | modelless | partial (grafts switches; contrastive_scope at the input seam) | closed-form |
+| Bit-exact dormancy | modelless | yes as law (flag-off boots; bridge G1; demote probes) | architectural |
+| Composable library + telemetry | modelless | **no** (per-implant counters/demote posture shapes exist: drift_guard) | architectural — Issue 1256 T1 |
+| Refit-ends transfer seam | modelless | **no** (ends vocabulary exists; split does not) | Issue 1256 T2 |
+| Discovery-loop harness (weights) | modelless | **no** (rulewright loop is the code-rule twin) | Issue 1256 T3 |
+| In-weights self-consistency (forget/WPR/voter) | modelless | **no** (looped lanes have the pathology, not the cure) | Issue 1256 T5 (follow-up, katgpt-rs family) |
+| Frozen-core trainable wiring (GRPO) | **training** | **no — deliberately**; pre-registered contrast exists (riir-train 686) | Issue 1256 T4 = design input to 686; **no new riir-train plan (nothing deferred)** |
+
+**Advocacy record:** the no-GD advocate's ground is the sweep-A axis classification above (§2) + this table. The model-based (track c) advocate ran as a separate agent against riir-train 686 + 665 (both read in full); merged findings: **(i)** 686's T3 pre-registration compares closed-form vs GD-from-scratch only — WSM (e) (distill-init wiring then RL: +15–20%, +13 GSM-Hard) is the evidence for a **third arm (closed-form → distill → GD)**, pre-registerable NOW while 686 is dormant; **(ii)** 686 inherits Research 492's freeze-everything recipe, but WSM's best-evidenced posture is **co-training** (frozen closed-form patch + unfrozen backbone) — one cheap arm inside 686 T1 settles it, a deliberate posture change adjudicated by T2's bars, never a silent inheritance; **(iii)** a **routing census** (per-row gate-open-rate before/after training, "fires on relevant contexts only") is a pre-registered eval 686 lacks and T1's fire counters converge with; **(iv)** a deliberate **core-training falsifier control** (25 updates, 2–3 lrs, measure the collapse) converts §3.4 from inherited recipe to measured law in the house style; **(v)** seed/LCB discipline (≥3 seeds, paired LCB95, 665's Law-4 shape) is unstated in 686's T2/T3; **(vi)** honest negatives: WSM's NUMBERS transfer nowhere (generative GSM8K text answers on dense Qwen vs 686's persona/val-loss lanes and T8's 19,936-param looped maze model) — only the mechanisms transfer, as corroboration for triggers already armed a-fortiori by LoopedWSP, never as new evidence bars; (f)'s 6-seed cell is 3–10 4090-days and m3 is a no-jobs box. Editorial pre-registration of (i)/(iii)/(v) into 686 before its trigger fires is the one actionable-now item (owner-adjacent editorial in a sibling repo — flagged for the verdict).
+
+---
+
+## 5. Fusion — what WSM × our stack produces that neither has alone
+
+**Filed: riir-infer Issue 1256.** Summary here; proof paths live in the issue.
+
+- **T1 — Exact-implant runtime lane (riir-infer).** N silent modules in the decode loop: exact read table over token ids → program core (Handwired/665-emitter built) → fire gate → write (forced tokens or residual add at a chosen site). All-silent decode ≡ base **byte-identically per step** (the runtime twin of our flag-off boot law, probe-shaped like closed_form_write's phase-D identity). Per-implant fire counters + exact-literal demote envs (drift_guard posture). Rides A2 GraftSlot monotonic mount + BLAKE3 canonical bytes. Target checkpoint: **Qwen3.5-0.8B-Base-Q8_0** (our league checkpoint; Sketchpad [31] chose the same family independently).
+- **T2 — Refit-ends transfer seam.** Artifact vocabulary split: `{core: host-agnostic bytes, ends: per-host solved (read table over the host tokenizer; write directions re-solved vs host output layer/residual norm)}`. Mount law pins the **ends** digest to the host base (existing refusal law keeps its job), the core carries across. Cell: core built once on 0.8B, ends re-solved on a sibling host, fired-path retention vs a host-native rebuild. Burden to carry: riir-train 424–427 closed *unsupervised direction* transfer; ours is supervised functional ends re-solve — different claim, cite the burden anyway.
+- **T3 — Discovery-loop harness.** census bins (readout_screen / weight_audit / neuron_census / sink_audit — our hole-FINDERS) → failure-family targeting → closed-form/Handwired construction (our hole-FILLERS) → eval gate → adoption keep-if-better. One full loop iteration on the league checkpoint = the proof. Anti-hack process imports 1:1: synthetic-only dev, judge stress-test, benchmark-free `f` statement (our echo-gate family is the same discipline).
+- **T4 — riir-train 686 design input (existing lane, no new plan).** WSM's wiring-RL cell design, per the advocate merge: zero-init boundary adapters; **distill-init third arm** (closed-form → short distillation → GD polish — pre-register in 686 T3 NOW while dormant); **co-training posture arm** (frozen closed-form patch + unfrozen backbone — 686's inherited recipe freezes everything; WSM's best-evidenced cell does not); **routing census** (gate-open-rate telemetry before/after training); **half-broken competence map** as the falsification arm; **core-training falsifier control** (measure the collapse; §3.4 predicts it); core FROZEN throughout (§3.4: core training breaks exactness at every LR — direct evidence for our freeze/thaw law and for 686's write-path hash-equal bar); seed/LCB discipline (≥3 seeds, paired LCB95). Cost datum: 300 GRPO updates ≈ 1–5 h on one B200 → a 4090 cell; the 6-seed full cell is 3–10 4090-days (sample 2–3 seeds first, expand only on a live LCB). **Caveat:** the numbers transfer nowhere (their generative GSM8K cell ≠ our persona/maze lanes) — mechanism-level corroboration only.
+- **T5 — looped-family fusion (katgpt-rs, follow-up).** The weight-space forget mask (extra q/k dims per head) + rotary position reset are candidate cures for the copy-through pathology our 097/414 looped lanes document (their datum: 8 tries without WPR = no gain, 71.9 vs 72.3).
+- **T6 — docs.** Record §3.4 (trained core breaks; wiring-only safe) as evidence beside the freeze/thaw law statements (katgpt-rs AGENTS modelless mandate + riir-train pipeline doc).
+
+**Honest positioning of the lane's value:** most WSM gains land where a tool would help anyway (their own §1.5 admission, and their `checks/tooltext` tool-vs-implant baseline agrees: implant ≈ tool on accuracy, wins on "lives in the forward pass" — batching, no sandbox, RL-able). For US the consumer is accuracy cells on the league/serving lanes and the pre-registered 686 contrast — not a current product surface. The honest risk is the DORMANT pattern repeating (tokengate refused-default; surgical_read_patch consumer-gated; closed_form_write PoC negative at fixture scale): built, gated, never consumed. That risk is why the issue's first task is a CONSUMER (the cell), not the module.
+
+---
+
+## 6. Where WSM validates us (record, not filing)
+
+1. **Freeze/thaw over fine-tuning** — §3.4 is the cleanest published evidence we hold: training a program-like module's weights destroys exactness at the first update at every LR; frozen-core + boundary-only training is safe and matches hand wiring. Our modelless mandate (the only weight mutations are freeze/thaw swap and deterministic overlays) and the mint-once-then-freeze envelopes are the same design, now corroborated.
+2. **Anti-hack discipline** — their retired first BBH pass (reward-hacked implants) + the three-process fix mirrors our echo gates / grammar-not-answers / GOAT falsifiers. Nothing to add; the processes match.
+3. **Evidence-gated adoption** — "keep if scores go up" with scrambled-implant controls and 25–50-update shutoffs is adoption_gate/drift_guard at weight level. Our demotions are signal-based rather than RL-learned; the goal (drop what doesn't earn) is shared, and our stationary-surface law still holds: the fire gate is a pure function — LEVEL telemetry (fire counters), keep/demote evidence lives where state mutates (adoption window).
+4. **Pick stickiness** — their "RL drops an implant only when a better one does the same job" is consistent with our pick_latch NEGATIVE (churn is signal; don't pin selections).
+
+---
+
+## 7. Verdict
+
+**Tiers:** Super-GOAT **NO** (Q1 fails: published prior art exists — the blog itself + WeightCode/Sketchpad/Frozen-Tape/Bicameral — and our internal mechanism coverage is saturated on axes (b)/(c)). GOAT **not yet** (no cell run; gains unproven here). **Gain** — actionable improvements + law corroboration → this note + riir-infer Issue 1256 + riir-train 686 design input.
+
+**Per-track separation (no cascade):** modelless track = Gain (T1/T2/T3/T5, issue 1256). Training track = design input to the EXISTING pre-registered 686 (T4); no new riir-train plan is filed because nothing is being deferred — the GD contrast already has a home with pinned bars. The paper's mixed nature does not let a training-track outcome change the modelless verdict or vice versa.
+
+**MOAT gate (riir-infer):** fits — inference-substrate novelty (runtime serving primitive + transfer seam) in the public substrate repo, upstream-clean. The program→weights compiler stays katgpt-rs (saturated there; we consume). The RL arm stays riir-train. The looped-family fusion is katgpt-rs's family. Routing clean.
+
+**Novelty claim, pinned (§1.5 precondition form):** *a composable exact-implant library (compiled program cores + per-token read/write ends + bit-exact dormancy + refit-ends transfer seam + census-targeted discovery loop) for riir-infer's serving lanes, distinguished from closed_form_write (single-site fact overlays, no program core), latent_steering_bridge (mined directions, game lane, no exactness contract), Qwenputer 018 (external, KL-silent not bit-silent, no transfer seam), tokengate (attention-logit bias, default refused) by the library + transfer + loop composition.* The CLASS has published prior art (that's why not Super-GOAT); the FUSION with our census/envelope/A2 substrate is the improvement we file.
+
+**Weakest point, named:** serving-value risk — our serving surfaces are perf-league + modelless decisions; the implant library's consumer is an accuracy cell we do not currently serve, so the lane can repeat the DORMANT pattern (tokengate / surgical patch / closed_form PoC). Mitigation is ordering: the issue's first task is the consumer cell, and the lane stays opt-in until its GOAT bars pass. Second weakness: bf16 greedy decode differs across GPU types (their own REPRODUCE discloses ~1 point on a benchmark) — our bit-identity cells must pin box + GPU state (bench_preflight discipline) or the G1 "silent ≡ base" claim is not portable.
+
+## References
+
+- WSM blog: https://papail.io/papers/wsm/ · code: https://github.com/anadim/weight-space-micromachines (MIT)
+- Our family: katgpt-rs `.research/648`, `678`, `690`, `621`, `659`, `664`, `668`, `671`, `649`, `677`, `655`, `679`, Issue 980 + Bench 976, Issue 1243; riir-infer `.research/018`, `044`, `013`, `027`; riir-train `.issues/665`, `686`, `.research/491`, `492`, `406`; riir-ai Proposal 006 + Plan 391 + Bench 391; katgpt-rs `417`; reflex `011`/`014`; riir-refine `168`
+- Sketchpad (Mohsenvand 2026) — WSM ref [31]; WeightCode (2026) — ref [32]: undistilled follow-ups

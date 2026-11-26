@@ -3,7 +3,7 @@
 
 > **Sources:** blog <https://divagr.com/blog/qwenputer> (2026-10-22) · model card <https://huggingface.co/divagr1925/Qwen3.5-4B-Qwenputer> (Apache-2.0; ModelScope mirror `Spartan1925/Qwen3.5-4B-Qwenputer`) · code `divagr18/qwenputer` **@ `ca13310e2f9f788d1dd3feeea8213c1b0c23913c`** (MIT, shallow clone in `.raw/qwenputer`, removed post-verdict; quotes re-verified at this pin). Author: Divyansh Agrawal (`@software{agrawal2026qwenputer}`, v0.2.0).
 > **Date:** 2026-10-29
-> **Related Research:** katgpt-rs 621 (Handwired — exact compiled circuits; the law-set cousin), katgpt-rs 229 (ProgramAsWeights — the symbolic-first verdict), katgpt-rs 074 (Subterranean — training-based compilation, the opposite pole), katgpt-rs 575 (dQwen3.5 — the Qwen3.5 GDN-hybrid arch twin), katgpt-rs 070 (Gated DeltaNet 2), **this repo 007 (Triadic GDN — the GDN lane's state-capacity intel)**
+> **Related Research:** katgpt-rs 621 (Handwired — exact compiled circuits; the law-set cousin), katgpt-rs 229 (ProgramAsWeights — the symbolic-first verdict), katgpt-rs 074 (Subterranean — training-based compilation, the opposite pole), katgpt-rs 575 (dQwen3.5 — the Qwen3.5 GDN-hybrid arch twin), katgpt-rs 070 (Gated DeltaNet 2), **this repo 007 (Triadic GDN — the GDN lane's state-capacity intel)**, riir-infer 045 (WSM implants — the agent-authored exact side-module descendant of this bolt-on class, 2026-11-26)
 > **Related Issues:** riir-infer Issue 1155 (`gdn_exact_slot_scratchpad_poc` — filed this session); katgpt-rs Issue 940 (float reduction-order determinism law — the fold-order constraint the POC inherits)
 > **Classification:** Public
 
