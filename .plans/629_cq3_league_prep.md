@@ -1,6 +1,8 @@
 # Plan 629 — CQ3 league prep cycle (issue 1186 T2b: matched-calibration harness + opponent arm)
 
-**Status:** IN PROGRESS — T2b opponent half queued; ours half (capture seam + quantize driver) next cycle.
+**Status:** CLOSED-NEGATIVE 2026-11-28 — the lane closed before this plan's remaining boxes: the T3 Metal bout falsifier FIRED (decode 0.241/0.222 vs the ≥0.95 bar; verdict `7990f63f`, issue file removed at close `d0ce9f7f`, HISTORY row is the record). Cell 2 (cudarc) + the retention cell were DISCHARGED UNUSED — a second-backend re-ask of a fired falsifier is the forbidden re-tune shape — so the boxes below are moot, kept as history. Re-open trigger = a CLASS change in the never-unpack GEMV primitive; the prep artifacts (BF16 split, CQ3 quantizations, Q3_K opponent variants, capture dirs) were torn down at close per the cleanup law; `bout_metal_cell1/report.json` + ledger.json + the recipe logs are the kept evidence.
+
+Executes the league-prep window of `.issues/1186_cq3_qwen38_dense_league_cell.md` (T2b). The
 
 Executes the league-prep window of `.issues/1186_cq3_qwen38_dense_league_cell.md` (T2b). The
 pre-registered gate there is law: **the matched-calibration arm is the validity condition for
