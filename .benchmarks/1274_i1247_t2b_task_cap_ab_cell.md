@@ -43,10 +43,18 @@ Clean cadence decomposition (48 passes x (32 dispatches -> commit + 64 writes w/
 
 The clean split of the 1262.6 us/pass cadence wall: **write-flush submit+poll 60%** (~11.8 us/write), task-flush submit 19% (~2.4 us per 32-task commit), REGULATE drain 4%. Per-interaction costs at this cadence are **us-class, not ms-class** — the probe reproduces the flush pattern but NOT the ms-class stall of the real forward. Consistent with the cap A/B negative above: the hunt moves off flush-frequency onto the real forward's shape (the 1.5-4.2k CB/pass volume — T1's F2 batching candidate) and T1 candidates (b)/(c) (Metal per-CB resource handling, commit scheduling). The discarded-run numbers stand as the contamination quantification (13.9x on the CPU-side submit path under starvation — the load law has teeth; never benchmark a BUSY box).
 
-CELL I ran 19:06:50Z→19:06:59Z **under load 99.51/74.89/41.80** (the sibling-build explosion began ~19:05:45Z, before the probe started). Its absolute numbers (per-pass wall 5764 µs; task-flush submit 3252.9 µs/pass over 96 submits; write-flush submit+poll 1490.7 µs/pass; REGULATE drain 96.8 µs/pass) are CPU-starvation-inflated and are DISCARDED as a measurement. Structure-only observation (to be re-read clean): the 32-task flush chain and the 64-write flush chain are the same order at this shape — consistent with the cap non-effect above. Clean re-run (2.4 s of bench time) lands in this record's addendum once load < 6.
+CELL I ran 19:06:50Z→19:06:59Z **under load 99.51/74.89/41.80** (the sibling-build explosion began ~19:05:45Z, before the probe started). Its absolute numbers (per-pass wall 5764 µs; task-flush submit 3252.9 µs/pass over 96 submits; write-flush submit+poll 1490.7 µs/pass; REGULATE drain 96.8 µs/pass) are CPU-starvation-inflated and are DISCARDED as a measurement. Structure-only observation (to be re-read clean): the 32-task flush chain and the 64-write flush chain are the same order at this shape — consistent with the cap non-effect above. Clean re-run: LANDED (addendum above, plus the second independent read below).
 
 ## What this cell does NOT claim
 
 - No decode-path claim (decode_steps=0; the arms are pure prefill).
 - No claim that tasks_max=512 *hurts* (−2.2% is not a regression signal either; it is noise).
 - No upstream-report implication: the negative caps the *cap* hypothesis only; T1 candidates (a)/(b)/(c) remain open.
+
+## Second clean read — reproducibility (20:09:31Z, +3 min after the addendum run)
+
+An independent second clean run (zed-025d5169@m3, preflight PASSED `PROVENANCE: power=AC Power load=5.12 swap=7575.88M canary=skipped powermode=2(high) ane=ok`): per-pass wall **1279.9 µs** (vs the addendum's 1262.6 — **+1.4%, two-run stable**), task-flush 249.6 µs/pass (2.6 µs per 32-task commit), write-flush submit+poll 745.3 µs/pass, REGULATE drain 51.1 µs/pass, end drain 0.2 µs. The cadence cell is reproducible across two windows on the same quiet box; the µs-class verdict stands on both reads.
+
+Skipped (disclosed): the optional `i1203_counters_probe --pp 512` per-posture runs — the A/B delta is noise-class, a counter-level decomposition of it would decompose noise; T1 already holds the counter story at the probe postures. It prices in only if a future cap-family arm shows a decision-grade delta.
+
+Session: zed-025d5169@m3, epoch 1795810238 (arms 18:25–19:06Z + this read 20:09:31Z; the wake lane landed the record at 6b49d209/354b49c8/1d83c292 while this session held the load gate).
