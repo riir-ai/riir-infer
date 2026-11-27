@@ -1,0 +1,10 @@
+{
+ "wedges": [
+  {
+   "sha256": "8708aaf5e537abf19c62ec99beb33d7b4f21b4f70067abbfbc7cc735d642be8f",
+   "path": "fixtures/tvspeech_audio/44.wav",
+   "reason": "i1219 ANE sync-inference deadlock (2 deterministic reproductions: 2b7decbe attempt-1 + 118363fb attempt-3; mach_msg2 wedge in ANE_ProgramSendRequest)",
+   "first_seen": "2026-11-15"
+  }
+ ]
+}

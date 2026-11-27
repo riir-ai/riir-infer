@@ -1,0 +1,26 @@
+{
+  "first": {
+    "n_ops": 3803,
+    "placed": 1621,
+    "pref_counts": {
+      "unplaced": 2182,
+      "NeuralEngineComputeDevice": 1585,
+      "CPUComputeDevice": 36
+    },
+    "placed_ane_pct": 97.78,
+    "cost_weighted_ane_pct": 100.0,
+    "n_cost_rows": 1621
+  },
+  "step": {
+    "n_ops": 3817,
+    "placed": 1626,
+    "pref_counts": {
+      "unplaced": 2191,
+      "NeuralEngineComputeDevice": 1590,
+      "CPUComputeDevice": 36
+    },
+    "placed_ane_pct": 97.79,
+    "cost_weighted_ane_pct": 100.0,
+    "n_cost_rows": 1626
+  }
+}
