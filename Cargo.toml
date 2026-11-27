@@ -1624,6 +1624,15 @@ name = "i701_precomp_fit"
 path = "examples/i701_precomp_fit.rs"
 required-features = ["closed_form_write"]
 
+# Issue 701 cell-2 — the pre-compensation CONSUMER: the paired base-vs-artifact
+# scorer over the DENSE qwen35 lane (the i1188 harness prices the ternary
+# posture — its loader refuses dense token_embd — so the dense-lane read
+# lands here beside the producer; kill bar carried from riir-train issue 701).
+[[example]]
+name = "i701_screen_score"
+path = "examples/i701_screen_score.rs"
+required-features = ["deltanet_inference"]
+
 # Issue 1255 T0 — the SNMF group-feature fixture cell (research 695): the
 # capture rides the closed_form_write CaptureSink seam (down-proj input
 # rows = the SwiGLU activations; one prefill, all layers — the
