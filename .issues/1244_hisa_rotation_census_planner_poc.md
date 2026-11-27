@@ -1,8 +1,8 @@
 # Issue 1244 — HiSA rotation census + header-only planner PoC (report-only instruments; RECORD-tier per Research 040 §4)
 
 **Status:** open — filed from riir-infer Research 040 (HiSA, arXiv:2611.26363). Research 040's verdict is RECORD after the header probes (both league backbones are partial-RoPE: `rope.dimension_count` 64/256, 32/128 pairs rotating; the decode lever is 10–14.5% on 1/4 of the layers — below the Issue-1211 ≥5% e2e bar). This issue is therefore **census + planner only** — REPORT-ONLY instruments, zero serving-path code; the decode ring-mode kernel arm CANNOT file from this issue: it needs (a) a census verdict that is not `no_suppression` AND (b) a full-rotary serving surface in scope (today: only the paused DFlash2 drafter — its lane owns any such work).
-**Claimed:** zed-efbee190@amo, 1795615940, expires 2026-11-27T13:15:00+00:00
-(scope: both instruments; T0 DONE this session. Heavy release builds isolate `CARGO_TARGET_DIR=/tmp/i1244`. Lease re-stamped from the retired `zed-fc40d4ff@amo` inbox — same expiry, the same work chain continuing.)
+**Claimed:** zed-3ec64b7c@amo, 1795747315, expires 2026-11-28T02:45:00+00:00
+(scope: both instruments; T0 DONE this session. Heavy release builds isolate `CARGO_TARGET_DIR=/tmp/i1244`. Lease re-stamped from the retired `zed-efbee190@amo` inbox — itself a re-stamp from the retired `zed-fc40d4ff@amo`; third inbox of the same work chain, expiry discipline kept, holder absent from the live-threads read 2026-11-27T02:45Z. T3 landing ownership + the armed wake: the 2026-11-27T02:50Z section below.)
 **Routing:** modelless substrate lane (Research 040 §3 extractions 1–3). Claim with a lease line before implementing.
 
 ## T0 — the header pins (the precondition for every number in Research 040 §2)
@@ -43,3 +43,11 @@
 - riir-train training battery (135M from-scratch pair, conversion pair, 135M-at-our-bases suppression run, draft-head variant, Bonsai-next proxy): **deferred-with-triggers, recorded in Research 040 §6 with GPU-h pricing** — consumers off-calendar (specdec lanes PAUSED per delegated verdict d9c2bb28, re-open trigger (3) only via a Bonsai-target lane; Bonsai-next window unscheduled); the serving decision is fully covered by the modelless census at zero training cost. Plan becomes copy-paste when a trigger fires.
 - qwen3.8-27B league conversion: **OUT OF SCOPE, priced refusal** (31–62 days on one 4090; 54 GB bf16 weights exceed the box; converting the pinned league opponent forks the fairness baseline).
 - The decode ring-mode kernel arm on today's backbones: **REFUSED by arithmetic** (10–14.5% K bytes × 1/4 layers < the ≥5% e2e bar) — recorded here so no future session re-opens it on paper numbers; the partial-RoPE header facts are the wall.
+
+## 2026-11-27T02:50Z — T3 takeover + landing ownership (zed-3ec64b7c@amo)
+
+- Lease re-stamped to this live inbox (holder `zed-efbee190@amo` absent from the live-threads read 02:45Z; second retired inbox of this chain after `zed-fc40d4ff@amo`).
+- **T2.2 progress pinned at read 02:45Z:** all four Shared shards committing — `~/riir-bench/i1244_b{012,345,678,91011}_state/rows` at **138/137/137/137 of 192** row files (the log's `N/192 pending after` figure is the DONE count, monotone in the log; per-cell walls 407–857 s loaded). ~55 cells/shard remaining ≈ 6.3 h → completion ~09:00Z. The original 09:30Z wake note's ETA holds.
+- **Landing ownership moves to this inbox**, wake armed 09:30Z on `zed-3ec64b7c@amo` (fyi-supersede note sent to the predecessor's `zed-239df768@amo` wake). The wake's procedure, verify-not-assume: read the four state ledgers + `rig log amo <job>` (b7795e3f / b11b8955 / aca86ac8 / 4ce1c735); incomplete → re-arm +3 h, no claim of results; complete → merge the four canonical `HISACEN1` reports by band concat (each report complete for its bands — the reshape law) → **T3.1** per-(layer, rotating chunk) classification (`partial_rope_sufficient` / `hisa_windows_required` / `no_suppression`) over the 12-band columns → **T3.2** typed verdict + `.benchmarks/` record (next number; bench_preflight PROVENANCE quoted) + the demote discipline exactly as T3.2's own text binds (a `no_suppression` verdict, or `hisa_windows_required` on this partial-RoPE backbone, CLOSES the kernel lane loud). Fold the lease at close.
+- **T2.3** stays POST-first-census per its own ordering law (the agreement floor pins after the tables exist, never pre) — it runs in the same landing pass, after T3.1's tables, before the verdict is written.
+- Nothing else changed; T0/T1/T2.1 remain DONE as recorded.
