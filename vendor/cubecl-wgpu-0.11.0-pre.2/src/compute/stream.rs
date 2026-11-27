@@ -178,6 +178,30 @@ pub static WRITE_POLL_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::A
 pub static READ_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static READ_NANOS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// i1247 T3-F2 experiment latch (riir-infer `.issues/1247`): the 64-write
+/// flush in `write_to_buffer` polls(Wait)s on its OWN submission index — a
+/// FULL-QUEUE drain (FIFO completion), unlike `SubmissionLoad::regulate`'s
+/// pacing Wait on the PREVIOUS index. `CUBECL_WGPU_WRITE_FLUSH_NOWAIT=1`
+/// (exact literal, PROMOTE-ONLY) replaces that drain with a non-blocking
+/// `PollType::Poll` pump: the submit itself still flushes the pending
+/// staging copies (the tracel-ai/cubecl#1120 guard's purpose); only the
+/// Wait goes. Unset = incumbent byte-identical path. GOAT promotion =
+/// GOAT promotion =
+/// RuntimeOptions plumb (the issue-1217 style); this latch is the
+/// experiment posture only. cfg'd beside the call site so wasm builds
+/// carry no unused item.
+#[cfg(not(target_family = "wasm"))]
+static WRITE_FLUSH_NOWAIT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+#[cfg(not(target_family = "wasm"))]
+fn write_flush_nowait() -> bool {
+    *WRITE_FLUSH_NOWAIT.get_or_init(|| {
+        std::env::var("CUBECL_WGPU_WRITE_FLUSH_NOWAIT")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+    })
+}
+
 /// Reset every Issue 761 dispatch-decomposition counter (and the Issue 660
 /// per-section statics, so one call readies the full profile).
 pub fn reset_dispatch_profile() {
@@ -769,8 +793,12 @@ impl WgpuStream {
             SUBMIT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
             // Wait for the GPU to finish processing these writes before continuing.
+            // i1247 T3-F2: the NOWAIT arm pumps instead of draining — see the
+            // `WRITE_FLUSH_NOWAIT` latch comment above.
             #[cfg(not(target_family = "wasm"))]
-            if let Err(e) = self.device.poll(wgpu::PollType::Wait {
+            if write_flush_nowait() {
+                let _ = self.device.poll(wgpu::PollType::Poll);
+            } else if let Err(e) = self.device.poll(wgpu::PollType::Wait {
                 submission_index: Some(index),
                 timeout: None,
             }) {
