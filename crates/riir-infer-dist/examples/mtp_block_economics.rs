@@ -377,11 +377,29 @@ fn main() {
             }
             windows += 1;
             start += STRIDE;
+            // Checkpoint: cumulative counts ride the log (the long-runs
+            // law's cheap half — a resumed run's harvest reads them here;
+            // the T5.4-R precedent). Windows are independent, so a
+            // MTP_CHAT_START_WINDOW resume is an exact concatenation.
             if windows.is_multiple_of(16) {
+                let n1 = stats.cond_total[1];
+                let r1 = if n1 > 0 {
+                    stats.cond_agree[1] as f64 / n1 as f64
+                } else {
+                    0.0
+                };
                 eprintln!(
-                    "leg A: window {}/{} (start_window {start_window})",
+                    "leg A: window {}/{} (start_window {start_window}) — slot0 {}/{} \
+                     slot1-cond {}/{} = {:.4} | Σm apple {} / full-chain {}",
                     start_window + windows,
-                    start_window + max_windows
+                    start_window + max_windows,
+                    stats.slot0_agree,
+                    stats.slot0_total,
+                    stats.cond_agree[1],
+                    n1,
+                    r1,
+                    stats.sum_m_apple,
+                    stats.full_chain_positions
                 );
             }
         }
