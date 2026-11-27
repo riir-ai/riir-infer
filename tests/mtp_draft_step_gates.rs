@@ -579,22 +579,47 @@ fn draft_step_chat_transcript_teacher_forced_agreement() {
             .map_or(0, |(i, _)| i)
     };
 
+    // Bounded-capacity caches (the Issue-929 seam): the unbounded
+    // constructor allocates full-block_size KV per layer (128k-class
+    // context on this config — run 1's kill class: ~43.6 GB RSS,
+    // commit-pressure death at window ~192). max_positions must exceed
+    // every position written: leg A ≤ 63, leg B ≤ 4095; 8192 covers both
+    // with margin. The attention forwards index positionally (pos*kvd, no
+    // growth, no ring), so the values are bit-identical to the unbounded
+    // cache. The MAIN forward keeps the original config (geometry) and its
+    // own scratch shape; the DRAFT step + its cache + scratch share the
+    // capped clone so the kernel's slot-stride argument and the cache
+    // agree.
+    let mut cache_cfg = config.clone();
+    if cache_cfg.block_size > 8192 {
+        cache_cfg.block_size = 8192;
+    }
+
     // ---- Leg A: the 924 @63 shape (sliding windows, roll-through) ----
     const WIN: usize = 64;
     const STRIDE: usize = 56;
     const MAX_WINDOWS: usize = 256;
+    // Resume mechanics (run 2, disclosed in plan 639): the windows are
+    // independent (fresh caches per window), so a resumed slice is a
+    // statistically exact concatenation with run 1's completed windows —
+    // never a re-measure of a different design. Default 0 = the registered
+    // run byte-identical.
+    let start_window: usize = std::env::var("MTP_CHAT_START_WINDOW")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let mut agree_a = 0usize;
     let mut total_a = 0usize;
     let mut windows = 0usize;
-    let mut start = 0usize;
+    let mut start = start_window * STRIDE;
     // One allocation, reset per window (the Issue-838 H1 seam — the
     // per-call reset for many independent sequences against one cache;
     // identical values to fresh caches, no GB-class memset churn ×250).
-    let mut cache = HybridCache::with_layer_types(&config, &weights.layer_types);
+    let mut cache = HybridCache::with_layer_types_bounded(&cache_cfg, &weights.layer_types, 8192);
     let mut scratch = HybridForwardScratch::new(&config);
     let mut x = vec![0.0f32; v.max(n)];
-    let mut draft_cache = KVCache::new(&config);
-    let mut ds = MtpDraftStepScratch::new(&config);
+    let mut draft_cache = KVCache::new(&cache_cfg);
+    let mut ds = MtpDraftStepScratch::new(&cache_cfg);
     let mut lg = vec![0.0f32; v];
     while start + WIN <= tokens.len() && windows < MAX_WINDOWS {
         let slice = &tokens[start..start + WIN];
@@ -624,7 +649,7 @@ fn draft_step_chat_transcript_teacher_forced_agreement() {
                     pos,
                     &mut h,
                     tok,
-                    &config,
+                    &cache_cfg,
                     &rope,
                     &mut ds,
                     &mut lg,
@@ -642,13 +667,25 @@ fn draft_step_chat_transcript_teacher_forced_agreement() {
         windows += 1;
         start += STRIDE;
         if windows % 32 == 0 {
-            eprintln!("leg A: window {windows}/{MAX_WINDOWS} — agree {agree_a}/{total_a}");
+            eprintln!(
+                "leg A: window {}/{} — agree {}/{} (start_window {start_window})",
+                start_window + windows,
+                start_window + MAX_WINDOWS,
+                agree_a,
+                total_a
+            );
         }
     }
     let rate_a = agree_a as f64 / total_a.max(1) as f64;
 
     // ---- Leg B: the serving-ctx sequential walk (context row) ----
-    let walk_len = tokens.len().min(4096);
+    // Walk cap is a smoke lever (default 4096 = the registered walk; a
+    // smoke sets 64 to exercise the bounded cache cheaply).
+    let walk_cap: usize = std::env::var("MTP_CHAT_WALK_CAP")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4096);
+    let walk_len = tokens.len().min(walk_cap);
     cache.reset();
     draft_cache.reset();
     let mut agree_b = 0usize;
@@ -677,7 +714,7 @@ fn draft_step_chat_transcript_teacher_forced_agreement() {
                 pos,
                 &mut h,
                 tok,
-                &config,
+                &cache_cfg,
                 &rope,
                 &mut ds,
                 &mut lg,
