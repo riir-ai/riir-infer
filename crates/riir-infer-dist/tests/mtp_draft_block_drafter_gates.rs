@@ -22,6 +22,9 @@
 //! 5. THE MIN-PROB GATE — min_prob → 1 starves the chain (no point
 //!    masses on a real-valued fixture); a mid floor cuts the chain at
 //!    the first step under it; None runs it full.
+//! 6. THE FRESH-WINDOW RESET — reset() clears the seed cursor + carried
+//!    error and the post-reset chain reproduces the fresh-drafter chain
+//!    bit-identically (the T5.4 economics harness's per-window posture).
 
 #[path = "../../../tests/common/mtp_draft_fixture.rs"]
 mod fixture;
@@ -315,5 +318,57 @@ fn min_prob_gate_stops_the_chain() {
         &full[..j],
         "the surviving steps are bit-identical"
     );
+    drop(path);
+}
+
+/// Arm 6 — the fresh-window reset (the T5.4 economics harness's
+/// per-window posture): a window boundary must clear the seed cursor,
+/// any carried error and the block's KV rows, and the next seed must
+/// reproduce the fresh-drafter chain bit-identically. (The stale-row
+/// READ difference itself is not expressible on this fixture — its
+/// synthetic attention is zeroed — so the pin is the seat state + the
+/// bit-identity; the cache-clearing correctness rests on
+/// `KVCache::reset` and the harness smoke.)
+#[test]
+fn reset_clears_window_state_and_matches_fresh() {
+    let (path, config, weights, block) = load_twin("riir_1253_t53_reset");
+    let h = land_main_stack(&config, &weights, &[7, 11, 23]);
+    let mk = || {
+        MtpDraftBlockDrafter::new(
+            block.clone(),
+            weights.clone(),
+            config.clone(),
+            MtpDraftPreset::apple(4).unwrap(),
+        )
+        .expect("seat")
+    };
+    // The fresh reference chain at a LATER seed position (rows below it
+    // were never written by this drafter).
+    let mut fresh = mk();
+    fresh.seed(&h, 23, 5).expect("fresh seed");
+    let reference = fresh.draft_chain();
+    assert_eq!(reference.len(), 4);
+
+    // A used drafter: full chain at 3 (writes rows 3..7), then a stale
+    // propose (the unseeded fallback arms the error path), then RESET.
+    let mut used = mk();
+    used.seed(&h, 23, 3).expect("used seed");
+    assert_eq!(used.draft_chain().len(), 4);
+    let ctx = DraftCtx {
+        committed: &[1, 2, 3],
+        k: 2,
+    };
+    let _ = used.propose(&ctx); // stale cursor → arms the error
+    assert!(used.take_error().is_some(), "the fallback armed the error");
+    used.reset();
+    assert_eq!(used.seeded_for(), None, "reset clears the seed cursor");
+    assert_eq!(used.take_error(), None, "reset clears the carried error");
+
+    // Post-reset chain at the later position == the fresh reference
+    // (bit-identical — the reset cleared the rows the earlier chain
+    // wrote, so the later seed sees the fresh cache).
+    used.seed(&h, 23, 5).expect("post-reset seed");
+    let again = used.draft_chain();
+    assert_eq!(again, reference, "post-reset chain == fresh-drafter chain");
     drop(path);
 }

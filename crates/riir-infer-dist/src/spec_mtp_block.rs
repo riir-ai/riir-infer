@@ -260,6 +260,20 @@ impl MtpDraftBlockDrafter {
         self.next_pos
     }
 
+    /// Fresh-window state (the T5.4 harness's per-window posture): clears
+    /// the block's KV cache, the seed cursor and any carried error. The
+    /// chain `h` is left as-is — [`Self::seed`] overwrites it before the
+    /// next [`Self::draft_chain`]. Without this, a new window's early
+    /// chain steps would attend over the previous window's tail rows
+    /// (rows below the new seed position are never rewritten by the new
+    /// chain — the no-explicit-truncation discipline only covers rows at
+    /// or above the cursor).
+    pub fn reset(&mut self) {
+        self.cache.reset();
+        self.seeded_for = None;
+        self.error = None;
+    }
+
     /// The runner cursor the seat was seeded for, if any.
     pub fn seeded_for(&self) -> Option<usize> {
         self.seeded_for

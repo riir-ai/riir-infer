@@ -45,6 +45,15 @@ name = "mtp_head_acceptance"
 path = "examples/mtp_head_acceptance.rs"
 required-features = ["bonsai2_hadamard"]
 
+# Issue 1253 T5.4 (plan 639) — the GGUF-embedded draft block's economics
+# cell (leg A chain-acceptance rates + leg B decode tok/s) over the REAL
+# folded `-mtp` twin — the same posture the T5.2 real arm carries (the
+# feature-off posture compiles to nothing — the green-zero law).
+[[example]]
+name = "mtp_block_economics"
+path = "examples/mtp_block_economics.rs"
+required-features = ["mtp_draft_block", "bonsai2_hadamard"]
+
 # Plan 623 Phase 3 — the RDMA ping/MTU/bandwidth probe over the TB
 # bridge (T3.1 bring-up + T3.2/T3.3 rows). macOS only (see the rdma
 # feature row).
