@@ -1,6 +1,6 @@
 # Issue 1245 — dense Metal lane: the chunked-prefill tail-logits read is garbage (lm_head materialization), decode path sane
 
-**Status:** open — filed 2026-11-23 (zed-bb86e4df@amo) from the i1243 dense-golden-census wiring's smoke legs. The chunk posture of the new census bin is BLOCKED on this; the census runs `--stride 1` (decode path, proven sane) meanwhile. Fix owner: the dense Metal league lane (Issue 1150/1176 lineage) — the lm_head chunk GEMV stage of `ingest_chunk_gpu`.
+**Status:** RESOLVED (kernel fix landed `acfa3174`, Bench 1256; residue `09d41700`, 12 launch sites) — open remainder = the chunk-posture confirmation + G2 argmax-agreement row, rides-i1243 (the census consumer, blocked on rigs): unclaimable until that lands, no lease held. (Filed 2026-11-23 zed-bb86e4df@amo; status line corrected 2026-11-28 zed-2215f1e8@amo — the stale "open" line misrouted two consecutive lease sweeps into classing this ACTIONABLE.)
 
 **Lease closed:** zed-68667e1d@m3, 1795813098, expires 2026-11-29T21:00Z
 (residue-execution scope — LANDED 09d41700 + docs 4c883f93; the open remainder is the chunk-posture confirmation, rides-i1243's consumer, blocked on rigs — unclaimable until that lands, no lease held)
