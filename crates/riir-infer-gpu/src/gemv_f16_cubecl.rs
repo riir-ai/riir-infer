@@ -54,9 +54,11 @@ use rayon::prelude::*;
     cube(launch_unchecked, fast_math = FastMath::AllowContraction.into())
 )]
 #[cfg_attr(not(feature = "gemv_fma_contract"), cube(launch_unchecked))]
-fn gemv_plane_f16_f32(weight: &[half_f16], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_plane_f16_f32(weight: &[half_f16], input: &[f32], output: &mut [f32], params: &[f32]) {
+    // Issue 1245 residue: dims ride the params buffer, never a kernel-visible
+    // slice length (the binding's BACKING slice size — the chunk-tail trap).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
 
     // Each plane handles one output row.
     // row = global_thread_index / plane_size
@@ -107,9 +109,10 @@ fn gemv_plane_f16_f32(weight: &[half_f16], input: &[f32], output: &mut [f32]) {
     cube(launch_unchecked, fast_math = FastMath::AllowContraction.into())
 )]
 #[cfg_attr(not(feature = "gemv_fma_contract"), cube(launch_unchecked))]
-fn gemv_tile_f16_f32(weight: &[half_f16], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_tile_f16_f32(weight: &[half_f16], input: &[f32], output: &mut [f32], params: &[f32]) {
+    // Issue 1245 residue: dims via params (same slice-length trap).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
 
     // Each thread handles one output row.
     let row = ABSOLUTE_POS as u32;
@@ -298,6 +301,10 @@ impl GemvF16CubeCL {
         let rows_per_wg = wg_size / plane_size; // 8
         let num_wg = (m as u32).div_ceil(rows_per_wg).max(1);
 
+        // Issue 1245 residue: dims via the params cache (Issue-697/698 pattern).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         // SAFETY: Caller guarantees correct buffer sizes.
         unsafe {
             gemv_plane_f16_f32::launch_unchecked::<R>(
@@ -307,6 +314,7 @@ impl GemvF16CubeCL {
                 BufferArg::from_raw_parts(weight_handle, m * n),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
     }
@@ -334,6 +342,10 @@ impl GemvF16CubeCL {
         let wg_size = 256u32;
         let num_wg = (m as u32).div_ceil(wg_size).max(1);
 
+        // Issue 1245 residue: dims via the params cache (Issue-697/698 pattern).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         // SAFETY: Caller guarantees correct buffer sizes.
         unsafe {
             gemv_tile_f16_f32::launch_unchecked::<R>(
@@ -343,6 +355,7 @@ impl GemvF16CubeCL {
                 BufferArg::from_raw_parts(weight_handle, m * n),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
     }

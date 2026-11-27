@@ -122,10 +122,14 @@ fn gemv_plane_f32_pair(
     input: &[f32],
     output_a: &mut [f32],
     output_b: &mut [f32],
+    params: &[f32],
 ) {
-    let n = input.len() as u32;
-    let m_a = output_a.len() as u32;
-    let m_total = m_a + output_b.len() as u32;
+    // Issue 1245 residue: dims ride the params buffer ([n, m_a, m_total]),
+    // never a kernel-visible slice length (the binding's BACKING slice size —
+    // the chunk-tail garbage-logits root cause). m_total = m_a + m_b.
+    let n = params[0usize] as u32;
+    let m_a = params[1usize] as u32;
+    let m_total = params[2usize] as u32;
 
     let row = ABSOLUTE_POS_X / PLANE_DIM;
     let lane = UNIT_POS_PLANE;
@@ -189,10 +193,12 @@ fn gemv_plane_f32_pair_mlp8(
     input: &[f32],
     output_a: &mut [f32],
     output_b: &mut [f32],
+    params: &[f32],
 ) {
-    let n = input.len() as u32;
-    let m_a = output_a.len() as u32;
-    let m_total = m_a + output_b.len() as u32;
+    // Issue 1245 residue: dims via params (same slice-length trap).
+    let n = params[0usize] as u32;
+    let m_a = params[1usize] as u32;
+    let m_total = params[2usize] as u32;
 
     let row = ABSOLUTE_POS_X / PLANE_DIM;
     let lane = UNIT_POS_PLANE;
@@ -914,6 +920,11 @@ impl GemvCubeCL {
 
         let count = CubeCount::Static(num_wg, 1, 1);
         let dim = CubeDim::new_1d(wg_size);
+        // Issue 1245 residue: dims via the params cache (Issue-697/698 pattern)
+        // — the pair kernels previously read n/m from the kernel-visible slice
+        // lengths, which are the bindings' BACKING sizes, not the bound windows.
+        let params: &[f32] = &[n as f32, m as f32, m_total as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
         // SAFETY: Caller guarantees correct buffer sizes.
         unsafe {
             let (wa, wb) = (
@@ -927,10 +938,26 @@ impl GemvCubeCL {
             );
             match dense_pair_mlp_enabled() {
                 true => gemv_plane_f32_pair_mlp8::launch_unchecked::<R>(
-                    client, count, dim, wa, wb, x, oa, ob,
+                    client,
+                    count,
+                    dim,
+                    wa,
+                    wb,
+                    x,
+                    oa,
+                    ob,
+                    BufferArg::from_raw_parts(params_handle, 3),
                 ),
                 false => gemv_plane_f32_pair::launch_unchecked::<R>(
-                    client, count, dim, wa, wb, x, oa, ob,
+                    client,
+                    count,
+                    dim,
+                    wa,
+                    wb,
+                    x,
+                    oa,
+                    ob,
+                    BufferArg::from_raw_parts(params_handle, 3),
                 ),
             }
         }

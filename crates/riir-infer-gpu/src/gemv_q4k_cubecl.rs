@@ -178,9 +178,18 @@ pub(crate) fn get_min_k4(j: u32, _s0: u32, s1: u32, s2: u32) -> f32 {
 /// - `output`: `m` f32 elements
 #[cfg(feature = "cubecl_runtime")]
 #[cube(launch_unchecked)]
-fn gemv_q4k_plane(weight_q4k: &[u32], d_dmin: &[f32], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_q4k_plane(
+    weight_q4k: &[u32],
+    d_dmin: &[f32],
+    input: &[f32],
+    output: &mut [f32],
+    params: &[f32],
+) {
+    // Issue 1245 residue: dims ride the params buffer, never a kernel-visible
+    // slice length (the binding's BACKING slice size, not the
+    // `from_raw_parts` length — the chunk-tail garbage-logits root cause).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
     let blocks_per_row = n / Q4K_BLOCK_SIZE;
     let q4k_stride = blocks_per_row * Q4K_WORDS_PER_BLOCK; // u32 words per row
     let dd_stride = blocks_per_row * 2u32; // f32 elements per row
@@ -318,9 +327,16 @@ pub(crate) const Q4K_ROWS_PER_PLANE: u32 = 4;
 /// effects are measured separately rather than confounded.
 #[cfg(all(feature = "cubecl_runtime", feature = "q4k_rowtiled_gemv"))]
 #[cube(launch_unchecked)]
-fn gemv_q4k_plane_rowtiled(weight_q4k: &[u32], d_dmin: &[f32], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_q4k_plane_rowtiled(
+    weight_q4k: &[u32],
+    d_dmin: &[f32],
+    input: &[f32],
+    output: &mut [f32],
+    params: &[f32],
+) {
+    // Issue 1245 residue: dims via params (same slice-length trap).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
     let blocks_per_row = n / Q4K_BLOCK_SIZE;
     let q4k_stride = blocks_per_row * Q4K_WORDS_PER_BLOCK;
     let dd_stride = blocks_per_row * 2u32;
@@ -509,9 +525,16 @@ fn gemv_q4k_plane_rowtiled(weight_q4k: &[u32], d_dmin: &[f32], input: &[f32], ou
 /// bounds checks on `col`.
 #[cfg(all(feature = "cubecl_runtime", feature = "q4k_rowtiled_gemv"))]
 #[cube(launch_unchecked)]
-fn gemv_q4k_plane_factored(weight_q4k: &[u32], d_dmin: &[f32], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_q4k_plane_factored(
+    weight_q4k: &[u32],
+    d_dmin: &[f32],
+    input: &[f32],
+    output: &mut [f32],
+    params: &[f32],
+) {
+    // Issue 1245 residue: dims via params (same slice-length trap).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
     let blocks_per_row = n / Q4K_BLOCK_SIZE;
     let q4k_stride = blocks_per_row * Q4K_WORDS_PER_BLOCK;
     let dd_stride = blocks_per_row * 2u32;
@@ -681,9 +704,16 @@ fn gemv_q4k_plane_factored(weight_q4k: &[u32], d_dmin: &[f32], input: &[f32], ou
 /// alignment. The tiling matches `gemv_tile_f32` but with inline dequant.
 #[cfg(feature = "cubecl_runtime")]
 #[cube(launch_unchecked)]
-fn gemv_q4k_tiled(weight_q4k: &[u32], d_dmin: &[f32], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_q4k_tiled(
+    weight_q4k: &[u32],
+    d_dmin: &[f32],
+    input: &[f32],
+    output: &mut [f32],
+    params: &[f32],
+) {
+    // Issue 1245 residue: dims via params (same slice-length trap).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
     let blocks_per_row = n / Q4K_BLOCK_SIZE;
     let q4k_stride = blocks_per_row * Q4K_WORDS_PER_BLOCK;
     let dd_stride = blocks_per_row * 2u32;
@@ -935,6 +965,10 @@ impl GemvQ4KCubeCL {
         let weight_len = m * blocks_per_row * (Q4K_WORDS_PER_BLOCK as usize);
         let dd_len = m * blocks_per_row * 2;
 
+        // Issue 1245 residue: dims via the params cache (Issue-697/698 pattern).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         unsafe {
             gemv_q4k_plane::launch_unchecked::<R>(
                 client,
@@ -944,6 +978,7 @@ impl GemvQ4KCubeCL {
                 BufferArg::from_raw_parts(handle.d_dmin.clone(), dd_len),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
     }
@@ -976,6 +1011,10 @@ impl GemvQ4KCubeCL {
         let weight_len = m * blocks_per_row * (Q4K_WORDS_PER_BLOCK as usize);
         let dd_len = m * blocks_per_row * 2;
 
+        // Issue 1245 residue: dims via the params cache (Issue-697/698 pattern).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         unsafe {
             gemv_q4k_plane_rowtiled::launch_unchecked::<R>(
                 client,
@@ -985,6 +1024,7 @@ impl GemvQ4KCubeCL {
                 BufferArg::from_raw_parts(handle.d_dmin.clone(), dd_len),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
     }
@@ -1018,6 +1058,10 @@ impl GemvQ4KCubeCL {
         let weight_len = m * blocks_per_row * (Q4K_WORDS_PER_BLOCK as usize);
         let dd_len = m * blocks_per_row * 2;
 
+        // Issue 1245 residue: dims via the params cache (Issue-697/698 pattern).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         unsafe {
             gemv_q4k_plane_factored::launch_unchecked::<R>(
                 client,
@@ -1027,6 +1071,7 @@ impl GemvQ4KCubeCL {
                 BufferArg::from_raw_parts(handle.d_dmin.clone(), dd_len),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
     }
@@ -1055,6 +1100,10 @@ impl GemvQ4KCubeCL {
         let weight_len = m * blocks_per_row * (Q4K_WORDS_PER_BLOCK as usize);
         let dd_len = m * blocks_per_row * 2;
 
+        // Issue 1245 residue: dims via the params cache (Issue-697/698 pattern).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         unsafe {
             gemv_q4k_tiled::launch_unchecked::<R>(
                 client,
@@ -1064,6 +1113,7 @@ impl GemvQ4KCubeCL {
                 BufferArg::from_raw_parts(handle.d_dmin.clone(), dd_len),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
     }
@@ -1077,7 +1127,7 @@ mod tests {
     use crate::context::GpuContext;
     use crate::cubecl_runtime::ActiveRuntime;
     use bytemuck::Zeroable;
-    use riir_infer_core::quant::q4k::{BlockQ4K, QK_K, gemv_q4_k, quantize_row_q4_k};
+    use riir_infer_core::quant::q4k::{gemv_q4_k, quantize_row_q4_k, BlockQ4K, QK_K};
 
     /// Helper: quantize a projection, run CubeCL GEMV, return result.
     ///

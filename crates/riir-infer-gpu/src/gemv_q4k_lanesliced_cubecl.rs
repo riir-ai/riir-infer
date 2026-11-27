@@ -162,6 +162,10 @@ impl LaneSlicedQ4KHandle {
         let rows_per_wg = wg_size / plane_size; // 8
         let num_wg = (self.m as u32).div_ceil(rows_per_wg).max(1);
 
+        // Issue 1245 residue: dims via the params cache (Issue-697/698 pattern).
+        let params: &[f32] = &[self.n as f32, self.m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         unsafe {
             gemv_q4k_lanesliced::launch_unchecked::<R>(
                 client,
@@ -177,6 +181,7 @@ impl LaneSlicedQ4KHandle {
                 ),
                 BufferArg::from_raw_parts(input_handle, self.n),
                 BufferArg::from_raw_parts(output_handle, self.m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
         let _ = bpr;
@@ -186,9 +191,17 @@ impl LaneSlicedQ4KHandle {
 /// One plane owns one output row; lane j streams its private u32 chain.
 #[cfg(feature = "cubecl_runtime")]
 #[cube(launch_unchecked)]
-fn gemv_q4k_lanesliced(sliced_words: &[u32], ab: &[f32], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_q4k_lanesliced(
+    sliced_words: &[u32],
+    ab: &[f32],
+    input: &[f32],
+    output: &mut [f32],
+    params: &[f32],
+) {
+    // Issue 1245 residue: dims ride the params buffer, never a kernel-visible
+    // slice length (the binding's BACKING slice size — the chunk-tail trap).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
     let bpr = n / (BLOCK as u32);
 
     let row = ABSOLUTE_POS_X / PLANE_DIM;

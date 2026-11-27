@@ -64,9 +64,17 @@ use cubecl::features::Plane;
 /// `CubeCount::Static(m, 1, 1)`, `CubeDim::new_1d(plane_size)`.
 #[cfg(feature = "cubecl_runtime")]
 #[cube(launch_unchecked)]
-fn gemv_geglu_plane_f32(weight_gate: &[f32], weight_up: &[f32], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_geglu_plane_f32(
+    weight_gate: &[f32],
+    weight_up: &[f32],
+    input: &[f32],
+    output: &mut [f32],
+    params: &[f32],
+) {
+    // Issue 1245 residue: dims ride the params buffer, never a kernel-visible
+    // slice length (the binding's BACKING slice size — the chunk-tail trap).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
 
     let row = ABSOLUTE_POS_X / PLANE_DIM;
     let lane = UNIT_POS_PLANE;
@@ -125,9 +133,16 @@ fn gemv_geglu_plane_f32(weight_gate: &[f32], weight_up: &[f32], input: &[f32], o
 /// then applies GeGLU.
 #[cfg(feature = "cubecl_runtime")]
 #[cube(launch_unchecked)]
-fn gemv_geglu_tiled_f32(weight_gate: &[f32], weight_up: &[f32], input: &[f32], output: &mut [f32]) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+fn gemv_geglu_tiled_f32(
+    weight_gate: &[f32],
+    weight_up: &[f32],
+    input: &[f32],
+    output: &mut [f32],
+    params: &[f32],
+) {
+    // Issue 1245 residue: dims via params (same slice-length trap).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
 
     let row = UNIT_POS;
 
@@ -209,9 +224,13 @@ impl GemvGegluCubeCL {
     ) {
         let has_planes = client.features().plane.contains(Plane::Ops);
 
+        // Issue 1245 residue: dims via the params cache (Issue-697/698 pattern).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         if has_planes {
             let plane_size = 32u32; // Metal simdgroup size
-            // SAFETY: Caller guarantees correct buffer sizes.
+                                    // SAFETY: Caller guarantees correct buffer sizes.
             unsafe {
                 gemv_geglu_plane_f32::launch_unchecked::<R>(
                     client,
@@ -221,6 +240,7 @@ impl GemvGegluCubeCL {
                     BufferArg::from_raw_parts(weight_up_handle, m * n),
                     BufferArg::from_raw_parts(input_handle, n),
                     BufferArg::from_raw_parts(output_handle, m),
+                    BufferArg::from_raw_parts(params_handle, 2),
                 );
             }
         } else {
@@ -236,6 +256,7 @@ impl GemvGegluCubeCL {
                     BufferArg::from_raw_parts(weight_up_handle, m * n),
                     BufferArg::from_raw_parts(input_handle, n),
                     BufferArg::from_raw_parts(output_handle, m),
+                    BufferArg::from_raw_parts(params_handle, 2),
                 );
             }
         }

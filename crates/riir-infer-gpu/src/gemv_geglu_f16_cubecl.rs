@@ -68,9 +68,12 @@ fn gemv_geglu_plane_f16(
     weight_up: &[half_f16],
     input: &[f32],
     output: &mut [f32],
+    params: &[f32],
 ) {
-    let n = input.len() as u32;
-    let m = output.len() as u32;
+    // Issue 1245 residue: dims ride the params buffer, never a kernel-visible
+    // slice length (the binding's BACKING slice size — the chunk-tail trap).
+    let n = params[0usize] as u32;
+    let m = params[1usize] as u32;
 
     let row = ABSOLUTE_POS_X / PLANE_DIM;
     let lane = UNIT_POS_PLANE;
@@ -165,6 +168,10 @@ impl GemvGegluF16CubeCL {
     ) {
         let plane_size = 32u32; // Metal simdgroup size
 
+        // Issue 1245 residue: dims via the params cache (Issue-697/698 pattern).
+        let params: &[f32] = &[n as f32, m as f32];
+        let params_handle = crate::params_cache::params_handle(client, f32::as_bytes(params));
+
         // SAFETY: Caller guarantees correct buffer sizes and plane support.
         unsafe {
             gemv_geglu_plane_f16::launch_unchecked::<R>(
@@ -175,6 +182,7 @@ impl GemvGegluF16CubeCL {
                 BufferArg::from_raw_parts(weight_up_handle, m * n),
                 BufferArg::from_raw_parts(input_handle, n),
                 BufferArg::from_raw_parts(output_handle, m),
+                BufferArg::from_raw_parts(params_handle, 2),
             );
         }
     }
