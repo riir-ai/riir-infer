@@ -80,3 +80,21 @@ RESIDUE (follow-up, no oversized-view caller today): the other len()-deriving GE
 kernels (`gemv_q4k_cubecl` ×4, `gemv_f16_cubecl`, `gemv_geglu_*`, the
 `gemv_plane_f32_pair*` pair kernels) carry the same trap for any future caller that
 binds oversized views; q6k already takes params.
+
+RESIDUE LANDED 2026-11-27 (zed-68667e1d@m3, `09d41700`): all 11 kernels named above
+(+ `gemv_q4k_lanesliced`, the same q4k family — 12 launch sites) now take dims from
+the params cache (the Issue-697/698 pattern; pair = [n, m_a, m_total]); kernel dot
+loops byte-untouched. GATES: NEW `tests/i1245_residue_oversized_binding.rs` 4/4 — the
+Bench-1256 trap shape (backing = 2× the bound window via `offset_start(0)`) reads
+EXACT results on both channel shapes (f16/q4k/geglu plane vs CPU references, pair);
+in-file CPU-reference unit suites green; lib 411/0 at
+cubecl_runtime,q4k_rowtiled_gemv,qwen38_wgpu; `i1245_tail_{gemv,stage}_units` 3/3
+(the 1256 anchors hold); clippy 0 on touched files. The katgpt-rs
+`len_derived_eyes_expected.txt` rows for `gemv_geglu_plane_f16` (×2) removed citing
+`09d41700`; the drift sweep reads this repo strictly cleaner (binds 327→295, joined
+findings 2→0, eyes 19→17; its remaining reds are pre-existing and outside this lane —
+filed katgpt-rs-side). NOT in scope (different call shapes, recorded here so the
+class is visible, never silently expanded): `epilogue/gemv_residual_cubecl` (×2),
+`sampling/coda/norm` dim-from-`input.len()` sites, `gemv_ternary_residual_rowtiled8`
+(already eyes-pinned). The chunk-posture confirmation stays rides-i1243 (the census
+consumer, blocked on rigs).
