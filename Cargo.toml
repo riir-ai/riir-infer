@@ -1142,6 +1142,12 @@ name = "hisa_census"
 path = "src/bin/hisa_census.rs"
 required-features = ["hisa_census"]
 
+# Issue-1244 T3 landing front: merge + classify (report-only).
+[[bin]]
+name = "hisa_merge"
+path = "src/bin/hisa_merge.rs"
+required-features = ["hisa_census"]
+
 # Issue 027 / Plan 615 T6 — the model-level per-family retention gate
 # (fakequant-at-load over the llama path; MiniCPM5-1B vehicle).
 [[bin]]

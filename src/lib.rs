@@ -51,6 +51,13 @@ pub mod hisa_census;
 #[cfg(feature = "hisa_census")]
 pub mod hisa_census_run;
 
+/// Issue-1244 T3 landing tooling: merge the shard censuses into one
+/// canonical report + classify per (layer, chunk) — the typed verdict and
+/// the T2.3 predicted-vs-measured columns. The bin front is
+/// `src/bin/hisa_merge.rs`.
+#[cfg(feature = "hisa_census")]
+pub mod hisa_census_merge;
+
 /// Gemma architecture layer helpers (leaf).
 pub mod gemma_layer;
 

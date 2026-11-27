@@ -604,7 +604,7 @@ mod tests {
         let q = vec![0.0f32, 0.0, 1.0, 1.0];
         let k1 = vec![0.0f32, 0.0, 1.0, 1.0];
         let mut k = lcg_fill(t_n * kv_dim, 31);
-        k[1 * kv_dim..2 * kv_dim].copy_from_slice(&k1);
+        k[kv_dim..2 * kv_dim].copy_from_slice(&k1);
         let v = lcg_fill(t_n * kv_dim, 32);
 
         let mut obs = HisaCensusArm::observe(0, vec![band]);
@@ -669,10 +669,10 @@ mod tests {
         let q = vec![0.0f32, 0.0, 1.0, 1.0];
         let k1 = vec![0.0f32, 0.0, 1.0, 1.0];
         let mut k = lcg_fill(t_n * kv_dim, 41);
-        k[1 * kv_dim..2 * kv_dim].copy_from_slice(&k1);
+        k[kv_dim..2 * kv_dim].copy_from_slice(&k1);
         let v = lcg_fill(t_n * kv_dim, 42);
         let mut null = k.clone();
-        null[1 * kv_dim..2 * kv_dim].copy_from_slice(&[1.0f32, 0.0, 1.0, 0.5]);
+        null[kv_dim..2 * kv_dim].copy_from_slice(&[1.0f32, 0.0, 1.0, 0.5]);
 
         let mut rep =
             HisaCensusArm::replace(0, chunk, band, std::sync::Arc::new(null), t_n, kv_dim)
@@ -777,7 +777,7 @@ mod tests {
         let q = vec![0.0f32, 0.0, 1.0, 1.0];
         let k1 = vec![0.0f32, 0.0, 1.0, 1.0];
         let mut k = lcg_fill(t_n * kv_dim, 61);
-        k[1 * kv_dim..2 * kv_dim].copy_from_slice(&k1);
+        k[kv_dim..2 * kv_dim].copy_from_slice(&k1);
         let v = lcg_fill(t_n * kv_dim, 62);
 
         // Only ONE null row (position 0) — the in-band key at t=1 has none.
@@ -814,7 +814,7 @@ mod tests {
         // The kept score is the incumbent's: the UNMODIFIED full dot at
         // t=1, via simd_dot_f32 (the kernel's own arithmetic).
         let full0 = crate::simd::simd_dot_f32(&q, &k[0..hd], hd);
-        let full1 = crate::simd::simd_dot_f32(&q, &k[1 * hd..2 * hd], hd);
+        let full1 = crate::simd::simd_dot_f32(&q, &k[hd..2 * hd], hd);
         let full2 = crate::simd::simd_dot_f32(&q, &k[2 * hd..3 * hd], hd);
         let expected_scores = [full0 * scale, full1 * scale, full2 * scale];
         let max = expected_scores

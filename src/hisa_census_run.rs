@@ -379,16 +379,36 @@ fn fmt_f(x: f64) -> String {
 /// The canonical report bytes (fixed precision, sorted rows) — the digest
 /// is taken over EXACTLY these bytes; the blake3 line is appended after.
 pub fn canonical_report_bytes(id: &SweepIdentity, rows: &[CellResult]) -> Vec<u8> {
+    canonical_report_bytes_parts(
+        id.model,
+        id.read_len,
+        id.null_offset,
+        id.attn_layers,
+        id.chunks,
+        id.bands,
+        rows,
+    )
+}
+
+/// The parts form (the merge tool rebuilds a canonical report over the
+/// UNION grid without inventing a `SweepIdentity`).
+pub fn canonical_report_bytes_parts(
+    model: &str,
+    read_len: usize,
+    null_offset: usize,
+    attn_layers: &[usize],
+    chunks: &[(usize, usize)],
+    bands: &[(usize, usize)],
+    rows: &[CellResult],
+) -> Vec<u8> {
     let mut sorted: Vec<&CellResult> = rows.iter().collect();
     sorted.sort_by_key(|r| r.spec);
     let mut s = String::new();
     s.push_str(&format!(
-        "model={} read_len={} null_offset={} steps={}\n",
-        id.model, id.read_len, id.null_offset, id.read_len
+        "model={model} read_len={read_len} null_offset={null_offset} steps={read_len}\n"
     ));
     s.push_str(&format!(
-        "attn_layers={:?}\nchunks={:?}\nbands={:?}\n",
-        id.attn_layers, id.chunks, id.bands
+        "attn_layers={attn_layers:?}\nchunks={chunks:?}\nbands={bands:?}\n"
     ));
     s.push_str(&format!(
         "cells={} swapped_skipped_total={}\n",
@@ -644,8 +664,9 @@ impl CensusLedger {
 }
 
 /// One row's canonical bytes (the ledger AND the report draw from the
-/// same fixed-precision form).
-fn row_bytes(r: &CellResult) -> Vec<u8> {
+/// same fixed-precision form; the merge tool payload-compares through
+/// this ONE form — never a second spelling).
+pub fn row_bytes(r: &CellResult) -> Vec<u8> {
     let line = format!(
         "cell layer={} chunk=({},{}) band=({},{}) e_obs={} e_rem={} e_rep={} c_obs={} c_rem={} c_rep={} d_nll_rem={} d_nll_rep={} nll_base={} flips_rem={} flips_rep={} steps={} skipped={}\n",
         r.spec.layer,
@@ -741,7 +762,7 @@ mod tests {
     #[test]
     fn step_stats_matches_a_hand_computed_value() {
         // logits [ln 2, ln 4, 0]: softmax = (2,4,1)/7. gold 1 → NLL = ln(7/4).
-        let logits = [2.0f32.ln() as f32, 4.0f32.ln() as f32, 0.0];
+        let logits = [2.0f32.ln(), 4.0f32.ln(), 0.0];
         let (nll, am) = step_stats(&logits, 1);
         let want = (7.0f64 / 4.0).ln();
         // The logits are f32 STORAGE (ln 2 / ln 4 rounded) — the f64 hand
