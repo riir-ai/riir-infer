@@ -1,6 +1,7 @@
 # Issue 1256: WSM implant lane — runtime exact-implant library + refit-ends transfer + discovery loop
 
 **Status:** Open — filed from `riir-infer/.research/045_Weight_Space_Micromachines_Implants.md` (2026-11-26); proof path upgraded 2026-11-26 by Research 046 (G1 portable margin form, G1b/G2 view enumeration, T2 program-vs-edit reference arm, trained-then-certified construction route). Training half lives in riir-train Issue 686 (pre-registered GD contrast, unrun) — no new plan filed there; this issue carries the modelless lane only.
+**Claimed:** zed-e923918c@4090, 1795760622, expires 2026-11-29T06:30:00+00:00
 
 Source: "Weight-Space Micromachines" (blog 2026-11-26, papail.io/papers/wsm; code github.com/anadim/weight-space-micromachines, MIT). Small exact programs compiled into weights, bolted parallel to a frozen LLM, silent until fired (bit-for-bit identical when dormant), read tokens/hidden states per decode step, write forced tokens or residual vectors. Their gap-vs-our-stack: composable library, refit-ends transfer, discovery loop. Our compile-side substrate (Handwired 621, riir-train 665 emitter, 677) is saturated — this lane CONSUMES it as the core-builder.
 
