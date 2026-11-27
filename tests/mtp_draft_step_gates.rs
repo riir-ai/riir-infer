@@ -506,3 +506,200 @@ fn draft_step_real_teacher_forced_agreement() {
     );
     assert!(total > 0, "the walk produced no draft positions");
 }
+
+/// Arm 5 — the T5.4-R re-open cell (plan 639, pre-registered 2026-11-27,
+/// `zed-f021648e@amo`): the chat-transcript teacher-forced agreement, the
+/// 924 prior's own measurement shape. SKIP loud without the token file
+/// (the regeneration command is named) or the twin (`MTP_GGUF`). The
+/// numerics are byte-identical to arm 4 — only the SEED DISTRIBUTION and
+/// the sample size change (the two confounds the bar-(a) NEGATIVE named).
+///
+/// Leg A (the bar leg, the 924 @63 shape): sliding 64-token windows,
+/// stride 56, capped at 256 windows; per window FRESH main + draft
+/// caches, the arm-4 teacher-forced roll runs the WHOLE window (a draft
+/// step at every pos >= 1 warms the block's own KV — a lone step at 63
+/// would attend over an empty cache and undercount the block), and ONLY
+/// the pos-63 comparison is recorded. BAR (a)-R >= 0.4353 — Bench 917's
+/// pairing (head vs THE MODEL'S OWN argmax on the same row, never vs
+/// gold).
+///
+/// Leg B (context row, never the bar): one sequential teacher-forced
+/// walk over the first min(file, 4096) tokens (the serving ctx), the
+/// arm-4 loop shape, agreement at every position >= 1.
+#[test]
+#[ignore]
+fn draft_step_chat_transcript_teacher_forced_agreement() {
+    let twin = std::path::PathBuf::from(
+        std::env::var("MTP_GGUF")
+            .unwrap_or_else(|_| "../riir-train/data/Ternary-Bonsai-2.5-27B-PQ2_0-mtp.gguf".into()),
+    );
+    let Some(twin) = twin.canonicalize().ok() else {
+        eprintln!("SKIP: the 2.5 -mtp GGUF is not on this box (MTP_GGUF names it)");
+        return;
+    };
+    let tokens_path = std::path::PathBuf::from(
+        std::env::var("MTP_CHAT_TOKENS")
+            .unwrap_or_else(|_| "../riir-train/data/bonsai_mtp/tokens.chat.tokens".into()),
+    );
+    let Ok(tokens_bytes) = std::fs::read(&tokens_path) else {
+        eprintln!(
+            "SKIP: the chat token file is absent at {} — regenerate with: cargo run \
+             --release -p riir-infer-dist --example mtp_chat_tokens",
+            tokens_path.display()
+        );
+        return;
+    };
+    assert_eq!(tokens_bytes.len() % 4, 0, "the chat token file is u32-LE");
+    let tokens: Vec<usize> = tokens_bytes
+        .chunks_exact(4)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+        .collect();
+    eprintln!(
+        "chat transcript: {} tokens from {}",
+        tokens.len(),
+        tokens_path.display()
+    );
+
+    let gguf = GgufFile::open(&twin).expect("open the real twin");
+    let (config, weights) =
+        load_qwen_deltanet_ternary_from_gguf(&gguf, "").expect("main stack loads");
+    let block = load_mtp_draft_block(&gguf, &config).expect("draft block admits");
+    let rope = rope_table(&config);
+    let n = config.n_embd;
+    let v = config.vocab_size;
+    let rot = weights
+        .rotation
+        .as_ref()
+        .expect("the league twin is folded");
+    let signs = rot.signs_for_width(n).map(|s| s.to_vec());
+    let argmax = |row: &[f32]| -> usize {
+        row.iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| katgpt_core::float_order::cmp_for_max(**a, **b))
+            .map_or(0, |(i, _)| i)
+    };
+
+    // ---- Leg A: the 924 @63 shape (sliding windows, roll-through) ----
+    const WIN: usize = 64;
+    const STRIDE: usize = 56;
+    const MAX_WINDOWS: usize = 256;
+    let mut agree_a = 0usize;
+    let mut total_a = 0usize;
+    let mut windows = 0usize;
+    let mut start = 0usize;
+    // One allocation, reset per window (the Issue-838 H1 seam — the
+    // per-call reset for many independent sequences against one cache;
+    // identical values to fresh caches, no GB-class memset churn ×250).
+    let mut cache = HybridCache::with_layer_types(&config, &weights.layer_types);
+    let mut scratch = HybridForwardScratch::new(&config);
+    let mut x = vec![0.0f32; v.max(n)];
+    let mut draft_cache = KVCache::new(&config);
+    let mut ds = MtpDraftStepScratch::new(&config);
+    let mut lg = vec![0.0f32; v];
+    while start + WIN <= tokens.len() && windows < MAX_WINDOWS {
+        let slice = &tokens[start..start + WIN];
+        cache.reset();
+        draft_cache.reset();
+        let mut h_prev: Option<Vec<f32>> = None;
+        for (pos, &tok) in slice.iter().enumerate() {
+            forward_qwen_deltanet_ternary(
+                &mut x,
+                &weights,
+                &mut cache,
+                tok,
+                pos,
+                &config,
+                &mut scratch,
+                &rope,
+            );
+            let last = pos == WIN - 1;
+            if let Some(mut h) = h_prev.take() {
+                if let Some(s) = &signs {
+                    rotate_inverse_inplace(&mut h[..n], Some(s), rot.block_size);
+                }
+                mtp_draft_step(
+                    &block,
+                    &weights,
+                    &mut draft_cache,
+                    pos,
+                    &mut h,
+                    tok,
+                    &config,
+                    &rope,
+                    &mut ds,
+                    &mut lg,
+                )
+                .expect("real draft step (leg A)");
+                if last {
+                    if argmax(&lg[..v]) == argmax(&x[..v]) {
+                        agree_a += 1;
+                    }
+                    total_a += 1;
+                }
+            }
+            h_prev = Some(scratch.hidden_copy[..n].to_vec());
+        }
+        windows += 1;
+        start += STRIDE;
+        if windows % 32 == 0 {
+            eprintln!("leg A: window {windows}/{MAX_WINDOWS} — agree {agree_a}/{total_a}");
+        }
+    }
+    let rate_a = agree_a as f64 / total_a.max(1) as f64;
+
+    // ---- Leg B: the serving-ctx sequential walk (context row) ----
+    let walk_len = tokens.len().min(4096);
+    cache.reset();
+    draft_cache.reset();
+    let mut agree_b = 0usize;
+    let mut total_b = 0usize;
+    let mut h_prev: Option<Vec<f32>> = None;
+    for (pos, &tok) in tokens[..walk_len].iter().enumerate() {
+        forward_qwen_deltanet_ternary(
+            &mut x,
+            &weights,
+            &mut cache,
+            tok,
+            pos,
+            &config,
+            &mut scratch,
+            &rope,
+        );
+        let main_pick = argmax(&x[..v]);
+        if let Some(mut h) = h_prev.take() {
+            if let Some(s) = &signs {
+                rotate_inverse_inplace(&mut h[..n], Some(s), rot.block_size);
+            }
+            mtp_draft_step(
+                &block,
+                &weights,
+                &mut draft_cache,
+                pos,
+                &mut h,
+                tok,
+                &config,
+                &rope,
+                &mut ds,
+                &mut lg,
+            )
+            .expect("real draft step (leg B)");
+            if argmax(&lg[..v]) == main_pick {
+                agree_b += 1;
+            }
+            total_b += 1;
+        }
+        h_prev = Some(scratch.hidden_copy[..n].to_vec());
+    }
+    let rate_b = agree_b as f64 / total_b.max(1) as f64;
+
+    println!(
+        "LEG A (@63, {windows} windows): {agree_a}/{total_a} = {rate_a:.4} — BAR (a)-R >= 0.4353 {}",
+        if rate_a >= 0.4353 { "PASS" } else { "MISS" }
+    );
+    println!(
+        "LEG B (ctx walk, first {walk_len} tokens): {agree_b}/{total_b} = {rate_b:.4} (context \
+         row, never the bar)"
+    );
+    assert!(total_a > 0, "leg A produced no windows");
+    assert!(total_b > 0, "leg B produced no positions");
+}
