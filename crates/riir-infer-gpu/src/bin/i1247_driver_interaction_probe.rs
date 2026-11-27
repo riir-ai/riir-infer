@@ -398,20 +398,230 @@ fn cell_g_fence_scan(device: &wgpu::Device, queue: &wgpu::Queue) {
     });
 }
 
+fn cell_i_cadence(device: &wgpu::Device, queue: &wgpu::Queue, passes: usize) {
+    // Issue 1247 T2: reproduce the cubecl stream cadence at public-wgpu
+    // level and time the same wall the real forward pays. The pattern, from
+    // the vendored fork (stream.rs, Issue-761 counters): every Compute task
+    // dispatch lands in ONE cumulative encoder; `flush_if_needed` submits
+    // (commit) when tasks_count hits tasks_max=32; every Write task
+    // flush()-then-writes (its own commit); the 64th pending write fires a
+    // write-flush commit + poll(Wait{submission_index}); REGULATE
+    // poll(Wait)s the previous submission index every 512 submitted tasks.
+    // A pp pass is ~1500 commits: ~46 task-flushes of 32 + ~1500/64 ≈ 24
+    // write-flush poll(Wait)s + ~3 REGULATE drains, interleaved. This cell
+    // walks exactly that loop over `passes` x (32 dispatches + 64 writes),
+    // timing per-pass wall, and reports the same wall decomposition the
+    // forward's counters give: task-flush submit cost, write-flush
+    // submit+poll cost, and the end drain.
+    println!(
+        "\n[i1247] === CELL I (cadence): {passes} passes x (32 dispatches -> commit + 64 writes w/ poll@64) ==="
+    );
+    let (pipeline, bg) = cadence_pipeline(device);
+    let target = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("(i1247) I target"),
+        size: 8192,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE,
+        mapped_at_creation: false,
+    });
+    let payload = [0x5Au8; 4096];
+    // Warm-up pass (pipelines + driver compile), untimed.
+    cadence_pass(device, queue, &pipeline, &bg, &target, &payload);
+    let _ = device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(std::time::Duration::from_secs(10)),
+    });
+
+    let mut pass_walls: Vec<u128> = Vec::new();
+    let mut flush_submit_nanos: u128 = 0;
+    let mut write_poll_nanos: u128 = 0;
+    let mut regulate_nanos: u128 = 0;
+    let mut submits: usize = 0;
+    let mut pending_writes: usize = 0;
+    let mut tasks_since_regulate: usize = 0;
+    let mut last_submission: Option<wgpu::SubmissionIndex> = None;
+
+    for _p in 0..passes {
+        let t_pass = Instant::now();
+        // The cumulative tasks encoder: 32 compute tasks accumulate here.
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("(i1247) I tasks"),
+        });
+        for _t in 0..32 {
+            {
+                let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("(i1247) I pass"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&pipeline);
+                pass.set_bind_group(0, &bg, &[]);
+                pass.dispatch_workgroups(16, 1, 1);
+            }
+            tasks_since_regulate += 1;
+        }
+        // flush_if_needed: tasks_max reached -> commit.
+        let t_flush = Instant::now();
+        let idx = queue.submit([enc.finish()]);
+        submits += 1;
+        flush_submit_nanos += t_flush.elapsed().as_nanos();
+        last_submission = Some(idx);
+        // SubmissionLoad::regulate: every 512 submitted tasks, poll(Wait) the
+        // previous submission index (here: one flush = 32 tasks, so every
+        // 16th flush; the first 512-task window primes on Empty).
+        if tasks_since_regulate >= 512 {
+            let t_reg = Instant::now();
+            let _ = device.poll(wgpu::PollType::Wait {
+                submission_index: last_submission.clone(),
+                timeout: None,
+            });
+            regulate_nanos += t_reg.elapsed().as_nanos();
+            tasks_since_regulate = 0;
+        }
+        // The Write arm cadence: 64 writes, each flush-then-write at the
+        // stream level; here the flush already happened (one per 32 tasks),
+        // so each write is queue.write_buffer; the 64th pending write fires
+        // the write-flush commit + poll(Wait{submission_index}).
+        let mut wrote_this_window = 0usize;
+        for _w in 0..64 {
+            let t_write = Instant::now();
+            queue.write_buffer(&target, 0, &payload);
+            pending_writes += 1;
+            wrote_this_window += 1;
+            if pending_writes >= 64 {
+                let wf_enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("(i1247) I write flush"),
+                });
+                let widx = queue.submit([wf_enc.finish()]);
+                submits += 1;
+                let _ = device.poll(wgpu::PollType::Wait {
+                    submission_index: Some(widx),
+                    timeout: None,
+                });
+                write_poll_nanos += t_write.elapsed().as_nanos();
+                pending_writes = 0;
+            }
+            let _ = wrote_this_window;
+        }
+        pass_walls.push(t_pass.elapsed().as_nanos());
+    }
+    // The end drain (the pass-boundary sync the forward pays).
+    let t_drain = Instant::now();
+    let _ = device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(std::time::Duration::from_secs(120)),
+    });
+    let drain = t_drain.elapsed().as_nanos();
+
+    let total_wall: u128 = pass_walls.iter().sum::<u128>() + drain;
+    let per_pass_us = |n: u128| n as f64 / passes as f64 / 1e3;
+    println!(
+        "[i1247]   passes={passes}  total_wall={:.3} s",
+        total_wall as f64 / 1e9
+    );
+    println!(
+        "[i1247]   per-pass wall               = {:>10.1} us",
+        per_pass_us(total_wall)
+    );
+    println!(
+        "[i1247]   task-flush submit (32-task commit) = {:>10.1} us/pass  ({} submits)",
+        per_pass_us(flush_submit_nanos),
+        submits
+    );
+    println!(
+        "[i1247]   write-flush submit+poll (64-write) = {:>10.1} us/pass",
+        per_pass_us(write_poll_nanos)
+    );
+    println!(
+        "[i1247]   REGULATE poll(Wait) drain         = {:>10.1} us/pass",
+        per_pass_us(regulate_nanos)
+    );
+    println!(
+        "[i1247]   end drain (pass-boundary sync)     = {:>10.1} us",
+        drain as f64 / 1e3
+    );
+    println!(
+        "[i1247]   per-pass wall ex-regulate-ex-drain = {:>10.1} us  (the pure cadence cost)",
+        per_pass_us(total_wall - regulate_nanos - drain)
+    );
+}
+
+fn cadence_pipeline(device: &wgpu::Device) -> (wgpu::ComputePipeline, wgpu::BindGroup) {
+    let kernel = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("(i1247) I kernel"),
+        source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+            "@group(0) @binding(0) var<storage, read_write> buf: array<f32, 2048>;\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\n    let i = gid.x;\n    if i < 2048u {\n        var x = buf[i];\n        for (var k = 0u; k < 256u; k = k + 1u) {\n            x = x * 1.0000001 + 0.0000001;\n        }\n        buf[i] = x;\n    }\n}",
+        )),
+    });
+    let busy_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("(i1247) I busy buf"),
+        size: 2048 * 4,
+        usage: wgpu::BufferUsages::STORAGE,
+        mapped_at_creation: false,
+    });
+    let bg_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("(i1247) I bg layout"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("(i1247) I pl layout"),
+        bind_group_layouts: &[Some(&bg_layout)],
+        immediate_size: 0,
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("(i1247) I pipeline"),
+        layout: Some(&pipeline_layout),
+        module: &kernel,
+        entry_point: None,
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("(i1247) I bg"),
+        layout: &bg_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: busy_buf.as_entire_binding(),
+        }],
+    });
+    (pipeline, bg)
+}
+
+fn cadence_pass(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    pipeline: &wgpu::ComputePipeline,
+    bg: &wgpu::BindGroup,
+    target: &wgpu::Buffer,
+    payload: &[u8; 4096],
+) {
+    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("(i1247) I warmup"),
+    });
+    {
+        let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("(i1247) I warmup pass"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, bg, &[]);
+        pass.dispatch_workgroups(32, 1, 1);
+    }
+    queue.submit([enc.finish()]);
+    queue.write_buffer(target, 0, payload);
+}
+
 fn cell_f_backlog(device: &wgpu::Device, queue: &wgpu::Queue, depth: usize) {
     println!(
         "\n[i1247] === CELL F: write latency vs in-flight command-buffer backlog (depth {depth}) ==="
     );
-    // The real forward commits 1,500–4,200 tiny command buffers per pass
-    // (1203 counters: submit=1548 @ctx 24576 pp, 4212 @ctx 4096 with decode).
-    // Metal's per-queue in-flight CB budget (4096 here, adapter.rs) makes
-    // `commandBufferWithUnretainedReferences()` BLOCK once the budget fills
-    // and completions drain slowly — the hypothesis under test: per-write
-    // ms-class latency is CB-budget blocking, not allocation or pressure.
-    // The GPU-side must be SLOWING the drain to see the stall — here the
-    // backlog is a real GPU working set: each backlog CB carries a kernel
-    // dispatch over `work_size` elements (tiny compute work, but the driver
-    // has real buffers + dispatches to retire per CB).
     let work_size = 1024u32;
     let kernel = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("(i1247) F busy"),
@@ -643,6 +853,7 @@ fn main() {
     cell_d_poll_wait(&device, &queue, cfg.iters);
     cell_f_backlog(&device, &queue, 1024);
     cell_f_backlog(&device, &queue, 4096);
+    cell_i_cadence(&device, &queue, 48);
     cell_g_fence_scan(&device, &queue);
     cell_h_metal_direct(&device, &queue, cfg.iters);
     cell_e_pressure(&device, &queue, &cfg);
