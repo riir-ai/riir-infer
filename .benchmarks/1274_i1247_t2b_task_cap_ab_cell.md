@@ -28,7 +28,20 @@
 - GPU exclusivity: a seal-viewer premise probe (PID 77682, Plan 114 lane) held the GPU until 1:24 local; arms started after its exit — no co-tenant during any bench pass.
 - canary=skipped: sgemm_shape_timing example not built on this box (preflight warn, not a gate for this cell — wall-clock A/B, no FLOP claim).
 
-## CELL I (cadence) — CONTAMINATED FIRST RUN, CLEAN RE-RUN PENDING
+## CELL I (cadence) — CLEAN RE-RUN LANDED (addendum 2026-11-27T20:06Z)
+
+**Addendum PROVENANCE:** preflight PASSED `PROVENANCE: power=AC Power load=5.60 swap=7583.88M canary=skipped powermode=2(high) ane=ok` (20:06Z; swap 7.5 GB = the sibling build lanes' memory pressure, disclosed; 1-min load 5.60 <= 6.0 ceiling). Probe wall 2.4 s, exit 0.
+
+Clean cadence decomposition (48 passes x (32 dispatches -> commit + 64 writes w/ poll@64)), beside the discarded load-99 run:
+
+| metric | contaminated (load 99.5) | clean (load 5.6) | inflation |
+|---|---|---|---|
+| per-pass wall | 5764.3 us | **1262.6 us** | 4.6x |
+| task-flush submit (96 submits/pass) | 3252.9 us | **234.7 us** | 13.9x |
+| write-flush submit+poll (64 writes) | 1490.7 us | **756.0 us** | 2.0x |
+| REGULATE poll(Wait) drain | 96.8 us | **47.9 us** | 2.0x |
+
+The clean split of the 1262.6 us/pass cadence wall: **write-flush submit+poll 60%** (~11.8 us/write), task-flush submit 19% (~2.4 us per 32-task commit), REGULATE drain 4%. Per-interaction costs at this cadence are **us-class, not ms-class** — the probe reproduces the flush pattern but NOT the ms-class stall of the real forward. Consistent with the cap A/B negative above: the hunt moves off flush-frequency onto the real forward's shape (the 1.5-4.2k CB/pass volume — T1's F2 batching candidate) and T1 candidates (b)/(c) (Metal per-CB resource handling, commit scheduling). The discarded-run numbers stand as the contamination quantification (13.9x on the CPU-side submit path under starvation — the load law has teeth; never benchmark a BUSY box).
 
 CELL I ran 19:06:50Z→19:06:59Z **under load 99.51/74.89/41.80** (the sibling-build explosion began ~19:05:45Z, before the probe started). Its absolute numbers (per-pass wall 5764 µs; task-flush submit 3252.9 µs/pass over 96 submits; write-flush submit+poll 1490.7 µs/pass; REGULATE drain 96.8 µs/pass) are CPU-starvation-inflated and are DISCARDED as a measurement. Structure-only observation (to be re-read clean): the 32-task flush chain and the 64-write flush chain are the same order at this shape — consistent with the cap non-effect above. Clean re-run (2.4 s of bench time) lands in this record's addendum once load < 6.
 
