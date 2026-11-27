@@ -25,7 +25,21 @@ W=/Users/katopz/cq3-prep
 OUT=$W/bout_metal_cell1
 MODELS=$W/models
 LC=$W/llama.cpp
-BF16=$MODELS/Qwen3.8-27B-BF16-00001-of-00002.gguf
+# BASE OF RECORD (amended 2026-11-28 per the delegated-owner verdict, session
+# 37e6bcf1-8b7e-4d27-8d68-748445bdc683 — AGREE w/ 6 conditions): the league
+# Q4_K_M serving GGUF, NOT the raw BF16 split. The BF16 base is UNLOADABLE by
+# the wgpu dense quant route at 27B (BF16->F32 upload ~108 GB > 96 GB RAM;
+# the f16-mm2d arm refuses F16 weights in decode-gemv) — the born-unexercised
+# defect that killed the first real execution at the engagement leg. The
+# Q4_K_M is the loader's documented recipe, quant-resident, decode-capable;
+# both dry-run walks PASS on it (incumbent rc=0, armed rc=0, ids diverge at
+# position 1, the construction line prints). Disclosures ride the issue
+# amendment: full sha256+blake3 pinned there; the CQ3 smooth-fit was
+# calibrated on BF16 activations (the paired retention read on THIS base is
+# the measurement of that mismatch); the retention reference is now the
+# Q4_K_M incumbent (already lossy), not BF16.
+BASE=/Users/katopz/uzu27b/models/qwen3.8-27b-Q4_K_M.gguf
+BF16=$BASE
 # Bash-3.2 constraint: macOS /bin/bash 3.2.57 (and sh posix mode) has no
 # associative arrays and parses [b1] subscripts as arithmetic under set -u.
 # Plain variables + a case dispatch only; no bash-4-isms anywhere.
