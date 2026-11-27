@@ -2,7 +2,8 @@
 
 **Status:** open — filed 2026-11-23 (zed-bb86e4df@amo) from the i1243 dense-golden-census wiring's smoke legs. The chunk posture of the new census bin is BLOCKED on this; the census runs `--stride 1` (decode path, proven sane) meanwhile. Fix owner: the dense Metal league lane (Issue 1150/1176 lineage) — the lm_head chunk GEMV stage of `ingest_chunk_gpu`.
 
-**Claimed:** zed-68667e1d@m3, 1795813098, expires 2026-11-29T21:00Z
+**Lease closed:** zed-68667e1d@m3, 1795813098, expires 2026-11-29T21:00Z
+(residue-execution scope — LANDED 09d41700 + docs 4c883f93; the open remainder is the chunk-posture confirmation, rides-i1243's consumer, blocked on rigs — unclaimable until that lands, no lease held)
 
 **Lease closed:** zed-56f3ce1e@amo, 1795464847, expires 2026-11-27T18:00:00Z
 (continuation lane — scope = the residue: the other len()-deriving GEMV kernels recorded in the Resolution below + the chunk-posture confirmation once the i1243 census consumer lands; expired unlanded, holder rig offline; superseded by the m3 residue-execution claim above.)
