@@ -65,11 +65,20 @@ use riir_infer_core::kv_share_align::{
 };
 use riir_infer_core::rope::RopeFreqTable;
 
-/// The pre-registration's pinned eval-corpus SHA-256
+/// The pre-registration's pinned eval-corpus SHA-256.
+///
+/// CORRECTION (2026-11-28, zed-7bab0f17@amo): the ORIGINAL pre-registration
+/// text labeled this digest "SHA-256" but the hex was actually the file's
+/// BLAKE3 (the pinning command chain `blake3 || b3sum || shasum` short-
+/// circuited on the first tool). The file itself NEVER drifted (mtime
+/// 2026-11-27 11:12, before and after the pin); this constant now carries
+/// the file's true SHA-256. The v2 cell's refusal (fail-closed at this
+/// check) is the gate working as built. Disclosure folded into the
+/// katgpt-rs `.issues/1250` pre-registration text in the same session.
 /// (14,075 chat-shaped tokens; regenerable via
 /// `cargo run --release -p riir-infer-dist --example mtp_chat_tokens`).
 /// A drift REFUSES — the eval file is part of the pre-registration.
-const PINNED_EVAL_SHA256: &str = "a59b90f0435dc7d863dbf4ae830228369fe9e97605a73dad93b4fcde9566fb13";
+const PINNED_EVAL_SHA256: &str = "2e8ef853b86fecf39a6054841725556c6f4ac10d6bf20cfb0cbdb9afcdbfff29";
 /// The pre-registration's pinned FA pair (closest gap; the confound is
 /// disclosed there). Overridable — a different pair is a NEW
 /// pre-registration, not a flag flip.

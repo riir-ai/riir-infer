@@ -29,6 +29,20 @@ tokens/round ceiling (batched verify, echo + E[m]): apple8 1.408 | nvidia3 1.402
 - **Chain economics inputs:** E[m] apple8 = 0.408 (sample-mean) / 0.417 (from conditional rates); E[m] nvidia3 (mass ≥ 0.1, the honest form — the shared-rate form would ignore the floor's reachability) = 0.402. **Tokens/round ceiling (batched verify, echo + E[m]): 1.408× apple8 / 1.402× nvidia3** — the upper bound leg B's net-throughput bar (b) (≥ 1.05×) prices against. The conditional-rate tail (slot 7 at 0.52 conditional on reaching it) shows the depth profile is reachability-limited, not accuracy-limited — the mass floor is the binding constraint, matching the nvidia3 honest-read framing.
 - **What this cell is NOT:** leg B (the tok/s economics cell) stays QUIET-WINDOW-ONLY and is un-armed by this record; bar (b) ≥ 1.05× is adjudicated by leg B only. This record's ceiling is the analytic upper bound (echo + E[m]), never a net claim.
 
+## Follow-up: T5.4 leg B — bar (b) FIRED NEGATIVE (same day, 13:2x–13:4x +07)
+
+Launched at 13:2x on a green preflight (PROVENANCE: `power=AC Power load=5.62 swap=4022.12M canary=skipped powermode=0(auto) ane=ok`), completed ≈15 min later, log `/tmp/i1253_t54_legB.log`. The three arms (256-token greedy decode each, the harness's registered leg-B shape):
+
+```
+LEG B ordinary: 256 tokens in 15.34s = 16.69 tok/s
+LEG B repeat-last: 256 tokens in 15.26s = 16.78 tok/s — repeat-accepts 0/170 (the degenerate-drafter floor)
+LEG B draft(nvidia3): 256 tokens in 96.58s = 2.65 tok/s — drafts proposed 256, accepted 0 (rate 0.000), full-accept rounds 0/128
+```
+
+**Bar (b): draft net ≥ 1.05× ordinary — MEASURED 0.159× (2.65/16.69) — the falsifier FIRED.** The acceptance census explains it: **free-run acceptance 0/256** while the TF chain acceptance (this record's leg A) reads slot-0 0.54 / E[m] 0.41 — the drafter agrees with ground-truth-fed context but NEVER with the model's own greedy trajectory on the serving shape. Structural, not contention: acceptance is a count (load-invariant per the pre-registered amendment); the 1.41× analytic ceiling assumed the TF E[m] transfers to free-run and it does not (the Bench-924 free-run lesson, now measured on the vendor twin: the regime, not the tuning, is the gap). The draft arm's wall (8 draft forwards + verify per round at ~0 acceptances) is ~6.3× ordinary's — verify-side acceleration cannot rescue a zero-acceptance drafter.
+
+**Lane adjudication: the second miss class — the lane closes NEGATIVE on economics.** The letter: bar (a) first firing (0.1739) → fix-class re-open → bar (a)-R PASS (0.5139) → bar (b) miss (0.159×). The clause's substance is decisive regardless of the count: the lane's GOAT bar was net ≥ 1.05× and it failed 6×; the block stays loadable + excluded, the `mtp_draft_block` feature stays opt-in, re-open = a CLASS change in the drafter's free-run agreement (never a retune), and T5.5's Metal-verify cell is unreachable-by-premise (an infinitely fast verify cannot pay for a drafter with zero acceptances) — its lease holder folds on wake. Load disclosure: leg B ran on a quiet box (load 5.62 at launch, the WP4 shared job + Zed the only contenders); the tok/s rows are the quiet-window reads of record.
+
 ## Harvest provenance
 
 Harvested 2026-11-28 13:2x +07 by zed-7bab0f17@amo under the PATH-B failover branch (the 16:20 harvest-primary chain pointed at zed-e821112a@amo; that inbox and every sibling lane of the chain are absent from the live thread list — overflow/ended; STEP 0 guards all green: no bench record existed, plan/benchmarks mtimes >15 min stale (last 08:28), the log EXIT marker present, no in-flight sibling writer). Session: zed-7bab0f17@amo, epoch 1795832278 (the i1250-B lease lane, executing the armed 13:20 backstop wake runbook).
