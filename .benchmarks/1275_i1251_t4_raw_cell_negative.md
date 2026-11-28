@@ -1,6 +1,6 @@
 # Bench 1275 — Issue 1251 T4 raw cell (the real-organism arm): NEGATIVE 0/8 — the unit-reader ablation decides the T4+ bar
 
-**Status:** RAW CELL CLOSED-NEGATIVE (the raw `e_t` reader failed both bars on the real organism); the pre-registered `--reader unit` ablation cell is the deciding read for the T4+ bar — IN FLIGHT at this record's landing (launched 2026-11-28T00:20Z, `/tmp/i1251_t4/t4_unit_cell.log`, pid 79416, build `ef01091c`, expected wall 2.7–4 h).
+**Status:** **CLOSED-NEGATIVE BOTH READERS** — the raw cell failed both bars (0/8, ALL votes=0, below) AND the pre-registered `--reader unit` ablation — the deciding read — came back NEGATIVE too (0/8 top-10; the demotion worked, the conjunction didn't): the disjunct fired, **the screen dies pre-flight under BOTH readers**, T5 never unblocks, Issue 1251 CLOSED-NEGATIVE. The unit read: the addendum at the foot of this record.
 
 ## Run of record (the raw cell)
 
@@ -49,3 +49,31 @@ es refused the comma join confusingly; the fold rebuilt fresh from HEAD `ef01091
 Unit cell PASS (≥⅔ top-10 at ≥2× the better baseline) → the T4+ bar is MET under the unit reader: the screen's adjudicated posture is `--reader unit`, the raw reader documented as outlier-blind on real organisms, T5 (the ingest hook) unblocks on the unit posture. Unit cell NEGATIVE → the screen dies pre-flight on the real organism under BOTH readers (close NEGATIVE, machinery value only — the T2b fixture result stands as the mechanism demonstration). The paper's 54%@top-50 remains the reference figure, never our bar.
 
 **Provenance:** launched 2026-11-28T00:20Z on amo under load 4.75 (leg-A economics cell + sibling llama-server present — this census lane is wall-clock-insensitive, contention disclosed); build `ef01091c`; raw-cell numbers are from the 2026-11-26 run on the same pair (quiet-box posture, holder's launch). Session: zed-2215f1e8@amo, epoch 1795853035.
+
+## Addendum (fold 2026-11-28T02:5xZ) — the unit ablation read: NEGATIVE — the screen dies pre-flight under BOTH readers
+
+Fold zed-e1c9504c@amo (supersession fold: the holder session zed-2215f1e8@amo was gone from the fleet threads when its own launch completed the cell — the pre-registered wake fold never fired; lease superseded in the issue, the push the arbiter; the second such miss on this issue — the raw cell needed the same treatment).
+
+**Run of record:** the pre-registered `--reader unit` cell over the same pair, launched 2026-11-28T00:20Z (build `ef01091c`, `/tmp/i1251_t4/t4_unit_cell.log`), completed **2026-11-28T02:10:07Z EXIT=0**, wall **6,604,432 ms ≈ 1.84 h**. Launch-provenance line: amo load 4.75/6.07/8.10 (leg-A economics + sibling llama-server present; wall-clock-insensitive lane, contention disclosed). Artifact `/tmp/i1251_t4/organism_unit.vote1`, blake3 `3131050a869d6b51639877d5ab6f2cf978e0155ff8986c4d304565830aaf4236`. Reader-gate sanity at the launch posture: `t4p_unit_reader_recovers` PASS, `unit_reader_demotes_norm_mass` PASS — the failure is the real organism, never the wiring.
+
+Verbatim verdict:
+
+```
+cell [t2b-upstream] planted=8 recovered(top-10)=0/8 bar1(≥⅔ top-10)=false bar2(≥2× better baseline)=true → Negative
+  baselines: summed_max=5.470e2 (ranked 151936) emb_max=4.248e-1 (ranked 151936)
+  token 13638: vote_rank=Some(30) votes=87 summed_rank=Some(76817) emb_rank=Some(5109) top10=false 2x=true
+  token 24306: vote_rank=Some(27) votes=89 summed_rank=Some(96233) emb_rank=Some(11227) top10=false 2x=true
+  token 9825:  vote_rank=Some(126) votes=55 summed_rank=Some(83021) emb_rank=Some(83866) top10=false 2x=true
+  token 8648:  vote_rank=Some(2667) votes=24 summed_rank=Some(114545) emb_rank=Some(66827) top10=false 2x=true
+  token 23249: vote_rank=Some(3334) votes=23 summed_rank=Some(32140) emb_rank=Some(60258) top10=false 2x=true
+  token 15435: vote_rank=Some(641) votes=34 summed_rank=Some(111292) emb_rank=Some(47695) top10=false 2x=true
+  token 3886:  vote_rank=None votes=0 summed_rank=Some(95126) emb_rank=Some(131869) top10=false 2x=false
+  token 32525: vote_rank=None votes=0 summed_rank=Some(63894) emb_rank=Some(65818) top10=false 2x=false
+  bar failed without a passing circular sanity — NEGATIVE, the screen dies pre-flight
+```
+
+**Bar reading.** The unit demotion itself WORKED as designed — the norm-mass crowd stopped eating the whole budget: 6/8 planted tokens now carry votes (87/89/55/24/23/34), best ranks 26–30, vs the raw read's votes=0 across all 8. That is Bench 1266 finding 1's remedy **confirmed on a real organism**. But recovery still fails bar1 at 0/8 top-10 — the best two planted tokens rank 26–27 — and **two of the eight documented triggers (`Ġborder` 3886, `Ġchina` 32525) cast NO vote even under the unit reader**: under a conjunctive AND-gate organism each gate/up delta is a contribution to a conjunction, not a per-token signal, and a per-neuron top-15 changed-token ranking never surfaces it. bar2=true is vacuous without bar1 (the same structure as the raw read).
+
+**Final verdict (the pre-registered disjunct fires):** unit NEGATIVE → **the screen dies pre-flight on the real organism under BOTH readers.** Issue 1251 closes NEGATIVE — machinery value only: the T1–T3 substrate (vote core, both planters, 21/21 fixture gates, VOTE1 codec, the `--reader raw|unit` arm) stands landed as the corpus lane, the T2b non-circular fixture PASS (3/3 at ≥2× summed-change, Bench 1266) remains the mechanism demonstration, and the code stays opt-in behind `readout_screen`, never a serving path. T5 (the `--audit-triggers` ingest hook) never unblocks. Re-open trigger class: a different READ statistic (a residual-stream-aware reader or conjunction-aware aggregation) — never a threshold re-tune.
+
+Teardown at the fold: `/tmp/i1251_t4` (+ the lane's `/tmp/i1251_{abl,tgt}` scratch + log) removed — the organism and base are public HF re-downloads, every verdict digest pinned above. Session: zed-e1c9504c@amo, epoch 1795833046.
