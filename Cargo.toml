@@ -18,34 +18,35 @@ publish = false
 # forward each of their copies: `X = [..., "riir-infer-core/X"]`.
 
 [dependencies]
-katgpt-core = { path = "../katgpt-rs/crates/katgpt-core" }
+katgpt-core = { path = "E:/git/katgpt-rs/crates/katgpt-core" }
 # katgpt-types: named directly for the `act_aware_fit` enum
 # (ActAwareScaleFit) — the scale-fit API lives on TernaryGroupWeights in
 # types (Issue 886 P1), and katgpt-core forwards the FEATURE but not the
 # enum. Same upstream repo; version walks with katgpt-core by construction.
-katgpt-types = { path = "../katgpt-rs/crates/katgpt-types" }
+katgpt-types = { path = "E:/git/katgpt-rs/crates/katgpt-types" }
 # default-features = false: mirrors riir-engine (kog_cpu_fusion off).
-katgpt-transformer = { path = "../katgpt-rs/crates/katgpt-transformer", default-features = false }
+katgpt-transformer = { path = "E:/git/katgpt-rs/crates/katgpt-transformer", default-features = false }
 # katgpt-speculative: shared DDTree substrate (dflash.rs et al.).
-katgpt-speculative = { path = "../katgpt-rs/crates/katgpt-speculative" }
+katgpt-speculative = { path = "E:/git/katgpt-rs/crates/katgpt-speculative" }
 # katgpt-forward: canonical clustered LM head + standard head (transformer/mtp.rs).
-katgpt-forward = { path = "../katgpt-rs/crates/katgpt-forward" }
+katgpt-forward = { path = "E:/git/katgpt-rs/crates/katgpt-forward" }
 # katgpt-quant: canonical TurboQuant — the `crate::turboquant` re-export
 # consumed by the moved model layer (optional, pulled by `turboquant`).
-katgpt-quant = { path = "../katgpt-rs/crates/katgpt-quant", optional = true }
+katgpt-quant = { path = "E:/git/katgpt-rs/crates/katgpt-quant", optional = true }
 # katgpt-attn: flashmemory_gqa only (optional; engine keeps its own copy for
 # latent_functor/static_cal_bridge.rs which does NOT move).
-katgpt-attn = { path = "../katgpt-rs/crates/katgpt-attn", optional = true }
+katgpt-attn = { path = "E:/git/katgpt-rs/crates/katgpt-attn", optional = true }
 # katgpt-kv: the KVarN V-cache quantizer backend (Issue 013 T1 lane).
 # default-features = false: the kvarn backend is feature-selected explicitly
 # (both Issue-013 consumers — fitted_v_tables + gemma2_qkv — pull kvarn by
 # name), so the namespace crate's defaults stay out of every other posture.
-katgpt-kv = { path = "../katgpt-rs/crates/katgpt-kv", optional = true, default-features = false }
+katgpt-kv = { path = "E:/git/katgpt-rs/crates/katgpt-kv", optional = true, default-features = false }
 # katgpt-pruners: the bias-delta vocabulary (BiasDeltaBuilder/BiasDeltaTable,
 # katgpt-rs Issue 920 T1) — the capture bin accumulates through the shipped
 # substrate, never a hand-rolled duplicate. default-features = false,
 # optional: measurement-lane capability (`hyperthink_t1` only), never a
 # default-feature dep (the katgpt-kv precedent).
+<<<<<<< HEAD
 katgpt-pruners = { path = "../katgpt-rs/crates/katgpt-pruners", optional = true, default-features = false }
 # katgpt-spectral: the closed-form alignment family (`orthogonal_procrustes`
 # — the unconstrained solve + `rope_commuting_procrustes_paired`, the
@@ -61,6 +62,9 @@ katgpt-spectral = { path = "../katgpt-rs/crates/katgpt-spectral", optional = tru
 # pin fail-closed and records both files' digests. Optional, same lane
 # (`kv_share_align` only).
 sha2 = { version = "0.10", optional = true }
+=======
+katgpt-pruners = { path = "../katgpt-rs/crates/katgpt-pruners", optional = true, default-features = false }
+>>>>>>> e0715b1 (fix(i1254): P0a — wire the rope_freqs.weight loader arm + P0 runtime probe bin (recipient legs GREEN on the real checkpoint))
 
 half = "2"
 rayon = "1.10"
@@ -727,6 +731,14 @@ required-features = ["deltanet_ternary_inference"]
 name = "grafts_cell"
 path = "src/bin/grafts_cell.rs"
 required-features = ["grafts_cell"]
+
+# Issue 1254 P0 runtime probe — the recipient/donor verification reads
+# over the REAL checkpoints (no forward pass). Ungated (default build):
+# the llama leg is default-deps, the donor leg prints SKIP-LOUD without
+# the ternary feature (never a silent half-run).
+[[bin]]
+name = "i1254_p0_probe"
+path = "src/bin/i1254_p0_probe.rs"
 
 # riir-infer Issue 1256 T1 — the implant decode-seam cell bin (fixture
 # tier + real tier over the league checkpoint; G1/G1b/G2/G3 → BLAKE3-
@@ -1792,11 +1804,11 @@ debug = true
 # each manifest's own directory, so member manifests inherit this instead
 # of spelling the sibling path one level deeper).
 [workspace.dependencies]
-katgpt-core = { path = "../katgpt-rs/crates/katgpt-core" }
+katgpt-core = { path = "E:/git/katgpt-rs/crates/katgpt-core" }
 # Shared DDTree/speculative substrate (the root package declares it
 # directly above; members inherit from here — riir-infer-gpu's Issue-966
 # grid_reselect arm is the first member consumer).
-katgpt-speculative = { path = "../katgpt-rs/crates/katgpt-speculative" }
+katgpt-speculative = { path = "E:/git/katgpt-rs/crates/katgpt-speculative" }
 # Plan 630 / Issue 1201 T2 — the FlashStates multi-session lane's named
 # substrate (the member-consumer inheritance precedent above). katgpt-kv
 # carries the radix prefix tree (feature radix_prefix_cache — the member
@@ -1805,8 +1817,8 @@ katgpt-speculative = { path = "../katgpt-rs/crates/katgpt-speculative" }
 # T2) + PAGE_SIZE. default-features = false mirrors the root package's
 # row (kog_cpu_fusion off). Both BOUNDARY-allowlisted (the katgpt-kv row
 # names it measurement-lane capability, never a default-feature dep).
-katgpt-kv = { path = "../katgpt-rs/crates/katgpt-kv", default-features = false }
-katgpt-transformer = { path = "../katgpt-rs/crates/katgpt-transformer", default-features = false }
+katgpt-kv = { path = "E:/git/katgpt-rs/crates/katgpt-kv", default-features = false }
+katgpt-transformer = { path = "E:/git/katgpt-rs/crates/katgpt-transformer", default-features = false }
 
 # ─── Local patches (crates.io forks) ─────────────────────────────────
 # Byte-identical copies of the patched crates.io sources under vendor/

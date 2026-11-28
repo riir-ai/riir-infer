@@ -1540,15 +1540,13 @@ pub fn load_llama_weights_gguf(
         lm_head,
         final_norm,
         layers,
-        // Issue 1254's `rope_freqs.weight` loader arm is NOT wired here yet —
-        // the struct field + `build_rope_freq_table` consumer landed, the
-        // tensor read did not (this file's `rope_freqs.weight` read exists in
-        // no ref; the 1254 record documents it as added). `None` = the plain
-        // frequency table, the pre-field behavior byte-identical; a scaled
-        // checkpoint silently runs plain frequencies until the arm lands —
-        // named loud here so the 1254 lane sees the missing half.
+        // Issue 1254's `rope_freqs.weight` loader arm: the tensor READ lives
+        // in `rope_freq_loader::read_rope_freq_weights`, wired right after
+        // this literal via `finish_llama_weights` (loud refusal on a
+        // non-F32/misshaped tensor, plain table when the tensor is absent).
         rope_freq_weights: None,
     };
+    let weights = crate::rope_freq_loader::finish_llama_weights(&gguf, &config, weights)?;
 
     Ok((config, weights))
 }
@@ -1739,11 +1737,12 @@ pub fn load_qwen2_weights_gguf(
         lm_head,
         final_norm,
         layers,
-        // Issue 1254's `rope_freqs.weight` loader arm is NOT wired here yet —
-        // same disposition as the llama loader above: `None` = the plain
-        // table, the pre-field behavior; the 1254 lane owns the read.
+        // Issue 1254's `rope_freqs.weight` loader arm: same wire as the
+        // llama loader above — the post-literal `finish_llama_weights`
+        // override reads the tensor (loud refusal on a bad shape).
         rope_freq_weights: None,
     };
+    let weights = crate::rope_freq_loader::finish_llama_weights(&gguf, &config, weights)?;
 
     Ok((config, weights))
 }

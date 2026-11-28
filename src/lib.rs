@@ -159,6 +159,11 @@ pub mod dflash;
 /// GGUF weight loading.
 pub mod gguf_loader;
 
+/// Issue 1254 P0a — the `rope_freqs.weight` loader arm (the tensor read
+/// behind `LlamaTransformerWeights::build_rope_freq_table`; loud refusal
+/// on a non-F32/misshaped tensor, plain table when absent).
+pub mod rope_freq_loader;
+
 /// Issue 1253 T5.2 (plan 639) — the MTP draft block's CPU reference
 /// forward (`mtp_draft_block` + the ternary lane it serves; the admission
 /// half lives in `gguf_loader`).
