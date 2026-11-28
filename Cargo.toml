@@ -273,6 +273,31 @@ lattice_census = ["deltanet_ternary_inference"]
 # fail-closed.
 kv_share_align = ["dep:katgpt-spectral", "dep:sha2", "deltanet_ternary_inference"]
 
+
+# riir-infer Issue 1254 (2026-11-28, the Plato's Key PoC cell, Research
+# 044): the P4 PC-space fit primitives — train-split PCA into the shared
+# top-r PC space (katgpt-core `symmetric_eig` on the n×n Gram; train
+# projections read off the eigenpairs, never a second pass) + the square
+# r×r orthogonal Procrustes IN CLOSED FORM (the polar factor of
+# M = B_pcᵀA_pc via the same deterministic eigensolver —
+# basis-convention-free, exact). ⚠ Named divergence from the upstream
+# katgpt-spectral procrustes: its Newton-Schulz solve (fixed 5
+# iterations, no knob) leaves a 2.8e-4 rotation-only residual delta on
+# this cell's exact fixture and carries no exactness guarantee as the
+# spectral skew of M grows — the frozen-artifact cell takes the exact
+# closed form instead, so the spectral dep is NOT consumed here (the
+# BOUNDARY.md katgpt-spectral row stays scoped to `kv_share_align`).
+# The Procrustes residual is rotation-only by convention — analytically
+# (σ−1)/σ on the exact fixture — so the module reports the scaled
+# residual beside it. Plus the spread-match global scale + the
+# zero-alloc single-key swap apply + the identity / Haar-random
+# controls + the BLAKE3 `I1254FT1` artifact codec. OPT-IN (pure compile
+# gate, zero deps beyond the standing katgpt-core), OFFLINE by
+# construction — never a serving path. The leak law binds the caller:
+# means, PCs, rotation and scale are train-split statistics by
+# construction — never feed val/test rows.
+i1254_fit = []
+
 # riir-infer Issue 1242 T1 - the KL-vs-anchor ranked-selection census
 # (the QDA distill anchor instrument): per-token forward-KL from logits
 # slices + the top-k-union variant + the trace-set aggregation, OPT-IN,

@@ -342,6 +342,32 @@ pub mod anchor_kl;
 #[cfg(feature = "kv_share_align")]
 pub mod kv_share_align;
 
+/// Issue 1254 (Plato's Key cross-model key transfer cell) — the P4
+/// PC-space fit primitives (opt-in `i1254_fit`): train-split PCA into a
+/// shared top-r PC space (`katgpt_core::linalg::symmetric_eig` on the
+/// n×n Gram; the train projections come off the eigenpairs directly,
+/// never a second pass) + the square r×r orthogonal Procrustes solved
+/// IN CLOSED FORM as the polar factor of `M = B_pcᵀ·A_pc` via the same
+/// deterministic eigensolver (basis-convention-free: invariant to
+/// eigenvector signs and degenerate-block rotations). ⚠ Named
+/// divergence: the upstream `katgpt_spectral::orthogonal_procrustes`
+/// (Newton-Schulz, fixed 5 iterations, no knob) leaves a 2.8e-4
+/// rotation-only residual delta on this cell's exact fixture and
+/// carries no exactness guarantee as the spectral skew of M grows —
+/// the frozen-artifact cell takes the exact closed form instead. Both
+/// residuals are reported (rotation-only and scaled — the semantics
+/// trap is in the module doc). Plus: the spread-match global scale +
+/// the zero-alloc single-key swap apply (the G4-ready serving shape) +
+/// the identity / Haar-random controls + the BLAKE3 `I1254FT1`
+/// artifact codec. OFFLINE by construction — never a serving path; the
+/// fitted map is LATENT (never synced). ⛔ The leak law binds the
+/// CALLER: the fit consumes exactly the matrices it is given, which
+/// must be the TRAIN split (means, PCs, rotation and scale are
+/// train-split statistics by construction).
+#[cfg(feature = "i1254_fit")]
+pub mod i1254_fit;
+
+
 /// f64 golden-NLL readout (Issue 959 T6, opt-in `golden_nll`): the
 /// tail-faithful per-token oracle for lossy-quant gates over
 /// katgpt-core's `fixed_log_softmax_target_f64`. Instrument-grade —
