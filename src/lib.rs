@@ -367,6 +367,24 @@ pub mod kv_share_align;
 #[cfg(feature = "i1254_fit")]
 pub mod i1254_fit;
 
+/// Issue 1254 (Plato's Key cell) — the capture DATA PLANE (ungated like
+/// the corpus plane; wasm-gated via its tokenizer dep): the llama-side
+/// `PostLayerHook` pair (capture + replace, the Issue-395 seam shapes),
+/// the subject-token span law (BPE locality, never a `find`), the greedy
+/// recall decision (corpus matching + the distinct-token guard), the
+/// 22–38% depth band, the resumable per-fact capture store (append-only
+/// JSONL rows + `I1254K1` binary key planes + BLAKE3 model provenance in
+/// a per-side meta receipt), the split-recomputing paired join (band
+/// metas cross-checked), and the recipient per-split baseline recall
+/// (the verdict round-1 gate's data source). The runnable phase is the
+/// `i1254_capture` bin; the fit math is the LANDED
+/// [`crate::i1254_fit`]. Mined from the duplicate-continuation thread's
+/// untracked drafts (zed-f6919b20@4090) — its f64 fit core replaced by
+/// the landed closed-form module.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod i1254_capture;
+
+
 
 /// f64 golden-NLL readout (Issue 959 T6, opt-in `golden_nll`): the
 /// tail-faithful per-token oracle for lossy-quant gates over

@@ -768,6 +768,10 @@ path = "src/bin/i1254_p0_probe.rs"
 name = "i1254_corpus_audit"
 path = "src/bin/i1254_corpus_audit.rs"
 
+[[bin]]
+name = "i1254_capture"
+path = "src/bin/i1254_capture.rs"
+
 # riir-infer Issue 1256 T1 — the implant decode-seam cell bin (fixture
 # tier + real tier over the league checkpoint; G1/G1b/G2/G3 → BLAKE3-
 # pinned report). Reader protection row (the green-zero law).
