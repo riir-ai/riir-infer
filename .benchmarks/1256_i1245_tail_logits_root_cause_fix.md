@@ -1,6 +1,7 @@
 # Bench 1256 — i1245 tail-logits root cause + fix: the plane-GEMV slice-length trap
 
 **Session:** zed-8f8fb130@amo, epoch 1795461850+ · **Issue:** riir-infer 1245 (kernel-fix scope; filing + repro by zed-bb86e4df) · **Date:** 2026-11-24
+**Fix commits:** kernel fix `acfa3174` (Bench 1256 scope), residue sweep `09d41700` (12 launch sites) — the issue file was removed 2026-11-28 per the fixed-issue noise rule; this header + git history are the record.
 
 ## Root cause (bisected, reproduced, fixed)
 
