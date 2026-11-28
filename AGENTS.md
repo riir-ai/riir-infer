@@ -107,6 +107,8 @@ cargo run --release --features closed_form_write --example closed_form_write_cel
 # The Dory looped-checkpoint lane (opt-in `dory`; `.issues/1221_dory_gguf_looped_lane.md` is the lane record, `.plans/636` the T3 pre-registration): — gates on synth, then the real-pin cells:
 cargo test --features dory --test i1221_t4_sampling_gates --test i1221_t4_self_spec_gates --test i1221_t3a_spectra_gates
 cargo run --release --features dory --example i1221_t4_sampling_cell -- --fresh
+cargo test --features dory --test i1221_t3c_gates
+cargo run --release --features dory --example i1221_t3c_tokens_per_task -- --gguf ../riir-train/data/NVIDIA-Nemotron-Labs-Dory1.0-4B-Q5_K_M.gguf   # the T3(c) tokens-per-task cell — TIMING rows: quiet-window law binds (plan 636)
 # Issue 1208 deletion-mask lane (opt-in `deletion_mask`): the ingest battery + the llama-lane forward G1 (synthetic, no model file):
 cargo test --features deletion_mask --lib adapter::hf_ingest
 cargo test --features deletion_mask --test i1208_mask_apply_llama
