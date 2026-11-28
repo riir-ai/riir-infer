@@ -118,6 +118,16 @@ raven = []
 # `edlm` GGUF arch + branch mask + row form + pointer head. Weights are
 # CC BY-NC — local bench/comparison serving only, never a product lane.
 edlm = []
+# Plan 627 Phase 1 T0 (2026-11-28) — the GLM-5.3-Flash (`glm5_next`) arch
+# vocabulary: typed config (nested-or-flat HF JSON) + the 34-KDA/11-DSA
+# layer-kind dispatch + safetensors weight_map inventory validation over
+# the probed name grammar (golden fixture = the REAL checkpoint numbers,
+# pin sha 46a050bec; refusal battery + full-size census cross-check).
+# Metadata-only opt-in (the `dory` posture): zero serving-path cost, no
+# weights loaded, no forward — the MLA/KDA forward legs consume the
+# upstream katgpt-attn::mla vocabulary and the deltanet lane at their
+# own re-claims (plan 627 lease law). Pure-local: no dep forwards.
+glm5 = []
 gemma_lora = []
 lora_still = []
 # EXL3 (trellis-coded, QTIP-variant) safetensors-side quant — CPU reference

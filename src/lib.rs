@@ -64,6 +64,14 @@ pub mod gemma_layer;
 /// Llama architecture layer helpers (leaf).
 pub mod llama_layer;
 
+/// GLM-5.3-Flash (`glm5_next`) arch vocabulary — Plan 627 Phase 1 T0:
+/// typed config + layer-kind dispatch (34 KDA / 11 DSA) + safetensors
+/// inventory validation over the probed name grammar. Metadata-only
+/// opt-in (no weights, no forward); unarmed builds compile the module
+/// to nothing (the `dory`/`edlm` posture).
+#[cfg(feature = "glm5")]
+pub mod glm5;
+
 /// Quantization primitives: `Q2_0` / `Q4_K` / `Q5_K` / `Q6_K` / `Q8_KV`.
 pub mod quant;
 
