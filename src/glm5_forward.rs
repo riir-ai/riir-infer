@@ -27,9 +27,16 @@
 //! Metadata contract: `Glm5Config` (the `glm5` feature) validates the
 //! arch; this module adds the forward. Feature `glm5_forward` implies
 //! `glm5` + `katgpt-attn/mla_attention`.
+//!
+//! Plan 627 Phase 1 T2 adds the chunk PREFILL seat (`prefill`) over the
+//! substrate's `mla_forward_chunk` — the substrate's in-module gates pin
+//! chunk ≡ the sequential decode loop BIT-EXACTLY, so the prefill carries
+//! no tolerance of its own. Real-capture parity (needs weights) and the
+//! Metal arm remain later lane legs.
 
 use katgpt_attn::mla::{
-    MlaConfig, MlaForwardScratch, MlaKVCache, MlaWeights, mla_forward_token_dispatched,
+    mla_forward_chunk, mla_forward_token_dispatched, MlaConfig, MlaForwardScratch, MlaKVCache,
+    MlaWeights,
 };
 use katgpt_kv::shard_kv::rope::RopeFreqs;
 
@@ -252,6 +259,46 @@ impl Glm5DsaLayer {
             h,
         );
         Ok(out)
+    }
+
+    /// Prefill a CHUNK of hidden states over the dense path — one batched
+    /// causal call (the substrate's `mla_forward_chunk`; its in-module gates
+    /// pin chunk ≡ the sequential decode loop BIT-EXACTLY). Appends every
+    /// row's latent to the cache and returns the per-row layer outputs flat
+    /// `[n × hidden_size]` row-major. The reach check mirrors
+    /// `forward_token`'s: the chunk may end at exactly `dense_path_reach()`
+    /// cached tokens; dim mismatches and empty chunks refuse typed.
+    pub fn prefill(&mut self, hs: &[&[f32]]) -> Result<Vec<f32>, String> {
+        let n = hs.len();
+        if n == 0 {
+            return Err("empty prefill chunk".to_string());
+        }
+        let reach = self.cfg.dense_path_reach();
+        if self.cache.seq_len + n > reach {
+            return Err(format!(
+                "dense-path reach exhausted: chunk would hold {} token(s), \
+                 index_topk is {} — the indexer-selection lane owns longer contexts",
+                self.cache.seq_len + n,
+                reach
+            ));
+        }
+        for (i, h) in hs.iter().enumerate() {
+            if h.len() != self.cfg.hidden_size {
+                return Err(format!(
+                    "hidden state dim mismatch at row {i}: {} != {}",
+                    h.len(),
+                    self.cfg.hidden_size
+                ));
+            }
+        }
+        Ok(mla_forward_chunk(
+            &self.mla,
+            &self.weights,
+            &mut self.cache,
+            &mut self.scratch,
+            &mut self._rope,
+            hs,
+        ))
     }
 }
 
@@ -564,5 +611,112 @@ mod tests {
         for n in dsa_rows {
             assert!(n.starts_with("model.language_model.layers.0."));
         }
+    }
+
+    // ── Plan 627 Phase 1 T2: the chunk prefill seat ────────────────────
+
+    #[test]
+    fn prefill_matches_the_decode_loop_bit_exact() {
+        let cfg = tiny_dsa_cfg();
+        let d = cfg.hidden_size;
+        let tokens: Vec<Vec<f32>> = (0..4).map(|i| rand_vec(100 + i, d)).collect();
+        let refs: Vec<&[f32]> = tokens.iter().map(|t| t.as_slice()).collect();
+
+        // Arm A: sequential decode (tiny_weights is seed-deterministic, so
+        // both arms run the identical weight set).
+        let mut dec = Glm5DsaLayer::new(&cfg, tiny_weights(&cfg), 16).expect("seat");
+        let expected: Vec<Vec<f32>> = tokens
+            .iter()
+            .map(|t| dec.forward_token(t).expect("decode").to_vec())
+            .collect();
+
+        // Arm B: one chunk prefill (fresh seat).
+        let mut pre = Glm5DsaLayer::new(&cfg, tiny_weights(&cfg), 16).expect("seat");
+        let got = pre.prefill(&refs).expect("prefill");
+        assert_eq!(got.len(), tokens.len() * d);
+        for (i, (row, exp)) in got.chunks(d).zip(expected.iter()).enumerate() {
+            assert_eq!(row, exp.as_slice(), "row {i} diverged from the decode loop");
+        }
+        assert_eq!(pre.seq_len(), 4);
+        assert_eq!(dec.seq_len(), 4);
+    }
+
+    #[test]
+    fn prefill_after_prefix_matches_all_decode() {
+        let cfg = tiny_dsa_cfg();
+        let d = cfg.hidden_size;
+        let tokens: Vec<Vec<f32>> = (0..5).map(|i| rand_vec(200 + i, d)).collect();
+
+        // Expected: all-decode.
+        let mut dec = Glm5DsaLayer::new(&cfg, tiny_weights(&cfg), 16).expect("seat");
+        let expected: Vec<Vec<f32>> = tokens
+            .iter()
+            .map(|t| dec.forward_token(t).expect("decode").to_vec())
+            .collect();
+
+        // Mixed: decode 2, then chunk the rest.
+        let mut mix = Glm5DsaLayer::new(&cfg, tiny_weights(&cfg), 16).expect("seat");
+        for (i, t) in tokens.iter().enumerate().take(2) {
+            let out = mix.forward_token(t).expect("decode").to_vec();
+            assert_eq!(out, expected[i].as_slice(), "prefix row {i}");
+        }
+        let rest: Vec<&[f32]> = tokens[2..].iter().map(|t| t.as_slice()).collect();
+        let got = mix.prefill(&rest).expect("prefill");
+        assert_eq!(got.len(), 3 * d);
+        for (i, row) in got.chunks(d).enumerate() {
+            assert_eq!(row, expected[2 + i].as_slice(), "chunked row {}", 2 + i);
+        }
+        assert_eq!(mix.seq_len(), 5);
+    }
+
+    #[test]
+    fn prefill_refuses_past_dense_reach() {
+        let cfg = tiny_dsa_cfg(); // index_topk 64
+        let reach = cfg.dense_path_reach();
+        let d = cfg.hidden_size;
+        let mut seat = Glm5DsaLayer::new(&cfg, tiny_weights(&cfg), 4096).expect("seat");
+        // A chunk longer than the reach refuses typed, cache untouched.
+        let over_vecs: Vec<Vec<f32>> = (0..reach + 1).map(|i| rand_vec(300 + i as u64, d)).collect();
+        let over: Vec<&[f32]> = over_vecs.iter().map(|t| t.as_slice()).collect();
+        let err = seat
+            .prefill(&over)
+            .expect_err("over-reach chunk must refuse");
+        assert!(err.contains("dense-path reach"), "err: {err}");
+        assert_eq!(seat.seq_len(), 0);
+        // Exactly at the reach is legal.
+        let exact_vecs: Vec<Vec<f32>> = (0..reach).map(|i| rand_vec(400 + i as u64, d)).collect();
+        let exact: Vec<&[f32]> = exact_vecs.iter().map(|t| t.as_slice()).collect();
+        let got = seat
+            .prefill(&exact)
+            .expect("at-reach chunk must be accepted");
+        assert_eq!(got.len(), reach * d);
+        assert_eq!(seat.seq_len(), reach);
+    }
+
+    #[test]
+    fn prefill_refuses_bad_dims_and_empty() {
+        let cfg = tiny_dsa_cfg();
+        let d = cfg.hidden_size;
+        let mut seat = Glm5DsaLayer::new(&cfg, tiny_weights(&cfg), 16).expect("seat");
+        let empty: Vec<&[f32]> = Vec::new();
+        assert!(seat.prefill(&empty).is_err());
+        let bad_vec = rand_vec(500, d - 1);
+        let bad = [bad_vec.as_slice()];
+        let err = seat.prefill(&bad).expect_err("dim mismatch must refuse");
+        assert!(err.contains("dim mismatch"), "err: {err}");
+        assert_eq!(seat.seq_len(), 0);
+    }
+
+    #[test]
+    fn prefill_is_deterministic() {
+        let cfg = tiny_dsa_cfg();
+        let d = cfg.hidden_size;
+        let tokens: Vec<Vec<f32>> = (0..3).map(|i| rand_vec(600 + i, d)).collect();
+        let refs: Vec<&[f32]> = tokens.iter().map(|t| t.as_slice()).collect();
+        let mut a = Glm5DsaLayer::new(&cfg, tiny_weights(&cfg), 16).expect("seat");
+        let got1 = a.prefill(&refs).expect("prefill 1");
+        a.reset();
+        let got2 = a.prefill(&refs).expect("prefill 2");
+        assert_eq!(got1, got2);
     }
 }
