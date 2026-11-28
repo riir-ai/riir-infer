@@ -418,6 +418,17 @@ spaces are already aligned on this pair; the arm closes NO-OP (recorded, not neg
         // deterministic and unchanged. The i1250-B T7 adjudication record
         // carries the correction + the fold.
         "NEGATIVE"
+    } else if naive_d <= 0.0 {
+        // PREMISE GUARD (verdict round 1, delegated-owner REVISE): the
+        // halving bar "aligned ≤ 0.5× naive" assumes naive copy DOES
+        // damage (naive delta > 0). When naive delta ≤ 0 the ratio flips
+        // meaning — a negative naive delta makes the inequality a test of
+        // "aligned captured half of naive's improvement", which the
+        // pre-registration never registered. A sign-artifact PASS would
+        // fire the closure law's positive branch for a null substance.
+        // Record NULL; the re-open precondition is a pair/checkpoint
+        // where naive copy measurably hurts (naive-delta CI lo > 0).
+        "NULL"
     } else if half_cis.0 <= 0.0 && half_cis.2 <= 0.0 {
         "PASS"
     } else if half_cis.0 <= 0.0 {
@@ -428,7 +439,7 @@ spaces are already aligned on this pair; the arm closes NO-OP (recorded, not neg
         "FAIL"
     };
     println!(
-        "# T7 bar (aligned ≤ 0.5× naive at the 95% CI): verdict {verdict}\n#   (NO-OP = the angle falsifier; NEGATIVE = aligned > naive at the CI; \
+        "# T7 bar (aligned ≤ 0.5× naive at the 95% CI): verdict {verdict}\n#   (NULL = the bar's premise not met — naive delta ≤ 0, the halving ratio is undefined in this sign regime; NO-OP = the angle falsifier; NEGATIVE = aligned > naive at the CI; \n
 UNDECIDED = the CI straddles the bar; FAIL = the point estimate misses the bar without the NEGATIVE CI)"
     );
 
