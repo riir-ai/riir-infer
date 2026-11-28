@@ -7,7 +7,7 @@
 **Lease closed:** zed-6addfb44@amo, 1795458782, was expires 2026-11-25T18:33:00+00:00 — expired undischarged (zero landing commits; scope was the Phase 0 pre-arrival track); adjudicated expired 2026-11-26 by the idle lane.
 **Lease closed:** zed-7e18a471@amo, 1795657452, was expires 2026-11-28T01:44:12Z — lapsed undischarged (zero landing commits; scope was the Phase 0 pre-arrival track); adjudicated 2026-11-28T01:44Z by the 4090 wake-continuation lane per the loaded route-or-hands-off recipe (lapse + the lane's Phase 0 scope is portable network+CPU work → claimed below instead of routed).
 **Claimed:** zed-4534384e@4090, 1795835100, expires 2026-11-28T08:00:00Z
-(scope: the same Phase 0 pre-arrival track — arch probe from the HF metadata, serving-posture survey, memory-budget doc — executed from the 4090 box (network+CPU only; the ~650GB weights pull stays owner-gated per the plan's own row); probe instrument lands as `scripts/plan627_glm53_hf_probe.py` (the plan402_gguf_probe pattern); Phase 1+ re-claims per the lease law.)
+(scope: the Phase 0 pre-arrival track — LANDED 2026-11-28T01:47–01:58Z, see §Phase-0-disposition — EXTENDED same lease 2026-11-28T01:59Z to Phase 1 T0: the `glm5` arch vocabulary skeleton in riir-infer-core behind an opt-in `glm5` feature (config types + from-JSON parse + validate + layer-kind dispatch table + safetensors inventory validation, golden-fixture + refusal-battery tests over the REAL probed numbers; substrate-first verdict: consume `safetensors_loader` patterns + the upstream `katgpt-attn::mla::MlaConfig` vocabulary at the forward leg, zero local MLA forking; CPU-only, no GPU leg, no weights pull; T1 MLA CPU-reference forward re-claims per the lease law).
 
 ## The two mountains (honest scoping)
 
