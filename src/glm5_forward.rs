@@ -35,8 +35,8 @@
 //! Metal arm remain later lane legs.
 
 use katgpt_attn::mla::{
-    mla_forward_chunk, mla_forward_token_dispatched, MlaConfig, MlaForwardScratch, MlaKVCache,
-    MlaWeights,
+    mla_forward_chunk_dispatched, mla_forward_token_dispatched, MlaConfig, MlaForwardScratch,
+    MlaKVCache, MlaWeights,
 };
 use katgpt_kv::shard_kv::rope::RopeFreqs;
 
@@ -262,10 +262,12 @@ impl Glm5DsaLayer {
     }
 
     /// Prefill a CHUNK of hidden states over the dense path — one batched
-    /// causal call (the substrate's `mla_forward_chunk`; its in-module gates
-    /// pin chunk ≡ the sequential decode loop BIT-EXACTLY). Appends every
-    /// row's latent to the cache and returns the per-row layer outputs flat
-    /// `[n × hidden_size]` row-major. The reach check mirrors
+    /// causal call (the substrate's `mla_forward_chunk_dispatched`; its
+    /// in-module gates pin chunk ≡ the sequential decode loop BIT-EXACTLY
+    /// per posture — reconstruct default, absorbed under `mla_absorbed`,
+    /// `KATGPT_MLA_RECONSTRUCT=1` the reconstruct kill-switch). Appends
+    /// every row's latent to the cache and returns the per-row layer
+    /// outputs flat `[n × hidden_size]` row-major. The reach check mirrors
     /// `forward_token`'s: the chunk may end at exactly `dense_path_reach()`
     /// cached tokens; dim mismatches and empty chunks refuse typed.
     pub fn prefill(&mut self, hs: &[&[f32]]) -> Result<Vec<f32>, String> {
@@ -291,7 +293,7 @@ impl Glm5DsaLayer {
                 ));
             }
         }
-        Ok(mla_forward_chunk(
+        Ok(mla_forward_chunk_dispatched(
             &self.mla,
             &self.weights,
             &mut self.cache,
@@ -676,7 +678,9 @@ mod tests {
         let d = cfg.hidden_size;
         let mut seat = Glm5DsaLayer::new(&cfg, tiny_weights(&cfg), 4096).expect("seat");
         // A chunk longer than the reach refuses typed, cache untouched.
-        let over_vecs: Vec<Vec<f32>> = (0..reach + 1).map(|i| rand_vec(300 + i as u64, d)).collect();
+        let over_vecs: Vec<Vec<f32>> = (0..reach + 1)
+            .map(|i| rand_vec(300 + i as u64, d))
+            .collect();
         let over: Vec<&[f32]> = over_vecs.iter().map(|t| t.as_slice()).collect();
         let err = seat
             .prefill(&over)
