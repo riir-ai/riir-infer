@@ -1,0 +1,1388 @@
+{"rel":"c","subj":"France","obj":["Paris"]}
+{"rel":"c","subj":"Germany","obj":["Berlin"]}
+{"rel":"c","subj":"Italy","obj":["Rome"]}
+{"rel":"c","subj":"Spain","obj":["Madrid"]}
+{"rel":"c","subj":"Portugal","obj":["Lisbon"]}
+{"rel":"c","subj":"the Netherlands","obj":["Amsterdam"]}
+{"rel":"c","subj":"Belgium","obj":["Brussels"]}
+{"rel":"c","subj":"Austria","obj":["Vienna"]}
+{"rel":"c","subj":"Switzerland","obj":["Bern","Berne"]}
+{"rel":"c","subj":"Poland","obj":["Warsaw"]}
+{"rel":"c","subj":"the Czech Republic","obj":["Prague"]}
+{"rel":"c","subj":"Slovakia","obj":["Bratislava"]}
+{"rel":"c","subj":"Hungary","obj":["Budapest"]}
+{"rel":"c","subj":"Romania","obj":["Bucharest"]}
+{"rel":"c","subj":"Bulgaria","obj":["Sofia"]}
+{"rel":"c","subj":"Greece","obj":["Athens"]}
+{"rel":"c","subj":"Croatia","obj":["Zagreb"]}
+{"rel":"c","subj":"Slovenia","obj":["Ljubljana"]}
+{"rel":"c","subj":"Serbia","obj":["Belgrade"]}
+{"rel":"c","subj":"Bosnia and Herzegovina","obj":["Sarajevo"]}
+{"rel":"c","subj":"Albania","obj":["Tirana"]}
+{"rel":"c","subj":"North Macedonia","obj":["Skopje"]}
+{"rel":"c","subj":"Montenegro","obj":["Podgorica"]}
+{"rel":"c","subj":"Ukraine","obj":["Kyiv","Kiev"]}
+{"rel":"c","subj":"Belarus","obj":["Minsk"]}
+{"rel":"c","subj":"Lithuania","obj":["Vilnius"]}
+{"rel":"c","subj":"Latvia","obj":["Riga"]}
+{"rel":"c","subj":"Estonia","obj":["Tallinn"]}
+{"rel":"c","subj":"Moldova","obj":["Chisinau","Kishinev"]}
+{"rel":"c","subj":"Finland","obj":["Helsinki"]}
+{"rel":"c","subj":"Sweden","obj":["Stockholm"]}
+{"rel":"c","subj":"Norway","obj":["Oslo"]}
+{"rel":"c","subj":"Denmark","obj":["Copenhagen"]}
+{"rel":"c","subj":"Iceland","obj":["Reykjavik"]}
+{"rel":"c","subj":"Ireland","obj":["Dublin"]}
+{"rel":"c","subj":"the United Kingdom","obj":["London"]}
+{"rel":"c","subj":"Russia","obj":["Moscow"]}
+{"rel":"c","subj":"Japan","obj":["Tokyo"]}
+{"rel":"c","subj":"China","obj":["Beijing"]}
+{"rel":"c","subj":"South Korea","obj":["Seoul"]}
+{"rel":"c","subj":"North Korea","obj":["Pyongyang"]}
+{"rel":"c","subj":"Mongolia","obj":["Ulaanbaatar","Ulan Bator"]}
+{"rel":"c","subj":"India","obj":["New Delhi"]}
+{"rel":"c","subj":"Pakistan","obj":["Islamabad"]}
+{"rel":"c","subj":"Bangladesh","obj":["Dhaka","Dacca"]}
+{"rel":"c","subj":"Sri Lanka","obj":["Sri Jayawardenepura Kotte","Colombo"]}
+{"rel":"c","subj":"Nepal","obj":["Kathmandu"]}
+{"rel":"c","subj":"Bhutan","obj":["Thimphu","Thimpu"]}
+{"rel":"c","subj":"Myanmar","obj":["Naypyidaw","Nay Pyi Taw","Yangon","Rangoon"]}
+{"rel":"c","subj":"Thailand","obj":["Bangkok"]}
+{"rel":"c","subj":"Vietnam","obj":["Hanoi"]}
+{"rel":"c","subj":"Laos","obj":["Vientiane"]}
+{"rel":"c","subj":"Cambodia","obj":["Phnom Penh"]}
+{"rel":"c","subj":"Malaysia","obj":["Kuala Lumpur"]}
+{"rel":"c","subj":"Singapore","obj":["Singapore"]}
+{"rel":"c","subj":"Indonesia","obj":["Jakarta"]}
+{"rel":"c","subj":"the Philippines","obj":["Manila"]}
+{"rel":"c","subj":"Brunei","obj":["Bandar Seri Begawan"]}
+{"rel":"c","subj":"Iran","obj":["Tehran"]}
+{"rel":"c","subj":"Iraq","obj":["Baghdad"]}
+{"rel":"c","subj":"Saudi Arabia","obj":["Riyadh"]}
+{"rel":"c","subj":"the United Arab Emirates","obj":["Abu Dhabi"]}
+{"rel":"c","subj":"Qatar","obj":["Doha"]}
+{"rel":"c","subj":"Kuwait","obj":["Kuwait City"]}
+{"rel":"c","subj":"Bahrain","obj":["Manama"]}
+{"rel":"c","subj":"Oman","obj":["Muscat"]}
+{"rel":"c","subj":"Jordan","obj":["Amman"]}
+{"rel":"c","subj":"Lebanon","obj":["Beirut"]}
+{"rel":"c","subj":"Syria","obj":["Damascus"]}
+{"rel":"c","subj":"Turkey","obj":["Ankara"]}
+{"rel":"c","subj":"Armenia","obj":["Yerevan"]}
+{"rel":"c","subj":"Azerbaijan","obj":["Baku"]}
+{"rel":"c","subj":"Georgia","obj":["Tbilisi"]}
+{"rel":"c","subj":"Afghanistan","obj":["Kabul"]}
+{"rel":"c","subj":"Kazakhstan","obj":["Astana","Nur-Sultan"]}
+{"rel":"c","subj":"Uzbekistan","obj":["Tashkent"]}
+{"rel":"c","subj":"Turkmenistan","obj":["Ashgabat","Ashkhabad"]}
+{"rel":"c","subj":"Tajikistan","obj":["Dushanbe"]}
+{"rel":"c","subj":"Kyrgyzstan","obj":["Bishkek"]}
+{"rel":"c","subj":"the Maldives","obj":["Male"]}
+{"rel":"c","subj":"Egypt","obj":["Cairo"]}
+{"rel":"c","subj":"Morocco","obj":["Rabat"]}
+{"rel":"c","subj":"Algeria","obj":["Algiers"]}
+{"rel":"c","subj":"Tunisia","obj":["Tunis"]}
+{"rel":"c","subj":"Libya","obj":["Tripoli"]}
+{"rel":"c","subj":"Sudan","obj":["Khartoum"]}
+{"rel":"c","subj":"South Sudan","obj":["Juba"]}
+{"rel":"c","subj":"Ethiopia","obj":["Addis Ababa"]}
+{"rel":"c","subj":"Eritrea","obj":["Asmara"]}
+{"rel":"c","subj":"Djibouti","obj":["Djibouti"]}
+{"rel":"c","subj":"Somalia","obj":["Mogadishu"]}
+{"rel":"c","subj":"Kenya","obj":["Nairobi"]}
+{"rel":"c","subj":"Uganda","obj":["Kampala"]}
+{"rel":"c","subj":"Tanzania","obj":["Dodoma","Dar es Salaam"]}
+{"rel":"c","subj":"Rwanda","obj":["Kigali"]}
+{"rel":"c","subj":"Burundi","obj":["Gitega","Bujumbura"]}
+{"rel":"c","subj":"Nigeria","obj":["Abuja"]}
+{"rel":"c","subj":"Ghana","obj":["Accra"]}
+{"rel":"c","subj":"Ivory Coast","obj":["Yamoussoukro","Abidjan"]}
+{"rel":"c","subj":"Senegal","obj":["Dakar"]}
+{"rel":"c","subj":"Mali","obj":["Bamako"]}
+{"rel":"c","subj":"Burkina Faso","obj":["Ouagadougou"]}
+{"rel":"c","subj":"Niger","obj":["Niamey"]}
+{"rel":"c","subj":"Guinea","obj":["Conakry"]}
+{"rel":"c","subj":"Benin","obj":["Porto-Novo","Cotonou"]}
+{"rel":"c","subj":"Togo","obj":["Lome"]}
+{"rel":"c","subj":"Sierra Leone","obj":["Freetown"]}
+{"rel":"c","subj":"Liberia","obj":["Monrovia"]}
+{"rel":"c","subj":"Mauritania","obj":["Nouakchott"]}
+{"rel":"c","subj":"the Gambia","obj":["Banjul"]}
+{"rel":"c","subj":"Guinea-Bissau","obj":["Bissau"]}
+{"rel":"c","subj":"Chad","obj":["NDjamena","N Djamena"]}
+{"rel":"c","subj":"Cameroon","obj":["Yaounde"]}
+{"rel":"c","subj":"the Central African Republic","obj":["Bangui"]}
+{"rel":"c","subj":"the Democratic Republic of the Congo","obj":["Kinshasa"]}
+{"rel":"c","subj":"the Republic of the Congo","obj":["Brazzaville"]}
+{"rel":"c","subj":"Gabon","obj":["Libreville"]}
+{"rel":"c","subj":"Equatorial Guinea","obj":["Malabo"]}
+{"rel":"c","subj":"Angola","obj":["Luanda"]}
+{"rel":"c","subj":"Zambia","obj":["Lusaka"]}
+{"rel":"c","subj":"Zimbabwe","obj":["Harare"]}
+{"rel":"c","subj":"Malawi","obj":["Lilongwe"]}
+{"rel":"c","subj":"Mozambique","obj":["Maputo"]}
+{"rel":"c","subj":"Madagascar","obj":["Antananarivo","Tananarive"]}
+{"rel":"c","subj":"Namibia","obj":["Windhoek"]}
+{"rel":"c","subj":"Botswana","obj":["Gaborone"]}
+{"rel":"c","subj":"South Africa","obj":["Pretoria","Cape Town","Bloemfontein"]}
+{"rel":"c","subj":"Lesotho","obj":["Maseru"]}
+{"rel":"c","subj":"Eswatini","obj":["Mbabane","Lobamba"]}
+{"rel":"c","subj":"Mauritius","obj":["Port Louis"]}
+{"rel":"c","subj":"the Seychelles","obj":["Victoria"]}
+{"rel":"c","subj":"the Comoros","obj":["Moroni"]}
+{"rel":"c","subj":"Sao Tome and Principe","obj":["Sao Tome"]}
+{"rel":"c","subj":"Cabo Verde","obj":["Praia"]}
+{"rel":"c","subj":"the United States","obj":["Washington DC","Washington","Washington, D.C.","D.C."]}
+{"rel":"c","subj":"Canada","obj":["Ottawa"]}
+{"rel":"c","subj":"Mexico","obj":["Mexico City"]}
+{"rel":"c","subj":"Guatemala","obj":["Guatemala City"]}
+{"rel":"c","subj":"Belize","obj":["Belmopan"]}
+{"rel":"c","subj":"Honduras","obj":["Tegucigalpa"]}
+{"rel":"c","subj":"El Salvador","obj":["San Salvador"]}
+{"rel":"c","subj":"Nicaragua","obj":["Managua"]}
+{"rel":"c","subj":"Costa Rica","obj":["San Jose"]}
+{"rel":"c","subj":"Panama","obj":["Panama City"]}
+{"rel":"c","subj":"Cuba","obj":["Havana"]}
+{"rel":"c","subj":"Jamaica","obj":["Kingston"]}
+{"rel":"c","subj":"Haiti","obj":["Port au Prince","Portau Prince"]}
+{"rel":"c","subj":"the Dominican Republic","obj":["Santo Domingo"]}
+{"rel":"c","subj":"the Bahamas","obj":["Nassau"]}
+{"rel":"c","subj":"Barbados","obj":["Bridgetown"]}
+{"rel":"c","subj":"Trinidad and Tobago","obj":["Port of Spain"]}
+{"rel":"c","subj":"Argentina","obj":["Buenos Aires"]}
+{"rel":"c","subj":"Chile","obj":["Santiago"]}
+{"rel":"c","subj":"Uruguay","obj":["Montevideo"]}
+{"rel":"c","subj":"Paraguay","obj":["Asuncion"]}
+{"rel":"c","subj":"Bolivia","obj":["Sucre","La Paz"]}
+{"rel":"c","subj":"Peru","obj":["Lima"]}
+{"rel":"c","subj":"Ecuador","obj":["Quito"]}
+{"rel":"c","subj":"Colombia","obj":["Bogota"]}
+{"rel":"c","subj":"Venezuela","obj":["Caracas"]}
+{"rel":"c","subj":"Guyana","obj":["Georgetown"]}
+{"rel":"c","subj":"Suriname","obj":["Paramaribo"]}
+{"rel":"c","subj":"Brazil","obj":["Brasilia"]}
+{"rel":"c","subj":"Australia","obj":["Canberra"]}
+{"rel":"c","subj":"New Zealand","obj":["Wellington"]}
+{"rel":"c","subj":"Papua New Guinea","obj":["Port Moresby"]}
+{"rel":"c","subj":"Fiji","obj":["Suva"]}
+{"rel":"c","subj":"Vanuatu","obj":["Port Vila"]}
+{"rel":"c","subj":"the Solomon Islands","obj":["Honiara"]}
+{"rel":"c","subj":"Samoa","obj":["Apia"]}
+{"rel":"c","subj":"Tonga","obj":["Nukualofa"]}
+{"rel":"c","subj":"Tuvalu","obj":["Funafuti"]}
+{"rel":"c","subj":"Kiribati","obj":["Tarawa"]}
+{"rel":"c","subj":"the Marshall Islands","obj":["Majuro"]}
+{"rel":"c","subj":"Micronesia","obj":["Palikir"]}
+{"rel":"c","subj":"Andorra","obj":["Andorra la Vella"]}
+{"rel":"c","subj":"Monaco","obj":["Monaco"]}
+{"rel":"c","subj":"San Marino","obj":["San Marino"]}
+{"rel":"c","subj":"Liechtenstein","obj":["Vaduz"]}
+{"rel":"c","subj":"Malta","obj":["Valletta"]}
+{"rel":"c","subj":"Luxembourg","obj":["Luxembourg"]}
+{"rel":"c","subj":"Kosovo","obj":["Pristina"]}
+{"rel":"c","subj":"Antigua and Barbuda","obj":["Saint Johns","St Johns"]}
+{"rel":"c","subj":"Dominica","obj":["Roseau"]}
+{"rel":"c","subj":"Saint Lucia","obj":["Castries"]}
+{"rel":"c","subj":"Grenada","obj":["Saint Georges","St Georges"]}
+{"rel":"c","subj":"Saint Kitts and Nevis","obj":["Basseterre"]}
+{"rel":"c","subj":"Saint Vincent and the Grenadines","obj":["Kingstown"]}
+{"rel":"sc","subj":"Alabama","obj":["Montgomery"]}
+{"rel":"sc","subj":"Alaska","obj":["Juneau"]}
+{"rel":"sc","subj":"Arizona","obj":["Phoenix"]}
+{"rel":"sc","subj":"Arkansas","obj":["Little Rock"]}
+{"rel":"sc","subj":"California","obj":["Sacramento"]}
+{"rel":"sc","subj":"Colorado","obj":["Denver"]}
+{"rel":"sc","subj":"Connecticut","obj":["Hartford"]}
+{"rel":"sc","subj":"Delaware","obj":["Dover"]}
+{"rel":"sc","subj":"Florida","obj":["Tallahassee"]}
+{"rel":"sc","subj":"Georgia","obj":["Atlanta"]}
+{"rel":"sc","subj":"Hawaii","obj":["Honolulu"]}
+{"rel":"sc","subj":"Idaho","obj":["Boise"]}
+{"rel":"sc","subj":"Illinois","obj":["Springfield"]}
+{"rel":"sc","subj":"Indiana","obj":["Indianapolis"]}
+{"rel":"sc","subj":"Iowa","obj":["Des Moines"]}
+{"rel":"sc","subj":"Kansas","obj":["Topeka"]}
+{"rel":"sc","subj":"Kentucky","obj":["Frankfort"]}
+{"rel":"sc","subj":"Louisiana","obj":["Baton Rouge"]}
+{"rel":"sc","subj":"Maine","obj":["Augusta"]}
+{"rel":"sc","subj":"Maryland","obj":["Annapolis"]}
+{"rel":"sc","subj":"Massachusetts","obj":["Boston"]}
+{"rel":"sc","subj":"Michigan","obj":["Lansing"]}
+{"rel":"sc","subj":"Minnesota","obj":["Saint Paul","St Paul"]}
+{"rel":"sc","subj":"Mississippi","obj":["Jackson"]}
+{"rel":"sc","subj":"Missouri","obj":["Jefferson City"]}
+{"rel":"sc","subj":"Montana","obj":["Helena"]}
+{"rel":"sc","subj":"Nebraska","obj":["Lincoln"]}
+{"rel":"sc","subj":"Nevada","obj":["Carson City"]}
+{"rel":"sc","subj":"New Hampshire","obj":["Concord"]}
+{"rel":"sc","subj":"New Jersey","obj":["Trenton"]}
+{"rel":"sc","subj":"New Mexico","obj":["Santa Fe"]}
+{"rel":"sc","subj":"New York","obj":["Albany"]}
+{"rel":"sc","subj":"North Carolina","obj":["Raleigh"]}
+{"rel":"sc","subj":"North Dakota","obj":["Bismarck"]}
+{"rel":"sc","subj":"Ohio","obj":["Columbus"]}
+{"rel":"sc","subj":"Oklahoma","obj":["Oklahoma City"]}
+{"rel":"sc","subj":"Oregon","obj":["Salem"]}
+{"rel":"sc","subj":"Pennsylvania","obj":["Harrisburg"]}
+{"rel":"sc","subj":"Rhode Island","obj":["Providence"]}
+{"rel":"sc","subj":"South Carolina","obj":["Columbia"]}
+{"rel":"sc","subj":"South Dakota","obj":["Pierre"]}
+{"rel":"sc","subj":"Tennessee","obj":["Nashville"]}
+{"rel":"sc","subj":"Texas","obj":["Austin"]}
+{"rel":"sc","subj":"Utah","obj":["Salt Lake City"]}
+{"rel":"sc","subj":"Vermont","obj":["Montpelier"]}
+{"rel":"sc","subj":"Virginia","obj":["Richmond"]}
+{"rel":"sc","subj":"Washington","obj":["Olympia"]}
+{"rel":"sc","subj":"West Virginia","obj":["Charleston"]}
+{"rel":"sc","subj":"Wisconsin","obj":["Madison"]}
+{"rel":"sc","subj":"Wyoming","obj":["Cheyenne"]}
+{"rel":"sa","subj":"Alabama","obj":["AL"]}
+{"rel":"sa","subj":"Alaska","obj":["AK"]}
+{"rel":"sa","subj":"Arizona","obj":["AZ"]}
+{"rel":"sa","subj":"Arkansas","obj":["AR"]}
+{"rel":"sa","subj":"California","obj":["CA"]}
+{"rel":"sa","subj":"Colorado","obj":["CO"]}
+{"rel":"sa","subj":"Connecticut","obj":["CT"]}
+{"rel":"sa","subj":"Delaware","obj":["DE"]}
+{"rel":"sa","subj":"Florida","obj":["FL"]}
+{"rel":"sa","subj":"Georgia","obj":["GA"]}
+{"rel":"sa","subj":"Hawaii","obj":["HI"]}
+{"rel":"sa","subj":"Idaho","obj":["ID"]}
+{"rel":"sa","subj":"Illinois","obj":["IL"]}
+{"rel":"sa","subj":"Indiana","obj":["IN"]}
+{"rel":"sa","subj":"Iowa","obj":["IA"]}
+{"rel":"sa","subj":"Kansas","obj":["KS"]}
+{"rel":"sa","subj":"Kentucky","obj":["KY"]}
+{"rel":"sa","subj":"Louisiana","obj":["LA"]}
+{"rel":"sa","subj":"Maine","obj":["ME"]}
+{"rel":"sa","subj":"Maryland","obj":["MD"]}
+{"rel":"sa","subj":"Massachusetts","obj":["MA"]}
+{"rel":"sa","subj":"Michigan","obj":["MI"]}
+{"rel":"sa","subj":"Minnesota","obj":["MN"]}
+{"rel":"sa","subj":"Mississippi","obj":["MS"]}
+{"rel":"sa","subj":"Missouri","obj":["MO"]}
+{"rel":"sa","subj":"Montana","obj":["MT"]}
+{"rel":"sa","subj":"Nebraska","obj":["NE"]}
+{"rel":"sa","subj":"Nevada","obj":["NV"]}
+{"rel":"sa","subj":"New Hampshire","obj":["NH"]}
+{"rel":"sa","subj":"New Jersey","obj":["NJ"]}
+{"rel":"sa","subj":"New Mexico","obj":["NM"]}
+{"rel":"sa","subj":"New York","obj":["NY"]}
+{"rel":"sa","subj":"North Carolina","obj":["NC"]}
+{"rel":"sa","subj":"North Dakota","obj":["ND"]}
+{"rel":"sa","subj":"Ohio","obj":["OH"]}
+{"rel":"sa","subj":"Oklahoma","obj":["OK"]}
+{"rel":"sa","subj":"Oregon","obj":["OR"]}
+{"rel":"sa","subj":"Pennsylvania","obj":["PA"]}
+{"rel":"sa","subj":"Rhode Island","obj":["RI"]}
+{"rel":"sa","subj":"South Carolina","obj":["SC"]}
+{"rel":"sa","subj":"South Dakota","obj":["SD"]}
+{"rel":"sa","subj":"Tennessee","obj":["TN"]}
+{"rel":"sa","subj":"Texas","obj":["TX"]}
+{"rel":"sa","subj":"Utah","obj":["UT"]}
+{"rel":"sa","subj":"Vermont","obj":["VT"]}
+{"rel":"sa","subj":"Virginia","obj":["VA"]}
+{"rel":"sa","subj":"Washington","obj":["WA"]}
+{"rel":"sa","subj":"West Virginia","obj":["WV"]}
+{"rel":"sa","subj":"Wisconsin","obj":["WI"]}
+{"rel":"sa","subj":"Wyoming","obj":["WY"]}
+{"rel":"cu","subj":"Japan","obj":["Japanese yen","yen"]}
+{"rel":"cu","subj":"the United States","obj":["United States dollar","US dollar","dollar"]}
+{"rel":"cu","subj":"the United Kingdom","obj":["pound sterling","British pound","pound"]}
+{"rel":"cu","subj":"Switzerland","obj":["Swiss franc","franc"]}
+{"rel":"cu","subj":"China","obj":["Chinese yuan","renminbi","yuan"]}
+{"rel":"cu","subj":"India","obj":["Indian rupee","rupee"]}
+{"rel":"cu","subj":"Indonesia","obj":["Indonesian rupiah","rupiah"]}
+{"rel":"cu","subj":"South Korea","obj":["South Korean won","Korean won","won"]}
+{"rel":"cu","subj":"Russia","obj":["Russian ruble","ruble"]}
+{"rel":"cu","subj":"Brazil","obj":["Brazilian real","real"]}
+{"rel":"cu","subj":"Mexico","obj":["Mexican peso","peso"]}
+{"rel":"cu","subj":"Canada","obj":["Canadian dollar"]}
+{"rel":"cu","subj":"Australia","obj":["Australian dollar"]}
+{"rel":"cu","subj":"New Zealand","obj":["New Zealand dollar"]}
+{"rel":"cu","subj":"Turkey","obj":["Turkish lira","lira"]}
+{"rel":"cu","subj":"Argentina","obj":["Argentine peso","Argentinian peso","peso"]}
+{"rel":"cu","subj":"Chile","obj":["Chilean peso","peso"]}
+{"rel":"cu","subj":"Colombia","obj":["Colombian peso","peso"]}
+{"rel":"cu","subj":"Peru","obj":["sol","Peruvian sol","nuevo sol"]}
+{"rel":"cu","subj":"Uruguay","obj":["Uruguayan peso","peso"]}
+{"rel":"cu","subj":"Thailand","obj":["Thai baht","baht"]}
+{"rel":"cu","subj":"Vietnam","obj":["Vietnamese dong","dong"]}
+{"rel":"cu","subj":"the Philippines","obj":["Philippine peso","peso"]}
+{"rel":"cu","subj":"Malaysia","obj":["Malaysian ringgit","ringgit"]}
+{"rel":"cu","subj":"Singapore","obj":["Singapore dollar"]}
+{"rel":"cu","subj":"Saudi Arabia","obj":["Saudi riyal","riyal"]}
+{"rel":"cu","subj":"the United Arab Emirates","obj":["UAE dirham","dirham","United Arab Emirates dirham"]}
+{"rel":"cu","subj":"Qatar","obj":["Qatari riyal","riyal"]}
+{"rel":"cu","subj":"Kuwait","obj":["Kuwaiti dinar","dinar"]}
+{"rel":"cu","subj":"Bahrain","obj":["Bahraini dinar","dinar"]}
+{"rel":"cu","subj":"Oman","obj":["Omani rial","rial"]}
+{"rel":"cu","subj":"Jordan","obj":["Jordanian dinar","dinar"]}
+{"rel":"cu","subj":"Lebanon","obj":["Lebanese pound","pound"]}
+{"rel":"cu","subj":"Israel","obj":["Israeli shekel","shekel","new shekel"]}
+{"rel":"cu","subj":"Egypt","obj":["Egyptian pound","pound"]}
+{"rel":"cu","subj":"Morocco","obj":["Moroccan dirham","dirham"]}
+{"rel":"cu","subj":"Tunisia","obj":["Tunisian dinar","dinar"]}
+{"rel":"cu","subj":"Algeria","obj":["Algerian dinar","dinar"]}
+{"rel":"cu","subj":"Libya","obj":["Libyan dinar","dinar"]}
+{"rel":"cu","subj":"Nigeria","obj":["Nigerian naira","naira"]}
+{"rel":"cu","subj":"Kenya","obj":["Kenyan shilling","shilling"]}
+{"rel":"cu","subj":"Tanzania","obj":["Tanzanian shilling","shilling"]}
+{"rel":"cu","subj":"Uganda","obj":["Ugandan shilling","shilling"]}
+{"rel":"cu","subj":"Ghana","obj":["Ghanaian cedi","cedi"]}
+{"rel":"cu","subj":"South Africa","obj":["South African rand","rand"]}
+{"rel":"cu","subj":"Ethiopia","obj":["Ethiopian birr","birr"]}
+{"rel":"cu","subj":"Somalia","obj":["Somali shilling","shilling"]}
+{"rel":"cu","subj":"Sudan","obj":["Sudanese pound","pound"]}
+{"rel":"cu","subj":"Iceland","obj":["Icelandic krona","krona"]}
+{"rel":"cu","subj":"Norway","obj":["Norwegian krone","krone"]}
+{"rel":"cu","subj":"Sweden","obj":["Swedish krona","krona"]}
+{"rel":"cu","subj":"Denmark","obj":["Danish krone","krone"]}
+{"rel":"cu","subj":"Poland","obj":["Polish zloty","zloty"]}
+{"rel":"cu","subj":"the Czech Republic","obj":["Czech koruna","koruna"]}
+{"rel":"cu","subj":"Hungary","obj":["Hungarian forint","forint"]}
+{"rel":"cu","subj":"Romania","obj":["Romanian leu","leu"]}
+{"rel":"cu","subj":"Bulgaria","obj":["Bulgarian lev","lev"]}
+{"rel":"cu","subj":"Serbia","obj":["Serbian dinar","dinar"]}
+{"rel":"cu","subj":"Ukraine","obj":["Ukrainian hryvnia","hryvnia","grivna"]}
+{"rel":"cu","subj":"Belarus","obj":["Belarusian ruble","ruble"]}
+{"rel":"cu","subj":"Moldova","obj":["Moldovan leu","leu"]}
+{"rel":"cu","subj":"Albania","obj":["Albanian lek","lek"]}
+{"rel":"cu","subj":"North Macedonia","obj":["Macedonian denar","denar"]}
+{"rel":"cu","subj":"Bangladesh","obj":["Bangladeshi taka","taka"]}
+{"rel":"cu","subj":"Pakistan","obj":["Pakistani rupee","rupee"]}
+{"rel":"cu","subj":"Sri Lanka","obj":["Sri Lankan rupee","rupee"]}
+{"rel":"cu","subj":"Nepal","obj":["Nepalese rupee","Nepali rupee","rupee"]}
+{"rel":"cu","subj":"Kazakhstan","obj":["Kazakhstani tenge","tenge"]}
+{"rel":"cu","subj":"Uzbekistan","obj":["Uzbekistani som","som"]}
+{"rel":"cu","subj":"Kyrgyzstan","obj":["Kyrgyzstani som","Kyrgyz som","som"]}
+{"rel":"cu","subj":"Mongolia","obj":["Mongolian togrog","togrog","tugrik","tugrug"]}
+{"rel":"cu","subj":"Myanmar","obj":["Burmese kyat","kyat"]}
+{"rel":"cu","subj":"Cambodia","obj":["Cambodian riel","riel"]}
+{"rel":"cu","subj":"Laos","obj":["Lao kip","kip"]}
+{"rel":"cu","subj":"Afghanistan","obj":["Afghan afghani","afghani"]}
+{"rel":"cu","subj":"Iran","obj":["Iranian rial","rial"]}
+{"rel":"cu","subj":"Iraq","obj":["Iraqi dinar","dinar"]}
+{"rel":"cu","subj":"Taiwan","obj":["New Taiwan dollar","Taiwan dollar"]}
+{"rel":"cu","subj":"Botswana","obj":["Botswana pula","pula"]}
+{"rel":"cu","subj":"Zambia","obj":["Zambian kwacha","kwacha"]}
+{"rel":"cu","subj":"Malawi","obj":["Malawian kwacha","kwacha"]}
+{"rel":"cu","subj":"Mozambique","obj":["Mozambican metical","metical"]}
+{"rel":"cu","subj":"Angola","obj":["Angolan kwanza","kwanza"]}
+{"rel":"cu","subj":"Rwanda","obj":["Rwandan franc","franc"]}
+{"rel":"cu","subj":"Senegal","obj":["West African CFA franc","CFA franc"]}
+{"rel":"cu","subj":"Ivory Coast","obj":["West African CFA franc","CFA franc"]}
+{"rel":"cu","subj":"Cameroon","obj":["Central African CFA franc","CFA franc"]}
+{"rel":"cu","subj":"the Democratic Republic of the Congo","obj":["Congolese franc","franc"]}
+{"rel":"cu","subj":"Armenia","obj":["Armenian dram","dram"]}
+{"rel":"cu","subj":"Georgia","obj":["Georgian lari","lari"]}
+{"rel":"cu","subj":"Azerbaijan","obj":["Azerbaijani manat","manat"]}
+{"rel":"cu","subj":"Turkmenistan","obj":["Turkmenistani manat","manat"]}
+{"rel":"cu","subj":"Tajikistan","obj":["Tajikistani somoni","somoni"]}
+{"rel":"cu","subj":"Haiti","obj":["Haitian gourde","gourde"]}
+{"rel":"cu","subj":"Jamaica","obj":["Jamaican dollar"]}
+{"rel":"cu","subj":"the Dominican Republic","obj":["Dominican peso","peso"]}
+{"rel":"cu","subj":"Guatemala","obj":["Guatemalan quetzal","quetzal"]}
+{"rel":"cu","subj":"Honduras","obj":["Honduran lempira","lempira"]}
+{"rel":"cu","subj":"Nicaragua","obj":["Nicaraguan cordoba","cordoba"]}
+{"rel":"cu","subj":"Costa Rica","obj":["Costa Rican colon","colon"]}
+{"rel":"cu","subj":"Paraguay","obj":["Paraguayan guarani","guarani"]}
+{"rel":"cu","subj":"Venezuela","obj":["Venezuelan bolivar","bolivar"]}
+{"rel":"cu","subj":"Bolivia","obj":["Boliviano","boliviano"]}
+{"rel":"cu","subj":"Cuba","obj":["Cuban peso","peso"]}
+{"rel":"cu","subj":"Fiji","obj":["Fijian dollar"]}
+{"rel":"cu","subj":"Papua New Guinea","obj":["Papua New Guinean kina","kina"]}
+{"rel":"cu","subj":"France","obj":["euro"]}
+{"rel":"cu","subj":"Germany","obj":["euro"]}
+{"rel":"cu","subj":"Italy","obj":["euro"]}
+{"rel":"cu","subj":"Spain","obj":["euro"]}
+{"rel":"cu","subj":"the Netherlands","obj":["euro"]}
+{"rel":"cu","subj":"Belgium","obj":["euro"]}
+{"rel":"cu","subj":"Austria","obj":["euro"]}
+{"rel":"cu","subj":"Ireland","obj":["euro"]}
+{"rel":"cu","subj":"Portugal","obj":["euro"]}
+{"rel":"cu","subj":"Greece","obj":["euro"]}
+{"rel":"cu","subj":"Finland","obj":["euro"]}
+{"rel":"cu","subj":"Luxembourg","obj":["euro"]}
+{"rel":"cu","subj":"Slovakia","obj":["euro"]}
+{"rel":"cu","subj":"Slovenia","obj":["euro"]}
+{"rel":"cu","subj":"Lithuania","obj":["euro"]}
+{"rel":"cu","subj":"Latvia","obj":["euro"]}
+{"rel":"cu","subj":"Estonia","obj":["euro"]}
+{"rel":"cu","subj":"Cyprus","obj":["euro"]}
+{"rel":"cu","subj":"Malta","obj":["euro"]}
+{"rel":"cu","subj":"Croatia","obj":["euro"]}
+{"rel":"cu","subj":"Montenegro","obj":["euro"]}
+{"rel":"lg","subj":"Japan","obj":["Japanese"]}
+{"rel":"lg","subj":"France","obj":["French"]}
+{"rel":"lg","subj":"Germany","obj":["German"]}
+{"rel":"lg","subj":"Italy","obj":["Italian"]}
+{"rel":"lg","subj":"Spain","obj":["Spanish","Castilian"]}
+{"rel":"lg","subj":"Portugal","obj":["Portuguese"]}
+{"rel":"lg","subj":"Brazil","obj":["Portuguese"]}
+{"rel":"lg","subj":"Russia","obj":["Russian"]}
+{"rel":"lg","subj":"China","obj":["Chinese","Mandarin Chinese","Mandarin"]}
+{"rel":"lg","subj":"South Korea","obj":["Korean"]}
+{"rel":"lg","subj":"North Korea","obj":["Korean"]}
+{"rel":"lg","subj":"Vietnam","obj":["Vietnamese"]}
+{"rel":"lg","subj":"Thailand","obj":["Thai"]}
+{"rel":"lg","subj":"Greece","obj":["Greek"]}
+{"rel":"lg","subj":"Turkey","obj":["Turkish"]}
+{"rel":"lg","subj":"Poland","obj":["Polish"]}
+{"rel":"lg","subj":"the Czech Republic","obj":["Czech"]}
+{"rel":"lg","subj":"Hungary","obj":["Hungarian"]}
+{"rel":"lg","subj":"Romania","obj":["Romanian"]}
+{"rel":"lg","subj":"Bulgaria","obj":["Bulgarian"]}
+{"rel":"lg","subj":"Sweden","obj":["Swedish"]}
+{"rel":"lg","subj":"Norway","obj":["Norwegian"]}
+{"rel":"lg","subj":"Denmark","obj":["Danish"]}
+{"rel":"lg","subj":"Finland","obj":["Finnish","Swedish"]}
+{"rel":"lg","subj":"Iceland","obj":["Icelandic"]}
+{"rel":"lg","subj":"the Netherlands","obj":["Dutch"]}
+{"rel":"lg","subj":"Israel","obj":["Hebrew"]}
+{"rel":"lg","subj":"Iran","obj":["Persian","Farsi"]}
+{"rel":"lg","subj":"Egypt","obj":["Arabic"]}
+{"rel":"lg","subj":"Iraq","obj":["Arabic"]}
+{"rel":"lg","subj":"Saudi Arabia","obj":["Arabic"]}
+{"rel":"lg","subj":"Morocco","obj":["Arabic"]}
+{"rel":"lg","subj":"Algeria","obj":["Arabic"]}
+{"rel":"lg","subj":"Tunisia","obj":["Arabic"]}
+{"rel":"lg","subj":"Libya","obj":["Arabic"]}
+{"rel":"lg","subj":"Jordan","obj":["Arabic"]}
+{"rel":"lg","subj":"Syria","obj":["Arabic"]}
+{"rel":"lg","subj":"Lebanon","obj":["Arabic"]}
+{"rel":"lg","subj":"Indonesia","obj":["Indonesian"]}
+{"rel":"lg","subj":"Malaysia","obj":["Malay","Malaysian"]}
+{"rel":"lg","subj":"the Philippines","obj":["Filipino","Tagalog","English"]}
+{"rel":"lg","subj":"Bangladesh","obj":["Bengali","Bangla"]}
+{"rel":"lg","subj":"Sri Lanka","obj":["Sinhala","Sinhalese","Tamil"]}
+{"rel":"lg","subj":"Nepal","obj":["Nepali"]}
+{"rel":"lg","subj":"Myanmar","obj":["Burmese"]}
+{"rel":"lg","subj":"Cambodia","obj":["Khmer","Cambodian"]}
+{"rel":"lg","subj":"Laos","obj":["Lao","Laotian"]}
+{"rel":"lg","subj":"Mongolia","obj":["Mongolian"]}
+{"rel":"lg","subj":"Kazakhstan","obj":["Kazakh","Russian"]}
+{"rel":"lg","subj":"Uzbekistan","obj":["Uzbek"]}
+{"rel":"lg","subj":"Azerbaijan","obj":["Azerbaijani"]}
+{"rel":"lg","subj":"Armenia","obj":["Armenian"]}
+{"rel":"lg","subj":"Georgia","obj":["Georgian"]}
+{"rel":"lg","subj":"Ukraine","obj":["Ukrainian"]}
+{"rel":"lg","subj":"Ethiopia","obj":["Amharic"]}
+{"rel":"lg","subj":"Somalia","obj":["Somali"]}
+{"rel":"lg","subj":"Kenya","obj":["Swahili","English"]}
+{"rel":"lg","subj":"Tanzania","obj":["Swahili","English"]}
+{"rel":"lg","subj":"Haiti","obj":["French","Haitian Creole"]}
+{"rel":"lg","subj":"Peru","obj":["Spanish"]}
+{"rel":"lg","subj":"Mexico","obj":["Spanish"]}
+{"rel":"lg","subj":"Colombia","obj":["Spanish"]}
+{"rel":"lg","subj":"Argentina","obj":["Spanish"]}
+{"rel":"lg","subj":"Chile","obj":["Spanish"]}
+{"rel":"lg","subj":"Venezuela","obj":["Spanish"]}
+{"rel":"lg","subj":"Cuba","obj":["Spanish"]}
+{"rel":"lg","subj":"the Dominican Republic","obj":["Spanish"]}
+{"rel":"lg","subj":"Guatemala","obj":["Spanish"]}
+{"rel":"lg","subj":"Ecuador","obj":["Spanish"]}
+{"rel":"lg","subj":"Bolivia","obj":["Spanish"]}
+{"rel":"lg","subj":"Paraguay","obj":["Spanish"]}
+{"rel":"lg","subj":"Uruguay","obj":["Spanish"]}
+{"rel":"lg","subj":"Albania","obj":["Albanian"]}
+{"rel":"lg","subj":"Serbia","obj":["Serbian"]}
+{"rel":"lg","subj":"Croatia","obj":["Croatian"]}
+{"rel":"lg","subj":"Bosnia and Herzegovina","obj":["Bosnian","Serbian","Croatian"]}
+{"rel":"lg","subj":"Slovenia","obj":["Slovene","Slovenian"]}
+{"rel":"lg","subj":"Slovakia","obj":["Slovak"]}
+{"rel":"lg","subj":"Lithuania","obj":["Lithuanian"]}
+{"rel":"lg","subj":"Latvia","obj":["Latvian"]}
+{"rel":"lg","subj":"Estonia","obj":["Estonian"]}
+{"rel":"lg","subj":"Belarus","obj":["Belarusian","Russian"]}
+{"rel":"lg","subj":"Moldova","obj":["Romanian"]}
+{"rel":"lg","subj":"Taiwan","obj":["Chinese","Mandarin"]}
+{"rel":"lg","subj":"Austria","obj":["German"]}
+{"rel":"lg","subj":"Switzerland","obj":["German","French","Italian"]}
+{"rel":"lg","subj":"Belgium","obj":["Dutch","French"]}
+{"rel":"lg","subj":"Liechtenstein","obj":["German"]}
+{"rel":"lg","subj":"Luxembourg","obj":["Luxembourgish","French","German"]}
+{"rel":"lg","subj":"Malta","obj":["Maltese","English"]}
+{"rel":"lg","subj":"Ireland","obj":["English","Irish"]}
+{"rel":"lg","subj":"the United Kingdom","obj":["English"]}
+{"rel":"lg","subj":"the United States","obj":["English"]}
+{"rel":"lg","subj":"India","obj":["Hindi","English"]}
+{"rel":"lg","subj":"Pakistan","obj":["Urdu","English"]}
+{"rel":"lg","subj":"Singapore","obj":["English","Malay","Mandarin","Tamil"]}
+{"rel":"lg","subj":"Canada","obj":["English","French"]}
+{"rel":"ct","subj":"Kyoto","obj":["Japan"]}
+{"rel":"ct","subj":"Tokyo","obj":["Japan"]}
+{"rel":"ct","subj":"Osaka","obj":["Japan"]}
+{"rel":"ct","subj":"Seoul","obj":["South Korea"]}
+{"rel":"ct","subj":"Beijing","obj":["China"]}
+{"rel":"ct","subj":"Shanghai","obj":["China"]}
+{"rel":"ct","subj":"Hong Kong","obj":["China"]}
+{"rel":"ct","subj":"Bangkok","obj":["Thailand"]}
+{"rel":"ct","subj":"Hanoi","obj":["Vietnam"]}
+{"rel":"ct","subj":"Ho Chi Minh City","obj":["Vietnam"]}
+{"rel":"ct","subj":"Singapore","obj":["Singapore"]}
+{"rel":"ct","subj":"Jakarta","obj":["Indonesia"]}
+{"rel":"ct","subj":"Bali","obj":["Indonesia"]}
+{"rel":"ct","subj":"Manila","obj":["the Philippines"]}
+{"rel":"ct","subj":"Kuala Lumpur","obj":["Malaysia"]}
+{"rel":"ct","subj":"Mumbai","obj":["India"]}
+{"rel":"ct","subj":"New Delhi","obj":["India"]}
+{"rel":"ct","subj":"Kolkata","obj":["India"]}
+{"rel":"ct","subj":"Chennai","obj":["India"]}
+{"rel":"ct","subj":"Bangalore","obj":["India"]}
+{"rel":"ct","subj":"Dhaka","obj":["Bangladesh"]}
+{"rel":"ct","subj":"Karachi","obj":["Pakistan"]}
+{"rel":"ct","subj":"Lahore","obj":["Pakistan"]}
+{"rel":"ct","subj":"Colombo","obj":["Sri Lanka"]}
+{"rel":"ct","subj":"Kathmandu","obj":["Nepal"]}
+{"rel":"ct","subj":"Tehran","obj":["Iran"]}
+{"rel":"ct","subj":"Baghdad","obj":["Iraq"]}
+{"rel":"ct","subj":"Dubai","obj":["the United Arab Emirates"]}
+{"rel":"ct","subj":"Abu Dhabi","obj":["the United Arab Emirates"]}
+{"rel":"ct","subj":"Istanbul","obj":["Turkey"]}
+{"rel":"ct","subj":"Ankara","obj":["Turkey"]}
+{"rel":"ct","subj":"Tel Aviv","obj":["Israel"]}
+{"rel":"ct","subj":"Amman","obj":["Jordan"]}
+{"rel":"ct","subj":"Riyadh","obj":["Saudi Arabia"]}
+{"rel":"ct","subj":"Mecca","obj":["Saudi Arabia"]}
+{"rel":"ct","subj":"Moscow","obj":["Russia"]}
+{"rel":"ct","subj":"Saint Petersburg","obj":["Russia"]}
+{"rel":"ct","subj":"Kyiv","obj":["Ukraine"]}
+{"rel":"ct","subj":"Warsaw","obj":["Poland"]}
+{"rel":"ct","subj":"Krakow","obj":["Poland"]}
+{"rel":"ct","subj":"Prague","obj":["the Czech Republic"]}
+{"rel":"ct","subj":"Vienna","obj":["Austria"]}
+{"rel":"ct","subj":"Budapest","obj":["Hungary"]}
+{"rel":"ct","subj":"Bucharest","obj":["Romania"]}
+{"rel":"ct","subj":"Sofia","obj":["Bulgaria"]}
+{"rel":"ct","subj":"Belgrade","obj":["Serbia"]}
+{"rel":"ct","subj":"Athens","obj":["Greece"]}
+{"rel":"ct","subj":"Rome","obj":["Italy"]}
+{"rel":"ct","subj":"Milan","obj":["Italy"]}
+{"rel":"ct","subj":"Venice","obj":["Italy"]}
+{"rel":"ct","subj":"Florence","obj":["Italy"]}
+{"rel":"ct","subj":"Naples","obj":["Italy"]}
+{"rel":"ct","subj":"Turin","obj":["Italy"]}
+{"rel":"ct","subj":"Paris","obj":["France"]}
+{"rel":"ct","subj":"Marseille","obj":["France"]}
+{"rel":"ct","subj":"Lyon","obj":["France"]}
+{"rel":"ct","subj":"Nice","obj":["France"]}
+{"rel":"ct","subj":"Bordeaux","obj":["France"]}
+{"rel":"ct","subj":"Madrid","obj":["Spain"]}
+{"rel":"ct","subj":"Barcelona","obj":["Spain"]}
+{"rel":"ct","subj":"Seville","obj":["Spain"]}
+{"rel":"ct","subj":"Valencia","obj":["Spain"]}
+{"rel":"ct","subj":"Bilbao","obj":["Spain"]}
+{"rel":"ct","subj":"Granada","obj":["Spain"]}
+{"rel":"ct","subj":"Lisbon","obj":["Portugal"]}
+{"rel":"ct","subj":"Porto","obj":["Portugal"]}
+{"rel":"ct","subj":"Amsterdam","obj":["the Netherlands"]}
+{"rel":"ct","subj":"Rotterdam","obj":["the Netherlands"]}
+{"rel":"ct","subj":"The Hague","obj":["the Netherlands"]}
+{"rel":"ct","subj":"Brussels","obj":["Belgium"]}
+{"rel":"ct","subj":"Antwerp","obj":["Belgium"]}
+{"rel":"ct","subj":"Berlin","obj":["Germany"]}
+{"rel":"ct","subj":"Munich","obj":["Germany"]}
+{"rel":"ct","subj":"Hamburg","obj":["Germany"]}
+{"rel":"ct","subj":"Frankfurt","obj":["Germany"]}
+{"rel":"ct","subj":"Cologne","obj":["Germany"]}
+{"rel":"ct","subj":"Dresden","obj":["Germany"]}
+{"rel":"ct","subj":"Zurich","obj":["Switzerland"]}
+{"rel":"ct","subj":"Geneva","obj":["Switzerland"]}
+{"rel":"ct","subj":"Bern","obj":["Switzerland"]}
+{"rel":"ct","subj":"Basel","obj":["Switzerland"]}
+{"rel":"ct","subj":"Copenhagen","obj":["Denmark"]}
+{"rel":"ct","subj":"Stockholm","obj":["Sweden"]}
+{"rel":"ct","subj":"Gothenburg","obj":["Sweden"]}
+{"rel":"ct","subj":"Oslo","obj":["Norway"]}
+{"rel":"ct","subj":"Bergen","obj":["Norway"]}
+{"rel":"ct","subj":"Helsinki","obj":["Finland"]}
+{"rel":"ct","subj":"Reykjavik","obj":["Iceland"]}
+{"rel":"ct","subj":"Dublin","obj":["Ireland"]}
+{"rel":"ct","subj":"London","obj":["the United Kingdom","England"]}
+{"rel":"ct","subj":"Manchester","obj":["the United Kingdom","England"]}
+{"rel":"ct","subj":"Liverpool","obj":["the United Kingdom","England"]}
+{"rel":"ct","subj":"Birmingham","obj":["the United Kingdom","England"]}
+{"rel":"ct","subj":"Glasgow","obj":["Scotland","the United Kingdom"]}
+{"rel":"ct","subj":"Edinburgh","obj":["Scotland","the United Kingdom"]}
+{"rel":"ct","subj":"Cardiff","obj":["Wales","the United Kingdom"]}
+{"rel":"ct","subj":"Cairo","obj":["Egypt"]}
+{"rel":"ct","subj":"Alexandria","obj":["Egypt"]}
+{"rel":"ct","subj":"Lagos","obj":["Nigeria"]}
+{"rel":"ct","subj":"Nairobi","obj":["Kenya"]}
+{"rel":"ct","subj":"Addis Ababa","obj":["Ethiopia"]}
+{"rel":"ct","subj":"Casablanca","obj":["Morocco"]}
+{"rel":"ct","subj":"Marrakesh","obj":["Morocco"]}
+{"rel":"ct","subj":"Tunis","obj":["Tunisia"]}
+{"rel":"ct","subj":"Accra","obj":["Ghana"]}
+{"rel":"ct","subj":"Dakar","obj":["Senegal"]}
+{"rel":"ct","subj":"Cape Town","obj":["South Africa"]}
+{"rel":"ct","subj":"Johannesburg","obj":["South Africa"]}
+{"rel":"ct","subj":"Durban","obj":["South Africa"]}
+{"rel":"ct","subj":"New York","obj":["the United States"]}
+{"rel":"ct","subj":"Los Angeles","obj":["the United States"]}
+{"rel":"ct","subj":"Chicago","obj":["the United States"]}
+{"rel":"ct","subj":"Houston","obj":["the United States"]}
+{"rel":"ct","subj":"San Francisco","obj":["the United States"]}
+{"rel":"ct","subj":"Seattle","obj":["the United States"]}
+{"rel":"ct","subj":"Boston","obj":["the United States"]}
+{"rel":"ct","subj":"Miami","obj":["the United States"]}
+{"rel":"ct","subj":"Las Vegas","obj":["the United States"]}
+{"rel":"ct","subj":"Denver","obj":["the United States"]}
+{"rel":"ct","subj":"Philadelphia","obj":["the United States"]}
+{"rel":"ct","subj":"Toronto","obj":["Canada"]}
+{"rel":"ct","subj":"Vancouver","obj":["Canada"]}
+{"rel":"ct","subj":"Montreal","obj":["Canada"]}
+{"rel":"ct","subj":"Ottawa","obj":["Canada"]}
+{"rel":"ct","subj":"Calgary","obj":["Canada"]}
+{"rel":"ct","subj":"Quebec City","obj":["Canada"]}
+{"rel":"ct","subj":"Mexico City","obj":["Mexico"]}
+{"rel":"ct","subj":"Guadalajara","obj":["Mexico"]}
+{"rel":"ct","subj":"Cancun","obj":["Mexico"]}
+{"rel":"ct","subj":"Havana","obj":["Cuba"]}
+{"rel":"ct","subj":"Kingston","obj":["Jamaica"]}
+{"rel":"ct","subj":"Bogota","obj":["Colombia"]}
+{"rel":"ct","subj":"Medellin","obj":["Colombia"]}
+{"rel":"ct","subj":"Caracas","obj":["Venezuela"]}
+{"rel":"ct","subj":"Lima","obj":["Peru"]}
+{"rel":"ct","subj":"Quito","obj":["Ecuador"]}
+{"rel":"ct","subj":"La Paz","obj":["Bolivia"]}
+{"rel":"ct","subj":"Santiago","obj":["Chile"]}
+{"rel":"ct","subj":"Buenos Aires","obj":["Argentina"]}
+{"rel":"ct","subj":"Montevideo","obj":["Uruguay"]}
+{"rel":"ct","subj":"Sao Paulo","obj":["Brazil"]}
+{"rel":"ct","subj":"Rio de Janeiro","obj":["Brazil"]}
+{"rel":"ct","subj":"Brasilia","obj":["Brazil"]}
+{"rel":"ct","subj":"Salvador","obj":["Brazil"]}
+{"rel":"ct","subj":"Sydney","obj":["Australia"]}
+{"rel":"ct","subj":"Melbourne","obj":["Australia"]}
+{"rel":"ct","subj":"Brisbane","obj":["Australia"]}
+{"rel":"ct","subj":"Perth","obj":["Australia"]}
+{"rel":"ct","subj":"Adelaide","obj":["Australia"]}
+{"rel":"ct","subj":"Auckland","obj":["New Zealand"]}
+{"rel":"ct","subj":"Wellington","obj":["New Zealand"]}
+{"rel":"ct","subj":"Christchurch","obj":["New Zealand"]}
+{"rel":"ct","subj":"Suva","obj":["Fiji"]}
+{"rel":"co","subj":"France","obj":["Europe"]}
+{"rel":"co","subj":"Germany","obj":["Europe"]}
+{"rel":"co","subj":"Italy","obj":["Europe"]}
+{"rel":"co","subj":"Spain","obj":["Europe"]}
+{"rel":"co","subj":"Portugal","obj":["Europe"]}
+{"rel":"co","subj":"Poland","obj":["Europe"]}
+{"rel":"co","subj":"Greece","obj":["Europe"]}
+{"rel":"co","subj":"the Netherlands","obj":["Europe"]}
+{"rel":"co","subj":"Belgium","obj":["Europe"]}
+{"rel":"co","subj":"Austria","obj":["Europe"]}
+{"rel":"co","subj":"Switzerland","obj":["Europe"]}
+{"rel":"co","subj":"Sweden","obj":["Europe"]}
+{"rel":"co","subj":"Norway","obj":["Europe"]}
+{"rel":"co","subj":"Denmark","obj":["Europe"]}
+{"rel":"co","subj":"Finland","obj":["Europe"]}
+{"rel":"co","subj":"Ireland","obj":["Europe"]}
+{"rel":"co","subj":"Iceland","obj":["Europe"]}
+{"rel":"co","subj":"the Czech Republic","obj":["Europe"]}
+{"rel":"co","subj":"Hungary","obj":["Europe"]}
+{"rel":"co","subj":"Romania","obj":["Europe"]}
+{"rel":"co","subj":"Bulgaria","obj":["Europe"]}
+{"rel":"co","subj":"Serbia","obj":["Europe"]}
+{"rel":"co","subj":"Ukraine","obj":["Europe"]}
+{"rel":"co","subj":"Belarus","obj":["Europe"]}
+{"rel":"co","subj":"Japan","obj":["Asia"]}
+{"rel":"co","subj":"China","obj":["Asia"]}
+{"rel":"co","subj":"South Korea","obj":["Asia"]}
+{"rel":"co","subj":"India","obj":["Asia"]}
+{"rel":"co","subj":"Thailand","obj":["Asia"]}
+{"rel":"co","subj":"Vietnam","obj":["Asia"]}
+{"rel":"co","subj":"Indonesia","obj":["Asia"]}
+{"rel":"co","subj":"the Philippines","obj":["Asia"]}
+{"rel":"co","subj":"Malaysia","obj":["Asia"]}
+{"rel":"co","subj":"Pakistan","obj":["Asia"]}
+{"rel":"co","subj":"Bangladesh","obj":["Asia"]}
+{"rel":"co","subj":"Iran","obj":["Asia"]}
+{"rel":"co","subj":"Iraq","obj":["Asia"]}
+{"rel":"co","subj":"Saudi Arabia","obj":["Asia"]}
+{"rel":"co","subj":"Mongolia","obj":["Asia"]}
+{"rel":"co","subj":"Nepal","obj":["Asia"]}
+{"rel":"co","subj":"Myanmar","obj":["Asia"]}
+{"rel":"co","subj":"Cambodia","obj":["Asia"]}
+{"rel":"co","subj":"Laos","obj":["Asia"]}
+{"rel":"co","subj":"Sri Lanka","obj":["Asia"]}
+{"rel":"co","subj":"Afghanistan","obj":["Asia"]}
+{"rel":"co","subj":"Egypt","obj":["Africa"]}
+{"rel":"co","subj":"Nigeria","obj":["Africa"]}
+{"rel":"co","subj":"Kenya","obj":["Africa"]}
+{"rel":"co","subj":"South Africa","obj":["Africa"]}
+{"rel":"co","subj":"Ethiopia","obj":["Africa"]}
+{"rel":"co","subj":"Ghana","obj":["Africa"]}
+{"rel":"co","subj":"Morocco","obj":["Africa"]}
+{"rel":"co","subj":"Algeria","obj":["Africa"]}
+{"rel":"co","subj":"Tunisia","obj":["Africa"]}
+{"rel":"co","subj":"Libya","obj":["Africa"]}
+{"rel":"co","subj":"Tanzania","obj":["Africa"]}
+{"rel":"co","subj":"Uganda","obj":["Africa"]}
+{"rel":"co","subj":"Senegal","obj":["Africa"]}
+{"rel":"co","subj":"Zimbabwe","obj":["Africa"]}
+{"rel":"co","subj":"Zambia","obj":["Africa"]}
+{"rel":"co","subj":"the United States","obj":["North America"]}
+{"rel":"co","subj":"Canada","obj":["North America"]}
+{"rel":"co","subj":"Mexico","obj":["North America"]}
+{"rel":"co","subj":"Cuba","obj":["North America"]}
+{"rel":"co","subj":"Jamaica","obj":["North America"]}
+{"rel":"co","subj":"Haiti","obj":["North America"]}
+{"rel":"co","subj":"the Dominican Republic","obj":["North America"]}
+{"rel":"co","subj":"Guatemala","obj":["North America"]}
+{"rel":"co","subj":"Honduras","obj":["North America"]}
+{"rel":"co","subj":"Nicaragua","obj":["North America"]}
+{"rel":"co","subj":"Costa Rica","obj":["North America"]}
+{"rel":"co","subj":"Panama","obj":["North America"]}
+{"rel":"co","subj":"Brazil","obj":["South America"]}
+{"rel":"co","subj":"Argentina","obj":["South America"]}
+{"rel":"co","subj":"Colombia","obj":["South America"]}
+{"rel":"co","subj":"Peru","obj":["South America"]}
+{"rel":"co","subj":"Chile","obj":["South America"]}
+{"rel":"co","subj":"Venezuela","obj":["South America"]}
+{"rel":"co","subj":"Ecuador","obj":["South America"]}
+{"rel":"co","subj":"Bolivia","obj":["South America"]}
+{"rel":"co","subj":"Uruguay","obj":["South America"]}
+{"rel":"co","subj":"Paraguay","obj":["South America"]}
+{"rel":"co","subj":"Guyana","obj":["South America"]}
+{"rel":"co","subj":"Australia","obj":["Oceania","Australia"]}
+{"rel":"co","subj":"New Zealand","obj":["Oceania"]}
+{"rel":"co","subj":"Fiji","obj":["Oceania"]}
+{"rel":"co","subj":"Papua New Guinea","obj":["Oceania"]}
+{"rel":"an","subj":"One Hundred Years of Solitude","obj":["Gabriel Garcia Marquez","Gabriel Garcia Marquez"]}
+{"rel":"an","subj":"Love in the Time of Cholera","obj":["Gabriel Garcia Marquez"]}
+{"rel":"an","subj":"Don Quixote","obj":["Miguel de Cervantes","Cervantes"]}
+{"rel":"an","subj":"War and Peace","obj":["Leo Tolstoy","Tolstoy"]}
+{"rel":"an","subj":"Anna Karenina","obj":["Leo Tolstoy","Tolstoy"]}
+{"rel":"an","subj":"Crime and Punishment","obj":["Fyodor Dostoevsky","Dostoevsky","Dostoyevsky"]}
+{"rel":"an","subj":"The Brothers Karamazov","obj":["Fyodor Dostoevsky","Dostoevsky","Dostoyevsky"]}
+{"rel":"an","subj":"The Idiot","obj":["Fyodor Dostoevsky","Dostoevsky","Dostoyevsky"]}
+{"rel":"an","subj":"The Master and Margarita","obj":["Mikhail Bulgakov","Bulgakov"]}
+{"rel":"an","subj":"Lolita","obj":["Vladimir Nabokov","Nabokov"]}
+{"rel":"an","subj":"Doctor Zhivago","obj":["Boris Pasternak","Pasternak"]}
+{"rel":"an","subj":"Eugene Onegin","obj":["Alexander Pushkin","Pushkin"]}
+{"rel":"an","subj":"Madame Bovary","obj":["Gustave Flaubert","Flaubert"]}
+{"rel":"an","subj":"The Stranger","obj":["Albert Camus","Camus"]}
+{"rel":"an","subj":"The Plague","obj":["Albert Camus","Camus"]}
+{"rel":"an","subj":"Les Miserables","obj":["Victor Hugo","Hugo"]}
+{"rel":"an","subj":"The Hunchback of Notre-Dame","obj":["Victor Hugo","Hugo"]}
+{"rel":"an","subj":"The Count of Monte Cristo","obj":["Alexandre Dumas","Dumas"]}
+{"rel":"an","subj":"The Three Musketeers","obj":["Alexandre Dumas","Dumas"]}
+{"rel":"an","subj":"The Red and the Black","obj":["Stendhal"]}
+{"rel":"an","subj":"The Trial","obj":["Franz Kafka","Kafka"]}
+{"rel":"an","subj":"The Metamorphosis","obj":["Franz Kafka","Kafka"]}
+{"rel":"an","subj":"The Magic Mountain","obj":["Thomas Mann","Mann"]}
+{"rel":"an","subj":"Buddenbrooks","obj":["Thomas Mann","Mann"]}
+{"rel":"an","subj":"The Tin Drum","obj":["Gunter Grass","Günter Grass","Grass"]}
+{"rel":"an","subj":"Pride and Prejudice","obj":["Jane Austen","Austen"]}
+{"rel":"an","subj":"Emma","obj":["Jane Austen","Austen"]}
+{"rel":"an","subj":"Sense and Sensibility","obj":["Jane Austen","Austen"]}
+{"rel":"an","subj":"Mansfield Park","obj":["Jane Austen","Austen"]}
+{"rel":"an","subj":"Persuasion","obj":["Jane Austen","Austen"]}
+{"rel":"an","subj":"Jane Eyre","obj":["Charlotte Bronte","Charlotte Brontë","Bronte"]}
+{"rel":"an","subj":"Wuthering Heights","obj":["Emily Bronte","Emily Brontë","Bronte"]}
+{"rel":"an","subj":"Great Expectations","obj":["Charles Dickens","Dickens"]}
+{"rel":"an","subj":"Oliver Twist","obj":["Charles Dickens","Dickens"]}
+{"rel":"an","subj":"A Tale of Two Cities","obj":["Charles Dickens","Dickens"]}
+{"rel":"an","subj":"David Copperfield","obj":["Charles Dickens","Dickens"]}
+{"rel":"an","subj":"Bleak House","obj":["Charles Dickens","Dickens"]}
+{"rel":"an","subj":"Middlemarch","obj":["George Eliot","Eliot"]}
+{"rel":"an","subj":"The Mill on the Floss","obj":["George Eliot","Eliot"]}
+{"rel":"an","subj":"Vanity Fair","obj":["William Makepeace Thackeray","Thackeray"]}
+{"rel":"an","subj":"Treasure Island","obj":["Robert Louis Stevenson","Stevenson"]}
+{"rel":"an","subj":"Kidnapped","obj":["Robert Louis Stevenson","Stevenson"]}
+{"rel":"an","subj":"The Strange Case of Dr Jekyll and Mr Hyde","obj":["Robert Louis Stevenson","Stevenson"]}
+{"rel":"an","subj":"Robinson Crusoe","obj":["Daniel Defoe","Defoe"]}
+{"rel":"an","subj":"Gulliver's Travels","obj":["Jonathan Swift","Swift"]}
+{"rel":"an","subj":"Moby-Dick","obj":["Herman Melville","Melville"]}
+{"rel":"an","subj":"The Adventures of Huckleberry Finn","obj":["Mark Twain","Twain"]}
+{"rel":"an","subj":"The Adventures of Tom Sawyer","obj":["Mark Twain","Twain"]}
+{"rel":"an","subj":"The Great Gatsby","obj":["F. Scott Fitzgerald","Fitzgerald","Scott Fitzgerald"]}
+{"rel":"an","subj":"Tender Is the Night","obj":["F. Scott Fitzgerald","Fitzgerald","Scott Fitzgerald"]}
+{"rel":"an","subj":"The Catcher in the Rye","obj":["J. D. Salinger","Salinger"]}
+{"rel":"an","subj":"To Kill a Mockingbird","obj":["Harper Lee","Lee"]}
+{"rel":"an","subj":"The Old Man and the Sea","obj":["Ernest Hemingway","Hemingway"]}
+{"rel":"an","subj":"A Farewell to Arms","obj":["Ernest Hemingway","Hemingway"]}
+{"rel":"an","subj":"For Whom the Bell Tolls","obj":["Ernest Hemingway","Hemingway"]}
+{"rel":"an","subj":"The Sun Also Rises","obj":["Ernest Hemingway","Hemingway"]}
+{"rel":"an","subj":"The Grapes of Wrath","obj":["John Steinbeck","Steinbeck"]}
+{"rel":"an","subj":"Of Mice and Men","obj":["John Steinbeck","Steinbeck"]}
+{"rel":"an","subj":"East of Eden","obj":["John Steinbeck","Steinbeck"]}
+{"rel":"an","subj":"1984","obj":["George Orwell","Orwell"]}
+{"rel":"an","subj":"Animal Farm","obj":["George Orwell","Orwell"]}
+{"rel":"an","subj":"Brave New World","obj":["Aldous Huxley","Huxley"]}
+{"rel":"an","subj":"Lord of the Flies","obj":["William Golding","Golding"]}
+{"rel":"an","subj":"Heart of Darkness","obj":["Joseph Conrad","Conrad"]}
+{"rel":"an","subj":"Ulysses","obj":["James Joyce","Joyce"]}
+{"rel":"an","subj":"A Portrait of the Artist as a Young Man","obj":["James Joyce","Joyce"]}
+{"rel":"an","subj":"Mrs Dalloway","obj":["Virginia Woolf","Woolf"]}
+{"rel":"an","subj":"To the Lighthouse","obj":["Virginia Woolf","Woolf"]}
+{"rel":"an","subj":"The Sound and the Fury","obj":["William Faulkner","Faulkner"]}
+{"rel":"an","subj":"As I Lay Dying","obj":["William Faulkner","Faulkner"]}
+{"rel":"an","subj":"Beloved","obj":["Toni Morrison","Morrison"]}
+{"rel":"an","subj":"Slaughterhouse-Five","obj":["Kurt Vonnegut","Vonnegut"]}
+{"rel":"an","subj":"Cat's Cradle","obj":["Kurt Vonnegut","Vonnegut"]}
+{"rel":"an","subj":"Catch-22","obj":["Joseph Heller","Heller"]}
+{"rel":"an","subj":"A Clockwork Orange","obj":["Anthony Burgess","Burgess"]}
+{"rel":"an","subj":"The Lord of the Rings","obj":["J. R. R. Tolkien","Tolkien"]}
+{"rel":"an","subj":"The Hobbit","obj":["J. R. R. Tolkien","Tolkien"]}
+{"rel":"an","subj":"Dune","obj":["Frank Herbert","Herbert"]}
+{"rel":"an","subj":"Fahrenheit 451","obj":["Ray Bradbury","Bradbury"]}
+{"rel":"an","subj":"The Martian Chronicles","obj":["Ray Bradbury","Bradbury"]}
+{"rel":"an","subj":"Neuromancer","obj":["William Gibson","Gibson"]}
+{"rel":"an","subj":"Frankenstein","obj":["Mary Shelley","Shelley"]}
+{"rel":"an","subj":"Dracula","obj":["Bram Stoker","Stoker"]}
+{"rel":"an","subj":"The Picture of Dorian Gray","obj":["Oscar Wilde","Wilde"]}
+{"rel":"an","subj":"The Portrait of a Lady","obj":["Henry James","James"]}
+{"rel":"an","subj":"The Turn of the Screw","obj":["Henry James","James"]}
+{"rel":"an","subj":"Gone with the Wind","obj":["Margaret Mitchell","Mitchell"]}
+{"rel":"an","subj":"The Name of the Rose","obj":["Umberto Eco","Eco"]}
+{"rel":"an","subj":"The Kite Runner","obj":["Khaled Hosseini","Hosseini"]}
+{"rel":"an","subj":"Life of Pi","obj":["Yann Martel","Martel"]}
+{"rel":"an","subj":"The Godfather","obj":["Mario Puzo","Puzo"]}
+{"rel":"an","subj":"The Da Vinci Code","obj":["Dan Brown","Brown"]}
+{"rel":"an","subj":"The Hunger Games","obj":["Suzanne Collins","Collins"]}
+{"rel":"pp","subj":"Mona Lisa","obj":["Leonardo da Vinci","da Vinci","Leonardo"]}
+{"rel":"pp","subj":"The Last Supper","obj":["Leonardo da Vinci","da Vinci","Leonardo"]}
+{"rel":"pp","subj":"The Starry Night","obj":["Vincent van Gogh","van Gogh","Van Gogh"]}
+{"rel":"pp","subj":"Sunflowers","obj":["Vincent van Gogh","van Gogh","Van Gogh"]}
+{"rel":"pp","subj":"Café Terrace at Night","obj":["Vincent van Gogh","van Gogh","Van Gogh"]}
+{"rel":"pp","subj":"The Potato Eaters","obj":["Vincent van Gogh","van Gogh","Van Gogh"]}
+{"rel":"pp","subj":"The Scream","obj":["Edvard Munch","Munch"]}
+{"rel":"pp","subj":"Girl with a Pearl Earring","obj":["Johannes Vermeer","Vermeer"]}
+{"rel":"pp","subj":"The Milkmaid","obj":["Johannes Vermeer","Vermeer"]}
+{"rel":"pp","subj":"The Art of Painting","obj":["Johannes Vermeer","Vermeer"]}
+{"rel":"pp","subj":"View of Delft","obj":["Johannes Vermeer","Vermeer"]}
+{"rel":"pp","subj":"The Night Watch","obj":["Rembrandt"]}
+{"rel":"pp","subj":"Impression Sunrise","obj":["Claude Monet","Monet"]}
+{"rel":"pp","subj":"Water Lilies","obj":["Claude Monet","Monet"]}
+{"rel":"pp","subj":"Woman with a Parasol","obj":["Claude Monet","Monet"]}
+{"rel":"pp","subj":"Luncheon of the Boating Party","obj":["Pierre-Auguste Renoir","Renoir"]}
+{"rel":"pp","subj":"Bal du moulin de la Galette","obj":["Pierre-Auguste Renoir","Renoir"]}
+{"rel":"pp","subj":"The Card Players","obj":["Paul Cezanne","Cézanne","Cezanne"]}
+{"rel":"pp","subj":"Mont Sainte-Victoire","obj":["Paul Cezanne","Cézanne","Cezanne"]}
+{"rel":"pp","subj":"The Kiss","obj":["Gustav Klimt","Klimt"]}
+{"rel":"pp","subj":"The Birth of Venus","obj":["Sandro Botticelli","Botticelli"]}
+{"rel":"pp","subj":"Primavera","obj":["Sandro Botticelli","Botticelli"]}
+{"rel":"pp","subj":"The Garden of Earthly Delights","obj":["Hieronymus Bosch","Bosch"]}
+{"rel":"pp","subj":"The Creation of Adam","obj":["Michelangelo"]}
+{"rel":"pp","subj":"The Last Judgment","obj":["Michelangelo"]}
+{"rel":"pp","subj":"The School of Athens","obj":["Raphael","Raffaello Sanzio"]}
+{"rel":"pp","subj":"The Sistine Madonna","obj":["Raphael"]}
+{"rel":"pp","subj":"Las Meninas","obj":["Diego Velazquez","Velázquez","Velazquez"]}
+{"rel":"pp","subj":"The Third of May 1808","obj":["Francisco Goya","Goya"]}
+{"rel":"pp","subj":"Saturn Devouring His Son","obj":["Francisco Goya","Goya"]}
+{"rel":"pp","subj":"Guernica","obj":["Pablo Picasso","Picasso"]}
+{"rel":"pp","subj":"Les Demoiselles d'Avignon","obj":["Pablo Picasso","Picasso"]}
+{"rel":"pp","subj":"The Weeping Woman","obj":["Pablo Picasso","Picasso"]}
+{"rel":"pp","subj":"The Persistence of Memory","obj":["Salvador Dali","Dalí","Dali"]}
+{"rel":"pp","subj":"Swans Reflecting Elephants","obj":["Salvador Dali","Dalí","Dali"]}
+{"rel":"pp","subj":"The Treachery of Images","obj":["Rene Magritte","René Magritte","Magritte"]}
+{"rel":"pp","subj":"The Son of Man","obj":["Rene Magritte","René Magritte","Magritte"]}
+{"rel":"pp","subj":"American Gothic","obj":["Grant Wood","Wood"]}
+{"rel":"pp","subj":"Nighthawks","obj":["Edward Hopper","Hopper"]}
+{"rel":"pp","subj":"Christina's World","obj":["Andrew Wyeth","Wyeth"]}
+{"rel":"pp","subj":"Whistler's Mother","obj":["James McNeill Whistler","Whistler"]}
+{"rel":"pp","subj":"Liberty Leading the People","obj":["Eugene Delacroix","Eugène Delacroix","Delacroix"]}
+{"rel":"pp","subj":"The Death of Marat","obj":["Jacques-Louis David","David"]}
+{"rel":"pp","subj":"Napoleon Crossing the Alps","obj":["Jacques-Louis David","David"]}
+{"rel":"pp","subj":"The Oath of the Horatii","obj":["Jacques-Louis David","David"]}
+{"rel":"pp","subj":"The Harvesters","obj":["Pieter Bruegel the Elder","Bruegel"]}
+{"rel":"pp","subj":"Hunters in the Snow","obj":["Pieter Bruegel the Elder","Bruegel"]}
+{"rel":"pp","subj":"The Tower of Babel","obj":["Pieter Bruegel the Elder","Bruegel"]}
+{"rel":"pp","subj":"The Hay Wain","obj":["John Constable","Constable"]}
+{"rel":"pp","subj":"The Fighting Temeraire","obj":["J. M. W. Turner","Turner","William Turner"]}
+{"rel":"pp","subj":"Rain Steam and Speed","obj":["J. M. W. Turner","Turner","William Turner"]}
+{"rel":"pp","subj":"Ophelia","obj":["John Everett Millais","Millais"]}
+{"rel":"pp","subj":"The Lady of Shalott","obj":["John William Waterhouse","Waterhouse"]}
+{"rel":"pp","subj":"A Sunday Afternoon on the Island of La Grande Jatte","obj":["Georges Seurat","Seurat"]}
+{"rel":"pp","subj":"Bathers at Asnieres","obj":["Georges Seurat","Seurat"]}
+{"rel":"pp","subj":"Wanderer above the Sea of Fog","obj":["Caspar David Friedrich","Friedrich"]}
+{"rel":"pp","subj":"The Sea of Ice","obj":["Caspar David Friedrich","Friedrich"]}
+{"rel":"pp","subj":"Composition VIII","obj":["Wassily Kandinsky","Kandinsky"]}
+{"rel":"pp","subj":"Composition VII","obj":["Wassily Kandinsky","Kandinsky"]}
+{"rel":"pp","subj":"Black Square","obj":["Kazimir Malevich","Malevich"]}
+{"rel":"pp","subj":"The Two Fridas","obj":["Frida Kahlo","Kahlo"]}
+{"rel":"cw","subj":"Fifth Symphony","obj":["Ludwig van Beethoven","Beethoven","van Beethoven"]}
+{"rel":"cw","subj":"Symphony No. 9","obj":["Ludwig van Beethoven","Beethoven","van Beethoven"]}
+{"rel":"cw","subj":"Moonlight Sonata","obj":["Ludwig van Beethoven","Beethoven","van Beethoven"]}
+{"rel":"cw","subj":"Fur Elise","obj":["Ludwig van Beethoven","Beethoven","van Beethoven"]}
+{"rel":"cw","subj":"Pathetique Sonata","obj":["Ludwig van Beethoven","Beethoven","van Beethoven"]}
+{"rel":"cw","subj":"Symphony No. 40","obj":["Wolfgang Amadeus Mozart","Mozart","Amadeus Mozart"]}
+{"rel":"cw","subj":"Eine kleine Nachtmusik","obj":["Wolfgang Amadeus Mozart","Mozart","Amadeus Mozart"]}
+{"rel":"cw","subj":"The Magic Flute","obj":["Wolfgang Amadeus Mozart","Mozart","Amadeus Mozart"]}
+{"rel":"cw","subj":"Don Giovanni","obj":["Wolfgang Amadeus Mozart","Mozart","Amadeus Mozart"]}
+{"rel":"cw","subj":"Requiem","obj":["Wolfgang Amadeus Mozart","Mozart","Amadeus Mozart"]}
+{"rel":"cw","subj":"Turkish March","obj":["Wolfgang Amadeus Mozart","Mozart","Amadeus Mozart"]}
+{"rel":"cw","subj":"The Marriage of Figaro","obj":["Wolfgang Amadeus Mozart","Mozart","Amadeus Mozart"]}
+{"rel":"cw","subj":"The Four Seasons","obj":["Antonio Vivaldi","Vivaldi"]}
+{"rel":"cw","subj":"The Firebird","obj":["Igor Stravinsky","Stravinsky"]}
+{"rel":"cw","subj":"The Rite of Spring","obj":["Igor Stravinsky","Stravinsky"]}
+{"rel":"cw","subj":"Petrushka","obj":["Igor Stravinsky","Stravinsky"]}
+{"rel":"cw","subj":"Swan Lake","obj":["Pyotr Ilyich Tchaikovsky","Tchaikovsky","Chaikovsky"]}
+{"rel":"cw","subj":"The Nutcracker","obj":["Pyotr Ilyich Tchaikovsky","Tchaikovsky","Chaikovsky"]}
+{"rel":"cw","subj":"The Sleeping Beauty","obj":["Pyotr Ilyich Tchaikovsky","Tchaikovsky","Chaikovsky"]}
+{"rel":"cw","subj":"1812 Overture","obj":["Pyotr Ilyich Tchaikovsky","Tchaikovsky","Chaikovsky"]}
+{"rel":"cw","subj":"Piano Concerto No. 1","obj":["Pyotr Ilyich Tchaikovsky","Tchaikovsky","Chaikovsky"]}
+{"rel":"cw","subj":"Pictures at an Exhibition","obj":["Modest Mussorgsky","Mussorgsky","Mussorgski"]}
+{"rel":"cw","subj":"Night on Bald Mountain","obj":["Modest Mussorgsky","Mussorgsky","Mussorgski"]}
+{"rel":"cw","subj":"Bolero","obj":["Maurice Ravel","Ravel"]}
+{"rel":"cw","subj":"Daphnis and Chloe","obj":["Maurice Ravel","Ravel"]}
+{"rel":"cw","subj":"Clair de lune","obj":["Claude Debussy","Debussy"]}
+{"rel":"cw","subj":"La Mer","obj":["Claude Debussy","Debussy"]}
+{"rel":"cw","subj":"Gymnopedie No. 1","obj":["Erik Satie","Satie"]}
+{"rel":"cw","subj":"Nocturne Op. 9 No. 2","obj":["Frederic Chopin","Frédéric Chopin","Chopin"]}
+{"rel":"cw","subj":"Revolutionary Etude","obj":["Frederic Chopin","Frédéric Chopin","Chopin"]}
+{"rel":"cw","subj":"Minute Waltz","obj":["Frederic Chopin","Frédéric Chopin","Chopin"]}
+{"rel":"cw","subj":"Hungarian Dance No. 5","obj":["Johannes Brahms","Brahms"]}
+{"rel":"cw","subj":"Lullaby","obj":["Johannes Brahms","Brahms"]}
+{"rel":"cw","subj":"Hungarian Rhapsody No. 2","obj":["Franz Liszt","Liszt"]}
+{"rel":"cw","subj":"La Campanella","obj":["Franz Liszt","Liszt"]}
+{"rel":"cw","subj":"Liebestraum No. 3","obj":["Franz Liszt","Liszt"]}
+{"rel":"cw","subj":"Ave Maria","obj":["Franz Schubert","Schubert","Charles Gounod","Gounod"]}
+{"rel":"cw","subj":"Erlkonig","obj":["Franz Schubert","Schubert"]}
+{"rel":"cw","subj":"Trout Quintet","obj":["Franz Schubert","Schubert"]}
+{"rel":"cw","subj":"Unfinished Symphony","obj":["Franz Schubert","Schubert"]}
+{"rel":"cw","subj":"Messiah","obj":["George Frideric Handel","Handel","Georg Friedrich Handel"]}
+{"rel":"cw","subj":"Water Music","obj":["George Frideric Handel","Handel","Georg Friedrich Handel"]}
+{"rel":"cw","subj":"Music for the Royal Fireworks","obj":["George Frideric Handel","Handel","Georg Friedrich Handel"]}
+{"rel":"cw","subj":"Brandenburg Concertos","obj":["Johann Sebastian Bach","Bach","Sebastian Bach"]}
+{"rel":"cw","subj":"Toccata and Fugue in D minor","obj":["Johann Sebastian Bach","Bach","Sebastian Bach"]}
+{"rel":"cw","subj":"The Well-Tempered Clavier","obj":["Johann Sebastian Bach","Bach","Sebastian Bach"]}
+{"rel":"cw","subj":"Cello Suite No. 1","obj":["Johann Sebastian Bach","Bach","Sebastian Bach"]}
+{"rel":"cw","subj":"Goldberg Variations","obj":["Johann Sebastian Bach","Bach","Sebastian Bach"]}
+{"rel":"cw","subj":"St Matthew Passion","obj":["Johann Sebastian Bach","Bach","Sebastian Bach"]}
+{"rel":"cw","subj":"Air on the G String","obj":["Johann Sebastian Bach","Bach","Sebastian Bach"]}
+{"rel":"cw","subj":"Canon in D","obj":["Johann Pachelbel","Pachelbel"]}
+{"rel":"cw","subj":"Carmina Burana","obj":["Carl Orff","Orff"]}
+{"rel":"cw","subj":"In the Hall of the Mountain King","obj":["Edvard Grieg","Grieg"]}
+{"rel":"cw","subj":"Morning Mood","obj":["Edvard Grieg","Grieg"]}
+{"rel":"cw","subj":"Finlandia","obj":["Jean Sibelius","Sibelius"]}
+{"rel":"cw","subj":"The Planets","obj":["Gustav Holst","Holst"]}
+{"rel":"cw","subj":"Adagio for Strings","obj":["Samuel Barber","Barber"]}
+{"rel":"cw","subj":"The Sorcerer's Apprentice","obj":["Paul Dukas","Dukas"]}
+{"rel":"cw","subj":"Danse Macabre","obj":["Camille Saint-Saens","Camille Saint-Saëns","Saint-Saens"]}
+{"rel":"cw","subj":"The Carnival of the Animals","obj":["Camille Saint-Saens","Camille Saint-Saëns","Saint-Saens"]}
+{"rel":"cw","subj":"New World Symphony","obj":["Antonin Dvorak","Antonín Dvořák","Dvorak"]}
+{"rel":"cw","subj":"Slavonic Dances","obj":["Antonin Dvorak","Antonín Dvořák","Dvorak"]}
+{"rel":"cw","subj":"Cello Concerto in B minor","obj":["Antonin Dvorak","Antonín Dvořák","Dvorak"]}
+{"rel":"cw","subj":"Tosca","obj":["Giacomo Puccini","Puccini"]}
+{"rel":"cw","subj":"La Boheme","obj":["Giacomo Puccini","Puccini"]}
+{"rel":"cw","subj":"Madama Butterfly","obj":["Giacomo Puccini","Puccini"]}
+{"rel":"cw","subj":"Turandot","obj":["Giacomo Puccini","Puccini"]}
+{"rel":"cw","subj":"Rigoletto","obj":["Giuseppe Verdi","Verdi"]}
+{"rel":"cw","subj":"La Traviata","obj":["Giuseppe Verdi","Verdi"]}
+{"rel":"cw","subj":"Aida","obj":["Giuseppe Verdi","Verdi"]}
+{"rel":"cw","subj":"The Barber of Seville","obj":["Gioachino Rossini","Rossini","Gioacchino Rossini"]}
+{"rel":"cw","subj":"William Tell Overture","obj":["Gioachino Rossini","Rossini","Gioacchino Rossini"]}
+{"rel":"cw","subj":"Tristan and Isolde","obj":["Richard Wagner","Wagner"]}
+{"rel":"cw","subj":"The Ring of the Nibelung","obj":["Richard Wagner","Wagner"]}
+{"rel":"cw","subj":"Ride of the Valkyries","obj":["Richard Wagner","Wagner"]}
+{"rel":"cw","subj":"Also sprach Zarathustra","obj":["Richard Strauss","Strauss"]}
+{"rel":"cw","subj":"The Blue Danube","obj":["Johann Strauss","Strauss"]}
+{"rel":"cw","subj":"Radetzky March","obj":["Johann Strauss","Strauss"]}
+{"rel":"cw","subj":"Peter and the Wolf","obj":["Sergei Prokofiev","Prokofiev","Sergey Prokofiev"]}
+{"rel":"cw","subj":"Romeo and Juliet","obj":["Sergei Prokofiev","Prokofiev","Sergey Prokofiev"]}
+
+{"rel":"cw","subj":"Appalachian Spring","obj":["Aaron Copland","Copland"]}
+{"rel":"cw","subj":"Fanfare for the Common Man","obj":["Aaron Copland","Copland"]}
+{"rel":"cw","subj":"West Side Story","obj":["Leonard Bernstein","Bernstein"]}
+{"rel":"fc","subj":"Amazon","obj":["Jeff Bezos","Bezos"]}
+{"rel":"fc","subj":"Microsoft","obj":["Bill Gates","Gates","Paul Allen","Allen"]}
+{"rel":"fc","subj":"Apple","obj":["Steve Jobs","Jobs","Steve Wozniak","Wozniak"]}
+{"rel":"fc","subj":"Google","obj":["Larry Page","Page","Sergey Brin","Brin"]}
+{"rel":"fc","subj":"Facebook","obj":["Mark Zuckerberg","Zuckerberg"]}
+{"rel":"fc","subj":"Tesla","obj":["Elon Musk","Musk","Martin Eberhard","Eberhard","Marc Tarpenning"]}
+{"rel":"fc","subj":"SpaceX","obj":["Elon Musk","Musk"]}
+{"rel":"fc","subj":"PayPal","obj":["Max Levchin","Levchin","Peter Thiel","Thiel","Elon Musk","Musk","Luke Nosek"]}
+{"rel":"fc","subj":"Twitter","obj":["Jack Dorsey","Dorsey"]}
+{"rel":"fc","subj":"Instagram","obj":["Kevin Systrom","Systrom","Mike Krieger","Krieger"]}
+{"rel":"fc","subj":"WhatsApp","obj":["Brian Acton","Acton","Jan Koum","Koum"]}
+{"rel":"fc","subj":"Netflix","obj":["Reed Hastings","Hastings","Marc Randolph","Randolph"]}
+{"rel":"fc","subj":"Intel","obj":["Gordon Moore","Moore","Robert Noyce","Noyce"]}
+{"rel":"fc","subj":"AMD","obj":["Jerry Sanders","Sanders"]}
+{"rel":"fc","subj":"Nvidia","obj":["Jensen Huang","Huang","Chris Malachowsky","Curtis Priem"]}
+{"rel":"fc","subj":"Oracle","obj":["Larry Ellison","Ellison","Bob Miner","Ed Oates"]}
+{"rel":"fc","subj":"Coca-Cola","obj":["John Pemberton","Pemberton"]}
+{"rel":"fc","subj":"Pepsi","obj":["Caleb Bradham","Bradham"]}
+{"rel":"fc","subj":"McDonald's","obj":["Ray Kroc","Kroc","Richard McDonald","Maurice McDonald","Dick McDonald","Mac McDonald"]}
+{"rel":"fc","subj":"KFC","obj":["Colonel Sanders","Harland Sanders"]}
+{"rel":"fc","subj":"Starbucks","obj":["Jerry Baldwin","Gordon Bowker","Zev Siegl"]}
+{"rel":"fc","subj":"Walmart","obj":["Sam Walton","Walton"]}
+{"rel":"fc","subj":"Target","obj":["George Dayton","Dayton"]}
+{"rel":"fc","subj":"Costco","obj":["Jeffrey Brotman","Brotman","James Sinegal","Sinegal","Jim Sinegal"]}
+{"rel":"fc","subj":"Nike","obj":["Phil Knight","Knight","Bill Bowerman","Bowerman"]}
+{"rel":"fc","subj":"Adidas","obj":["Adolf Dassler","Dassler","Adi Dassler"]}
+{"rel":"fc","subj":"Puma","obj":["Rudolf Dassler","Dassler","Rudi Dassler"]}
+{"rel":"fc","subj":"IKEA","obj":["Ingvar Kamprad","Kamprad"]}
+{"rel":"fc","subj":"Lego","obj":["Ole Kirk Christiansen","Christiansen"]}
+{"rel":"fc","subj":"Toyota","obj":["Kiichiro Toyoda","Toyoda"]}
+{"rel":"fc","subj":"Honda","obj":["Soichiro Honda","Honda"]}
+{"rel":"fc","subj":"Sony","obj":["Masaru Ibuka","Ibuka","Akio Morita","Morita"]}
+{"rel":"fc","subj":"Panasonic","obj":["Konosuke Matsushita","Matsushita"]}
+{"rel":"fc","subj":"Nintendo","obj":["Fusajiro Yamauchi","Yamauchi"]}
+{"rel":"fc","subj":"Samsung","obj":["Lee Byung-chul","Lee Byung chul","Byung-chul"]}
+{"rel":"fc","subj":"Hyundai","obj":["Chung Ju-yung","Chung Ju yung","Chung"]}
+{"rel":"fc","subj":"Alibaba","obj":["Jack Ma","Ma"]}
+{"rel":"fc","subj":"Tencent","obj":["Ma Huateng","Pony Ma"]}
+{"rel":"fc","subj":"Huawei","obj":["Ren Zhengfei","Zhengfei"]}
+{"rel":"fc","subj":"Baidu","obj":["Robin Li","Li"]}
+{"rel":"fc","subj":"Dell","obj":["Michael Dell","Dell"]}
+{"rel":"fc","subj":"HP","obj":["Bill Hewlett","Hewlett","David Packard","Packard"]}
+{"rel":"fc","subj":"Yahoo","obj":["Jerry Yang","Yang","David Filo","Filo"]}
+{"rel":"fc","subj":"eBay","obj":["Pierre Omidyar","Omidyar"]}
+{"rel":"fc","subj":"Uber","obj":["Travis Kalanick","Kalanick","Garrett Camp","Camp"]}
+{"rel":"fc","subj":"Airbnb","obj":["Brian Chesky","Chesky","Joe Gebbia","Gebbia","Nathan Blecharczyk"]}
+{"rel":"fc","subj":"Dropbox","obj":["Drew Houston","Houston"]}
+{"rel":"fc","subj":"Snapchat","obj":["Evan Spiegel","Spiegel","Bobby Murphy","Murphy","Reggie Brown"]}
+{"rel":"fc","subj":"Pinterest","obj":["Ben Silbermann","Silbermann","Paul Sciarra","Evan Sharp"]}
+{"rel":"fc","subj":"LinkedIn","obj":["Reid Hoffman","Hoffman"]}
+{"rel":"fc","subj":"YouTube","obj":["Chad Hurley","Hurley","Steve Chen","Chen","Jawed Karim","Karim"]}
+{"rel":"fc","subj":"Wikipedia","obj":["Jimmy Wales","Wales","Larry Sanger","Sanger"]}
+{"rel":"fc","subj":"WordPress","obj":["Matt Mullenweg","Mullenweg"]}
+{"rel":"fc","subj":"Shopify","obj":["Tobias Lutke","Lutke","Daniel Weinand","Scott Lake"]}
+{"rel":"fc","subj":"Spotify","obj":["Daniel Ek","Ek","Martin Lorentzon","Lorentzon"]}
+{"rel":"fc","subj":"Salesforce","obj":["Marc Benioff","Benioff"]}
+{"rel":"fc","subj":"Zoom","obj":["Eric Yuan","Yuan"]}
+{"rel":"fc","subj":"OpenAI","obj":["Sam Altman","Altman","Elon Musk","Musk","Greg Brockman","Brockman","Ilya Sutskever","Sutskever"]}
+{"rel":"fc","subj":"Stripe","obj":["Patrick Collison","Collison","John Collison"]}
+{"rel":"fc","subj":"Virgin","obj":["Richard Branson","Branson"]}
+{"rel":"fc","subj":"Dyson","obj":["James Dyson","Dyson"]}
+{"rel":"fc","subj":"Rolex","obj":["Hans Wilsdorf","Wilsdorf"]}
+{"rel":"fc","subj":"Ferrari","obj":["Enzo Ferrari","Ferrari"]}
+{"rel":"fc","subj":"Lamborghini","obj":["Ferruccio Lamborghini","Lamborghini"]}
+{"rel":"fc","subj":"Porsche","obj":["Ferdinand Porsche","Porsche"]}
+{"rel":"fc","subj":"Bugatti","obj":["Ettore Bugatti","Bugatti"]}
+{"rel":"fc","subj":"Chanel","obj":["Coco Chanel","Gabrielle Chanel","Chanel"]}
+{"rel":"fc","subj":"Gucci","obj":["Guccio Gucci","Gucci"]}
+{"rel":"fc","subj":"Louis Vuitton","obj":["Louis Vuitton","Vuitton"]}
+{"rel":"fc","subj":"Versace","obj":["Gianni Versace","Versace"]}
+{"rel":"fc","subj":"Armani","obj":["Giorgio Armani","Armani"]}
+{"rel":"fc","subj":"Prada","obj":["Mario Prada","Prada"]}
+{"rel":"fc","subj":"Zara","obj":["Amancio Ortega","Ortega"]}
+{"rel":"fc","subj":"Disney","obj":["Walt Disney","Disney","Roy Disney","Roy O. Disney"]}
+{"rel":"fc","subj":"Boeing","obj":["William Boeing","Boeing","William E. Boeing"]}
+{"rel":"fc","subj":"Harley-Davidson","obj":["William Harley","Harley","Arthur Davidson","Davidson","Walter Davidson","William Davidson"]}
+{"rel":"fc","subj":"Ryanair","obj":["Tony Ryan","Ryan"]}
+{"rel":"fc","subj":"Levi's","obj":["Levi Strauss","Strauss"]}
+{"rel":"fc","subj":"Cadbury","obj":["John Cadbury","Cadbury"]}
+{"rel":"fc","subj":"Hershey","obj":["Milton Hershey","Hershey"]}
+{"rel":"fc","subj":"Nestle","obj":["Henri Nestle","Nestle"]}
+{"rel":"fc","subj":"Heinz","obj":["Henry Heinz","Heinz"]}
+{"rel":"fc","subj":"Kellogg's","obj":["Will Keith Kellogg","Kellogg","W.K. Kellogg"]}
+{"rel":"iv","subj":"telephone","obj":["Alexander Graham Bell","Bell","Alexander Bell"]}
+{"rel":"iv","subj":"light bulb","obj":["Thomas Edison","Edison","Joseph Swan","Swan"]}
+{"rel":"iv","subj":"phonograph","obj":["Thomas Edison","Edison"]}
+{"rel":"iv","subj":"airplane","obj":["Orville Wright","Wilbur Wright","Wright brothers","the Wright brothers","Orville","Wilbur"]}
+{"rel":"iv","subj":"automobile","obj":["Karl Benz","Benz","Carl Benz"]}
+{"rel":"iv","subj":"telegraph","obj":["Samuel Morse","Morse"]}
+{"rel":"iv","subj":"radio","obj":["Guglielmo Marconi","Marconi","Nikola Tesla","Tesla"]}
+{"rel":"iv","subj":"television","obj":["John Logie Baird","Baird","Philo Farnsworth","Farnsworth"]}
+{"rel":"iv","subj":"printing press","obj":["Johannes Gutenberg","Gutenberg"]}
+{"rel":"iv","subj":"dynamite","obj":["Alfred Nobel","Nobel"]}
+{"rel":"iv","subj":"revolver","obj":["Samuel Colt","Colt"]}
+{"rel":"iv","subj":"cotton gin","obj":["Eli Whitney","Whitney"]}
+{"rel":"iv","subj":"sewing machine","obj":["Elias Howe","Howe","Isaac Singer","Singer"]}
+{"rel":"iv","subj":"safety elevator","obj":["Elisha Otis","Otis"]}
+{"rel":"iv","subj":"air conditioner","obj":["Willis Carrier","Carrier"]}
+{"rel":"iv","subj":"jet engine","obj":["Frank Whittle","Whittle","Hans von Ohain","von Ohain"]}
+{"rel":"iv","subj":"ballpoint pen","obj":["Laszlo Biro","Biro","László Bíró"]}
+{"rel":"iv","subj":"safety razor","obj":["King Camp Gillette","Gillette"]}
+{"rel":"iv","subj":"zipper","obj":["Whitcomb Judson","Judson","Gideon Sundback","Sundback"]}
+{"rel":"iv","subj":"Kevlar","obj":["Stephanie Kwolek","Kwolek"]}
+{"rel":"iv","subj":"stethoscope","obj":["Rene Laennec","Laennec","René Laennec"]}
+{"rel":"iv","subj":"barometer","obj":["Evangelista Torricelli","Torricelli"]}
+{"rel":"iv","subj":"battery","obj":["Alessandro Volta","Volta"]}
+{"rel":"iv","subj":"cinematograph","obj":["Lumiere brothers","the Lumiere brothers","Auguste Lumiere","Louis Lumiere","Lumière"]}
+{"rel":"iv","subj":"gramophone","obj":["Emile Berliner","Berliner"]}
+{"rel":"iv","subj":"computer mouse","obj":["Douglas Engelbart","Engelbart"]}
+{"rel":"iv","subj":"helicopter","obj":["Igor Sikorsky","Sikorsky"]}
+{"rel":"iv","subj":"hovercraft","obj":["Christopher Cockerell","Cockerell"]}
+{"rel":"iv","subj":"microwave oven","obj":["Percy Spencer","Spencer"]}
+{"rel":"iv","subj":"transistor","obj":["William Shockley","Shockley","Walter Brattain","Brattain","John Bardeen","Bardeen"]}
+{"rel":"iv","subj":"integrated circuit","obj":["Jack Kilby","Kilby","Robert Noyce","Noyce"]}
+{"rel":"iv","subj":"diesel engine","obj":["Rudolf Diesel","Diesel"]}
+{"rel":"iv","subj":"steam engine","obj":["Thomas Newcomen","Newcomen","James Watt","Watt"]}
+{"rel":"iv","subj":"spinning jenny","obj":["James Hargreaves","Hargreaves"]}
+{"rel":"iv","subj":"power loom","obj":["Edmund Cartwright","Cartwright"]}
+{"rel":"iv","subj":"typewriter","obj":["Christopher Latham Sholes","Sholes"]}
+{"rel":"iv","subj":"dishwasher","obj":["Josephine Cochrane","Cochrane"]}
+{"rel":"iv","subj":"zeppelin","obj":["Ferdinand von Zeppelin","Zeppelin","von Zeppelin"]}
+{"rel":"iv","subj":"World Wide Web","obj":["Tim Berners-Lee","Berners-Lee","Tim Berners Lee"]}
+{"rel":"cs","subj":"Hydrogen","obj":["H"]}
+{"rel":"cs","subj":"Helium","obj":["He"]}
+{"rel":"cs","subj":"Lithium","obj":["Li"]}
+{"rel":"cs","subj":"Beryllium","obj":["Be"]}
+{"rel":"cs","subj":"Boron","obj":["B"]}
+{"rel":"cs","subj":"Carbon","obj":["C"]}
+{"rel":"cs","subj":"Nitrogen","obj":["N"]}
+{"rel":"cs","subj":"Oxygen","obj":["O"]}
+{"rel":"cs","subj":"Fluorine","obj":["F"]}
+{"rel":"cs","subj":"Neon","obj":["Ne"]}
+{"rel":"cs","subj":"Sodium","obj":["Na"]}
+{"rel":"cs","subj":"Magnesium","obj":["Mg"]}
+{"rel":"cs","subj":"Aluminium","obj":["Al"]}
+{"rel":"cs","subj":"Silicon","obj":["Si"]}
+{"rel":"cs","subj":"Phosphorus","obj":["P"]}
+{"rel":"cs","subj":"Sulfur","obj":["S"]}
+{"rel":"cs","subj":"Chlorine","obj":["Cl"]}
+{"rel":"cs","subj":"Argon","obj":["Ar"]}
+{"rel":"cs","subj":"Potassium","obj":["K"]}
+{"rel":"cs","subj":"Calcium","obj":["Ca"]}
+{"rel":"cs","subj":"Scandium","obj":["Sc"]}
+{"rel":"cs","subj":"Titanium","obj":["Ti"]}
+{"rel":"cs","subj":"Vanadium","obj":["V"]}
+{"rel":"cs","subj":"Chromium","obj":["Cr"]}
+{"rel":"cs","subj":"Manganese","obj":["Mn"]}
+{"rel":"cs","subj":"Iron","obj":["Fe"]}
+{"rel":"cs","subj":"Cobalt","obj":["Co"]}
+{"rel":"cs","subj":"Nickel","obj":["Ni"]}
+{"rel":"cs","subj":"Copper","obj":["Cu"]}
+{"rel":"cs","subj":"Zinc","obj":["Zn"]}
+{"rel":"cs","subj":"Gallium","obj":["Ga"]}
+{"rel":"cs","subj":"Germanium","obj":["Ge"]}
+{"rel":"cs","subj":"Arsenic","obj":["As"]}
+{"rel":"cs","subj":"Selenium","obj":["Se"]}
+{"rel":"cs","subj":"Bromine","obj":["Br"]}
+{"rel":"cs","subj":"Krypton","obj":["Kr"]}
+{"rel":"cs","subj":"Rubidium","obj":["Rb"]}
+{"rel":"cs","subj":"Strontium","obj":["Sr"]}
+{"rel":"cs","subj":"Yttrium","obj":["Y"]}
+{"rel":"cs","subj":"Zirconium","obj":["Zr"]}
+{"rel":"cs","subj":"Niobium","obj":["Nb"]}
+{"rel":"cs","subj":"Molybdenum","obj":["Mo"]}
+{"rel":"cs","subj":"Technetium","obj":["Tc"]}
+{"rel":"cs","subj":"Ruthenium","obj":["Ru"]}
+{"rel":"cs","subj":"Rhodium","obj":["Rh"]}
+{"rel":"cs","subj":"Palladium","obj":["Pd"]}
+{"rel":"cs","subj":"Silver","obj":["Ag"]}
+{"rel":"cs","subj":"Cadmium","obj":["Cd"]}
+{"rel":"cs","subj":"Indium","obj":["In"]}
+{"rel":"cs","subj":"Tin","obj":["Sn"]}
+{"rel":"cs","subj":"Antimony","obj":["Sb"]}
+{"rel":"cs","subj":"Tellurium","obj":["Te"]}
+{"rel":"cs","subj":"Iodine","obj":["I"]}
+{"rel":"cs","subj":"Xenon","obj":["Xe"]}
+{"rel":"cs","subj":"Caesium","obj":["Cs"]}
+{"rel":"cs","subj":"Barium","obj":["Ba"]}
+{"rel":"cs","subj":"Lanthanum","obj":["La"]}
+{"rel":"cs","subj":"Cerium","obj":["Ce"]}
+{"rel":"cs","subj":"Praseodymium","obj":["Pr"]}
+{"rel":"cs","subj":"Neodymium","obj":["Nd"]}
+{"rel":"cs","subj":"Promethium","obj":["Pm"]}
+{"rel":"cs","subj":"Samarium","obj":["Sm"]}
+{"rel":"cs","subj":"Europium","obj":["Eu"]}
+{"rel":"cs","subj":"Gadolinium","obj":["Gd"]}
+{"rel":"cs","subj":"Terbium","obj":["Tb"]}
+{"rel":"cs","subj":"Dysprosium","obj":["Dy"]}
+{"rel":"cs","subj":"Holmium","obj":["Ho"]}
+{"rel":"cs","subj":"Erbium","obj":["Er"]}
+{"rel":"cs","subj":"Thulium","obj":["Tm"]}
+{"rel":"cs","subj":"Ytterbium","obj":["Yb"]}
+{"rel":"cs","subj":"Lutetium","obj":["Lu"]}
+{"rel":"cs","subj":"Hafnium","obj":["Hf"]}
+{"rel":"cs","subj":"Tantalum","obj":["Ta"]}
+{"rel":"cs","subj":"Tungsten","obj":["W"]}
+{"rel":"cs","subj":"Rhenium","obj":["Re"]}
+{"rel":"cs","subj":"Osmium","obj":["Os"]}
+{"rel":"cs","subj":"Iridium","obj":["Ir"]}
+{"rel":"cs","subj":"Platinum","obj":["Pt"]}
+{"rel":"cs","subj":"Gold","obj":["Au"]}
+{"rel":"cs","subj":"Mercury","obj":["Hg"]}
+{"rel":"cs","subj":"Thallium","obj":["Tl"]}
+{"rel":"cs","subj":"Lead","obj":["Pb"]}
+{"rel":"cs","subj":"Bismuth","obj":["Bi"]}
+{"rel":"cs","subj":"Polonium","obj":["Po"]}
+{"rel":"cs","subj":"Astatine","obj":["At"]}
+{"rel":"cs","subj":"Radon","obj":["Rn"]}
+{"rel":"cs","subj":"Francium","obj":["Fr"]}
+{"rel":"cs","subj":"Radium","obj":["Ra"]}
+{"rel":"cs","subj":"Actinium","obj":["Ac"]}
+{"rel":"cs","subj":"Thorium","obj":["Th"]}
+{"rel":"cs","subj":"Protactinium","obj":["Pa"]}
+{"rel":"cs","subj":"Uranium","obj":["U"]}
+{"rel":"cs","subj":"Neptunium","obj":["Np"]}
+{"rel":"cs","subj":"Plutonium","obj":["Pu"]}
+{"rel":"cs","subj":"Americium","obj":["Am"]}
+{"rel":"cs","subj":"Curium","obj":["Cm"]}
+{"rel":"cs","subj":"Berkelium","obj":["Bk"]}
+{"rel":"cs","subj":"Californium","obj":["Cf"]}
+{"rel":"cs","subj":"Einsteinium","obj":["Es"]}
+{"rel":"cs","subj":"Fermium","obj":["Fm"]}
+{"rel":"cs","subj":"Mendelevium","obj":["Md"]}
+{"rel":"cs","subj":"Nobelium","obj":["No"]}
+{"rel":"cs","subj":"Lawrencium","obj":["Lr"]}
+{"rel":"cs","subj":"Rutherfordium","obj":["Rf"]}
+{"rel":"cs","subj":"Dubnium","obj":["Db"]}
+{"rel":"cs","subj":"Seaborgium","obj":["Sg"]}
+{"rel":"cs","subj":"Bohrium","obj":["Bh"]}
+{"rel":"cs","subj":"Hassium","obj":["Hs"]}
+{"rel":"cs","subj":"Meitnerium","obj":["Mt"]}
+{"rel":"cs","subj":"Darmstadtium","obj":["Ds"]}
+{"rel":"cs","subj":"Roentgenium","obj":["Rg"]}
+{"rel":"cs","subj":"Copernicium","obj":["Cn"]}
+{"rel":"cs","subj":"Nihonium","obj":["Nh"]}
+{"rel":"cs","subj":"Flerovium","obj":["Fl"]}
+{"rel":"cs","subj":"Moscovium","obj":["Mc"]}
+{"rel":"cs","subj":"Livermorium","obj":["Lv"]}
+{"rel":"cs","subj":"Tennessine","obj":["Ts"]}
+{"rel":"cs","subj":"Oganesson","obj":["Og"]}
+{"rel":"lc","subj":"the Eiffel Tower","obj":["Paris"]}
+{"rel":"lc","subj":"the Louvre","obj":["Paris"]}
+{"rel":"lc","subj":"the Arc de Triomphe","obj":["Paris"]}
+{"rel":"lc","subj":"Notre-Dame Cathedral","obj":["Paris"]}
+{"rel":"lc","subj":"the Moulin Rouge","obj":["Paris"]}
+{"rel":"lc","subj":"the Palace of Versailles","obj":["Versailles","Paris"]}
+{"rel":"lc","subj":"the Brandenburg Gate","obj":["Berlin"]}
+{"rel":"lc","subj":"Cologne Cathedral","obj":["Cologne"]}
+{"rel":"lc","subj":"the Reichstag","obj":["Berlin"]}
+{"rel":"lc","subj":"the Sagrada Familia","obj":["Barcelona"]}
+{"rel":"lc","subj":"Park Guell","obj":["Barcelona"]}
+{"rel":"lc","subj":"Big Ben","obj":["London"]}
+{"rel":"lc","subj":"Tower Bridge","obj":["London"]}
+{"rel":"lc","subj":"Buckingham Palace","obj":["London"]}
+{"rel":"lc","subj":"the Tower of London","obj":["London"]}
+{"rel":"lc","subj":"Westminster Abbey","obj":["London"]}
+{"rel":"lc","subj":"St Paul's Cathedral","obj":["London"]}
+{"rel":"lc","subj":"the London Eye","obj":["London"]}
+{"rel":"lc","subj":"Trafalgar Square","obj":["London"]}
+{"rel":"lc","subj":"Piccadilly Circus","obj":["London"]}
+{"rel":"lc","subj":"the Colosseum","obj":["Rome"]}
+{"rel":"lc","subj":"the Trevi Fountain","obj":["Rome"]}
+{"rel":"lc","subj":"the Roman Forum","obj":["Rome"]}
+{"rel":"lc","subj":"the Leaning Tower of Pisa","obj":["Pisa"]}
+{"rel":"lc","subj":"St Peter's Basilica","obj":["Vatican City","Rome"]}
+{"rel":"lc","subj":"the Acropolis","obj":["Athens"]}
+{"rel":"lc","subj":"the Parthenon","obj":["Athens"]}
+{"rel":"lc","subj":"the Charles Bridge","obj":["Prague"]}
+{"rel":"lc","subj":"St Basil's Cathedral","obj":["Moscow"]}
+{"rel":"lc","subj":"the Kremlin","obj":["Moscow"]}
+{"rel":"lc","subj":"Red Square","obj":["Moscow"]}
+{"rel":"lc","subj":"the Winter Palace","obj":["Saint Petersburg","St Petersburg"]}
+{"rel":"lc","subj":"the Hermitage","obj":["Saint Petersburg","St Petersburg"]}
+{"rel":"lc","subj":"the Statue of Liberty","obj":["New York"]}
+{"rel":"lc","subj":"the Empire State Building","obj":["New York"]}
+{"rel":"lc","subj":"the Chrysler Building","obj":["New York"]}
+{"rel":"lc","subj":"One World Trade Center","obj":["New York"]}
+{"rel":"lc","subj":"the Brooklyn Bridge","obj":["New York"]}
+{"rel":"lc","subj":"Central Park","obj":["New York"]}
+{"rel":"lc","subj":"Times Square","obj":["New York"]}
+{"rel":"lc","subj":"the Golden Gate Bridge","obj":["San Francisco"]}
+{"rel":"lc","subj":"Alcatraz","obj":["San Francisco"]}
+{"rel":"lc","subj":"the Hollywood Sign","obj":["Los Angeles"]}
+{"rel":"lc","subj":"the Walk of Fame","obj":["Los Angeles"]}
+{"rel":"lc","subj":"the Willis Tower","obj":["Chicago"]}
+{"rel":"lc","subj":"the Space Needle","obj":["Seattle"]}
+{"rel":"lc","subj":"the Gateway Arch","obj":["Saint Louis","St Louis"]}
+{"rel":"lc","subj":"the Washington Monument","obj":["Washington DC","Washington"]}
+{"rel":"lc","subj":"the Lincoln Memorial","obj":["Washington DC","Washington"]}
+{"rel":"lc","subj":"the White House","obj":["Washington DC","Washington"]}
+{"rel":"lc","subj":"the United States Capitol","obj":["Washington DC","Washington"]}
+{"rel":"lc","subj":"Independence Hall","obj":["Philadelphia"]}
+{"rel":"lc","subj":"the Liberty Bell","obj":["Philadelphia"]}
+{"rel":"lc","subj":"the CN Tower","obj":["Toronto"]}
+{"rel":"lc","subj":"the Taj Mahal","obj":["Agra"]}
+{"rel":"lc","subj":"the Gateway of India","obj":["Mumbai"]}
+{"rel":"lc","subj":"the Red Fort","obj":["Delhi","New Delhi"]}
+{"rel":"lc","subj":"Christ the Redeemer","obj":["Rio de Janeiro","Rio"]}
+{"rel":"lc","subj":"the Sydney Opera House","obj":["Sydney"]}
+{"rel":"lc","subj":"the Sydney Harbour Bridge","obj":["Sydney"]}
+{"rel":"lc","subj":"the Burj Khalifa","obj":["Dubai"]}
+{"rel":"lc","subj":"the Palm Jumeirah","obj":["Dubai"]}
+{"rel":"lc","subj":"the Petronas Towers","obj":["Kuala Lumpur"]}
+{"rel":"lc","subj":"Marina Bay Sands","obj":["Singapore"]}
+{"rel":"lc","subj":"the Forbidden City","obj":["Beijing"]}
+{"rel":"lc","subj":"the Temple of Heaven","obj":["Beijing"]}
+{"rel":"lc","subj":"Tiananmen Square","obj":["Beijing"]}
+{"rel":"lc","subj":"the Summer Palace","obj":["Beijing"]}
+{"rel":"lc","subj":"Kinkaku-ji","obj":["Kyoto"]}
+{"rel":"lc","subj":"Gyeongbokgung","obj":["Seoul"]}
+{"rel":"lc","subj":"the Hagia Sophia","obj":["Istanbul"]}
+{"rel":"lc","subj":"the Blue Mosque","obj":["Istanbul"]}
+{"rel":"lc","subj":"Topkapi Palace","obj":["Istanbul"]}
+{"rel":"lc","subj":"Galata Tower","obj":["Istanbul"]}
+{"rel":"lc","subj":"Wawel Castle","obj":["Krakow"]}
+{"rel":"lc","subj":"the Alhambra","obj":["Granada"]}
+{"rel":"lc","subj":"the Atomium","obj":["Brussels"]}
+{"rel":"lc","subj":"Manneken Pis","obj":["Brussels"]}
+{"rel":"lc","subj":"the Rialto Bridge","obj":["Venice"]}
+{"rel":"lc","subj":"St Mark's Basilica","obj":["Venice"]}
+{"rel":"lc","subj":"the Doge's Palace","obj":["Venice"]}
+{"rel":"lc","subj":"the Grand Canal","obj":["Venice"]}
+{"rel":"lc","subj":"the Uffizi Gallery","obj":["Florence"]}
+{"rel":"lc","subj":"the Ponte Vecchio","obj":["Florence"]}
+{"rel":"lc","subj":"Milan Cathedral","obj":["Milan"]}
+{"rel":"lc","subj":"the Little Mermaid statue","obj":["Copenhagen"]}
+{"rel":"lc","subj":"Nyhavn","obj":["Copenhagen"]}
+{"rel":"cc","subj":"Sherlock Holmes","obj":["Arthur Conan Doyle","Conan Doyle","Doyle"]}
+{"rel":"cc","subj":"Dr Watson","obj":["Arthur Conan Doyle","Conan Doyle","Doyle"]}
+{"rel":"cc","subj":"Professor Moriarty","obj":["Arthur Conan Doyle","Conan Doyle","Doyle"]}
+{"rel":"cc","subj":"Count Dracula","obj":["Bram Stoker","Stoker"]}
+{"rel":"cc","subj":"Frankenstein's monster","obj":["Mary Shelley","Shelley"]}
+{"rel":"cc","subj":"Tarzan","obj":["Edgar Rice Burroughs","Burroughs"]}
+{"rel":"cc","subj":"Zorro","obj":["Johnston McCulley","McCulley"]}
+{"rel":"cc","subj":"Batman","obj":["Bob Kane","Kane","Bill Finger","Finger"]}
+{"rel":"cc","subj":"Superman","obj":["Jerry Siegel","Siegel","Joe Shuster","Shuster"]}
+{"rel":"cc","subj":"Spider-Man","obj":["Stan Lee","Lee","Steve Ditko","Ditko"]}
+{"rel":"cc","subj":"Iron Man","obj":["Stan Lee","Lee","Larry Lieber","Lieber"]}
+{"rel":"cc","subj":"the Hulk","obj":["Stan Lee","Lee","Jack Kirby","Kirby"]}
+{"rel":"cc","subj":"Thor","obj":["Stan Lee","Lee","Jack Kirby","Kirby","Larry Lieber"]}
+{"rel":"cc","subj":"Captain America","obj":["Joe Simon","Simon","Jack Kirby","Kirby"]}
+{"rel":"cc","subj":"Wonder Woman","obj":["William Moulton Marston","Marston"]}
+{"rel":"cc","subj":"James Bond","obj":["Ian Fleming","Fleming"]}
+{"rel":"cc","subj":"Harry Potter","obj":["J. K. Rowling","Rowling","JK Rowling"]}
+{"rel":"cc","subj":"Gandalf","obj":["J. R. R. Tolkien","Tolkien"]}
+{"rel":"cc","subj":"Bilbo Baggins","obj":["J. R. R. Tolkien","Tolkien"]}
+{"rel":"cc","subj":"Gollum","obj":["J. R. R. Tolkien","Tolkien"]}
+{"rel":"cc","subj":"Winnie the Pooh","obj":["A. A. Milne","Milne"]}
+{"rel":"cc","subj":"Peter Pan","obj":["J. M. Barrie","Barrie"]}
+{"rel":"cc","subj":"Pinocchio","obj":["Carlo Collodi","Collodi"]}
+{"rel":"cc","subj":"Huckleberry Finn","obj":["Mark Twain","Twain"]}
+{"rel":"cc","subj":"Jay Gatsby","obj":["F. Scott Fitzgerald","Fitzgerald"]}
+{"rel":"cc","subj":"Atticus Finch","obj":["Harper Lee","Lee"]}
+{"rel":"cc","subj":"Holden Caulfield","obj":["J. D. Salinger","Salinger"]}
+{"rel":"cc","subj":"Miss Marple","obj":["Agatha Christie","Christie"]}
+{"rel":"cc","subj":"Hercule Poirot","obj":["Agatha Christie","Christie"]}
+{"rel":"cc","subj":"Mickey Mouse","obj":["Walt Disney","Disney","Ub Iwerks","Iwerks"]}
+{"rel":"cc","subj":"SpongeBob SquarePants","obj":["Stephen Hillenburg","Hillenburg"]}
+{"rel":"cc","subj":"Homer Simpson","obj":["Matt Groening","Groening"]}
+{"rel":"cc","subj":"Bart Simpson","obj":["Matt Groening","Groening"]}
+{"rel":"cc","subj":"Snoopy","obj":["Charles Schulz","Schulz"]}
+{"rel":"cc","subj":"Charlie Brown","obj":["Charles Schulz","Schulz"]}
+{"rel":"cc","subj":"Garfield","obj":["Jim Davis","Davis"]}
+{"rel":"cc","subj":"Tintin","obj":["Herge","Hergé"]}
+{"rel":"cc","subj":"Asterix","obj":["Rene Goscinny","René Goscinny","Goscinny"]}
+{"rel":"cc","subj":"Super Mario","obj":["Shigeru Miyamoto","Miyamoto"]}
+{"rel":"cc","subj":"Hamlet","obj":["William Shakespeare","Shakespeare"]}
+{"rel":"cc","subj":"Macbeth","obj":["William Shakespeare","Shakespeare"]}
+{"rel":"cc","subj":"Othello","obj":["William Shakespeare","Shakespeare"]}
+{"rel":"cc","subj":"King Lear","obj":["William Shakespeare","Shakespeare"]}
+{"rel":"cc","subj":"Dr Jekyll","obj":["Robert Louis Stevenson","Stevenson"]}
+{"rel":"cc","subj":"Dorian Gray","obj":["Oscar Wilde","Wilde"]}
+{"rel":"cc","subj":"Captain Nemo","obj":["Jules Verne","Verne"]}
+{"rel":"cc","subj":"Phileas Fogg","obj":["Jules Verne","Verne"]}
+{"rel":"cc","subj":"Long John Silver","obj":["Robert Louis Stevenson","Stevenson"]}
+{"rel":"cc","subj":"Ebenezer Scrooge","obj":["Charles Dickens","Dickens"]}
+{"rel":"cc","subj":"Captain Ahab","obj":["Herman Melville","Melville"]}
+{"rel":"pm","subj":"the Moon","obj":["Earth"]}
+{"rel":"pm","subj":"Phobos","obj":["Mars"]}
+{"rel":"pm","subj":"Deimos","obj":["Mars"]}
+{"rel":"pm","subj":"Io","obj":["Jupiter"]}
+{"rel":"pm","subj":"Europa","obj":["Jupiter"]}
+{"rel":"pm","subj":"Ganymede","obj":["Jupiter"]}
+{"rel":"pm","subj":"Callisto","obj":["Jupiter"]}
+{"rel":"pm","subj":"Titan","obj":["Saturn"]}
+{"rel":"pm","subj":"Rhea","obj":["Saturn"]}
+{"rel":"pm","subj":"Iapetus","obj":["Saturn"]}
+{"rel":"pm","subj":"Enceladus","obj":["Saturn"]}
+{"rel":"pm","subj":"Mimas","obj":["Saturn"]}
+{"rel":"pm","subj":"Dione","obj":["Saturn"]}
+{"rel":"pm","subj":"Tethys","obj":["Saturn"]}
+{"rel":"pm","subj":"Titania","obj":["Uranus"]}
+{"rel":"pm","subj":"Oberon","obj":["Uranus"]}
+{"rel":"pm","subj":"Miranda","obj":["Uranus"]}
+{"rel":"pm","subj":"Ariel","obj":["Uranus"]}
+{"rel":"pm","subj":"Umbriel","obj":["Uranus"]}
+{"rel":"pm","subj":"Triton","obj":["Neptune"]}
+{"rel":"pm","subj":"Charon","obj":["Pluto"]}

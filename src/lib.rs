@@ -129,10 +129,10 @@ pub mod closed_form_write;
 /// -off law); the observe path is zero-alloc (fixture-pinned G4).
 #[cfg(feature = "implants")]
 pub mod implants;
-#[cfg(feature = "implants")]
-pub mod implants_cert;
 #[cfg(feature = "implants_cell")]
 pub mod implants_cell;
+#[cfg(feature = "implants")]
+pub mod implants_cert;
 
 /// The katgpt-rs issue-988 T2b real-activation cell (riir-infer Issue
 /// 1206): the capture seam + the offline graft fit/eval harness over the
@@ -163,6 +163,11 @@ pub mod gguf_loader;
 /// behind `LlamaTransformerWeights::build_rope_freq_table`; loud refusal
 /// on a non-F32/misshaped tensor, plain table when absent).
 pub mod rope_freq_loader;
+
+/// Issue 1254 A1 — the fact-corpus data plane (16-relation recall set,
+/// subject-wise 70/10/20 split, answer matching) behind the Plato's Key
+/// cell (`.issues/1254_*.md`).
+pub mod i1254_corpus;
 
 /// Issue 1253 T5.2 (plan 639) — the MTP draft block's CPU reference
 /// forward (`mtp_draft_block` + the ternary lane it serves; the admission
