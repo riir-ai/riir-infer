@@ -556,8 +556,9 @@ mod tests {
     }
 
     fn mint_rows(digest: &[u8; 32], cfg: &CensusConfig, rows: &[CensusRow]) -> Vec<u8> {
-        let mut sweep = CensusSweep::default();
-        sweep.rows = rows.to_vec();
+        let sweep = CensusSweep {
+            rows: rows.to_vec(),
+        };
         mint_artifact(&sweep, digest, cfg)
     }
 
@@ -691,7 +692,7 @@ mod tests {
     #[test]
     fn access_check_refuses_config_mismatch_and_tampered_bytes() {
         let cfg = CensusConfig::default();
-        let mut cfg2 = cfg.clone();
+        let mut cfg2 = cfg;
         cfg2.abs_floor = 1e-4; // different floor ⇒ not the same measurement
         let a = mint_rows(
             &[1u8; 32],

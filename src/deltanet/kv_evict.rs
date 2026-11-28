@@ -906,8 +906,8 @@ mod tests {
         let mut head_scores = vec![0.0f32; n_heads * cap];
         for q in 0..6u64 {
             head_scores.iter_mut().for_each(|s| *s = 0.0);
-            for slot in 2..=7 {
-                head_scores[slot] = 1.0;
+            for (_slot, s) in head_scores.iter_mut().enumerate().take(8).skip(2) {
+                *s = 1.0;
             }
             ev.observe(&head_scores, cap, live as u64 + q);
             ev.tick();

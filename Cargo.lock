@@ -3639,6 +3639,7 @@ dependencies = [
  "katgpt-kv",
  "katgpt-pruners",
  "katgpt-quant",
+ "katgpt-spectral",
  "katgpt-speculative",
  "katgpt-transformer",
  "katgpt-types",
@@ -3649,6 +3650,7 @@ dependencies = [
  "sentencepiece",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.20",
  "zstd",
 ]

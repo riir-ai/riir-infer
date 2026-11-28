@@ -1804,7 +1804,6 @@ fn forward_qwen_deltanet_pruned_body<'a>(
             *xi += *r;
         }
     }
----
 
     // 3-4. Final norm + LM head (same as the incumbent decode).
     rmsnorm_with_gamma_eps(&mut x[..n], &weights.final_norm, config.rms_norm_eps);

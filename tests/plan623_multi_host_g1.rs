@@ -396,6 +396,10 @@ fn gemma_test_weights(config: &Config) -> riir_infer_core::gemma_layer::GemmaTra
             .map(|i| det_weight(i, 99))
             .collect(),
         final_norm: (0..n).map(|i| 0.5 + det_weight(i, 98).abs()).collect(),
+        #[cfg(feature = "delta_routing")]
+        delta_routing_query: vec![vec![0.0; n]; config.n_layer],
+        #[cfg(feature = "delta_routing")]
+        delta_routing_norm: vec![vec![1.0; n]; config.n_layer],
         layers,
     }
 }

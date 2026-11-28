@@ -29,7 +29,7 @@
 //! `glm5` + `katgpt-attn/mla_attention`.
 
 use katgpt_attn::mla::{
-    mla_forward_token_dispatched, MlaConfig, MlaForwardScratch, MlaKVCache, MlaWeights,
+    MlaConfig, MlaForwardScratch, MlaKVCache, MlaWeights, mla_forward_token_dispatched,
 };
 use katgpt_kv::shard_kv::rope::RopeFreqs;
 
@@ -482,7 +482,7 @@ mod tests {
                 )
             };
             let mut both = a;
-            both.extend_from_slice(&b.to_vec());
+            both.extend_from_slice(b);
             both
         };
         let ref_out = run(false);
@@ -524,8 +524,8 @@ mod tests {
     fn inventory_and_forward_share_the_dsa_grammar() {
         use std::collections::BTreeMap;
 
-        let cfg = tiny_dsa_cfg();
-        // Reuse the T0 fixture builder for a complete map.
+        // The T0 test module owns the fixture builder; rebuild the
+        // DSA-layer rows here (the shared grammar, second spelling).
         let names: Vec<String> = {
             // The T0 test module owns the fixture builder; rebuild the
             // DSA-layer rows here (the shared grammar, second spelling).

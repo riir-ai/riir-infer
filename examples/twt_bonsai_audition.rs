@@ -253,6 +253,19 @@ fn merged_gate_field(
                 w.cols,
             ),
             GateProjWeights::Dense(v, r, c) => (v.clone(), *r, *c),
+            // The Q8_0 arm (Issue 1188 T1 — the measurement tooling's
+            // constructor): dequant through the shared readback.
+            GateProjWeights::Q8_0(blocks, r, c) => {
+                let mut d = vec![0.0f32; *r * *c];
+                let nb = c / riir_infer_core::quant::q8kv::Q8_BLOCK_SIZE;
+                for (row, blocks_row) in blocks.chunks(nb).enumerate() {
+                    riir_infer_core::quant::q8kv::dequantize_row_q8_0(
+                        blocks_row,
+                        &mut d[row * *c..(row + 1) * *c],
+                    );
+                }
+                (d, *r, *c)
+            }
         };
         if rows == 0 {
             rows = r;

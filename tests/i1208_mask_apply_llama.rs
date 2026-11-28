@@ -50,6 +50,7 @@ fn synthetic_weights(config: &Config) -> LlamaTransformerWeights {
         wte: vec_of(config.vocab_size, config.n_embd, &mut next),
         lm_head: vec_of(config.vocab_size, config.n_embd, &mut next),
         final_norm: vec_of(config.n_embd, 1, &mut next),
+        rope_freq_weights: None,
         layers: (0..config.n_layer)
             .map(|_| LlamaLayerWeights {
                 attn_wq: vec_of(config.n_head * config.head_dim, config.n_embd, &mut next),

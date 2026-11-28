@@ -1095,9 +1095,9 @@ mod tests {
         let d = 2usize;
         let vocab = 3usize;
         let mut wte = vec![0.0f32; vocab * d];
-        wte[0 * d..0 * d + d].copy_from_slice(&[1.0, 0.0]);
-        wte[1 * d..1 * d + d].copy_from_slice(&[0.0, 1.0]);
-        wte[2 * d..2 * d + d].copy_from_slice(&[1.0, 1.0]); // the covector-aligned token
+        wte[..d].copy_from_slice(&[1.0, 0.0]);
+        wte[d..2 * d].copy_from_slice(&[0.0, 1.0]);
+        wte[2 * d..3 * d].copy_from_slice(&[1.0, 1.0]); // the covector-aligned token
         let k_block = vec![vec![1.0, 0.0, 1.0, 1.0]]; // B row-major [input][point]
         let fit = LensFit {
             d,
@@ -1169,8 +1169,8 @@ mod tests {
         acc.add_doc_column_window(0, 0, &per_pos, 2, 4, false);
         let got = acc.finalize();
         // Rows 2 and 3: (20+j + 30+j)/2 = 25+j.
-        for j in 0..d {
-            assert_eq!(got[0][j], (25 + j) as f32, "window col {j}");
+        for (j, cell) in got[0].iter().enumerate().take(d) {
+            assert_eq!(*cell, (25 + j) as f32, "window col {j}");
         }
         // The legacy full-window form still means over ALL rows ÷ t_len.
         let mut full = ColAccum::new(d, 1);

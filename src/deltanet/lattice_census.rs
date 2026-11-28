@@ -841,8 +841,12 @@ mod tests {
     fn capture_budget_refuses_above_cap() {
         // The budget law is enforced in the bin driver, but the constant
         // contract is pinned here: the cap is finite and small.
-        assert!(MAX_CAPTURE_POSITIONS >= 15); // the paper's per-seq posture fits
-        assert!(MAX_CAPTURE_POSITIONS <= 512);
+        const {
+            assert!(MAX_CAPTURE_POSITIONS >= 15);
+        } // the paper's per-seq posture fits
+        const {
+            assert!(MAX_CAPTURE_POSITIONS <= 512);
+        }
     }
 
     #[test]

@@ -47,6 +47,20 @@ katgpt-kv = { path = "../katgpt-rs/crates/katgpt-kv", optional = true, default-f
 # optional: measurement-lane capability (`hyperthink_t1` only), never a
 # default-feature dep (the katgpt-kv precedent).
 katgpt-pruners = { path = "../katgpt-rs/crates/katgpt-pruners", optional = true, default-features = false }
+# katgpt-spectral: the closed-form alignment family (`orthogonal_procrustes`
+# — the unconstrained solve + `rope_commuting_procrustes_paired`, the
+# RoPE-commuting-constrained Procrustes, katgpt-rs Issue 1251). Optional:
+# measurement-lane capability (`kv_share_align` only, Issue 1250 arm B T5),
+# never a default-feature dep (the katgpt-kv precedent). The dep row carries
+# the feature because the procrustes MODULE is gated behind
+# `orthogonal_procrustes` upstream — without it the module compiles to
+# nothing and the harness cannot resolve.
+katgpt-spectral = { path = "../katgpt-rs/crates/katgpt-spectral", optional = true, features = ["orthogonal_procrustes"] }
+# SHA-256 of the eval/fit token files: the Issue-1250 arm-B T5
+# pre-registration pins the eval corpus' SHA-256; the cell bin verifies the
+# pin fail-closed and records both files' digests. Optional, same lane
+# (`kv_share_align` only).
+sha2 = { version = "0.10", optional = true }
 
 half = "2"
 rayon = "1.10"
@@ -240,6 +254,24 @@ hisa_census = ["deltanet_inference", "deltanet_ternary_inference"]
 # compile-window wiring step). The `lattice-census` bin is the census
 # front (required-features row in the same commit — the P30 law).
 lattice_census = ["deltanet_ternary_inference"]
+
+# katgpt-rs Issue 1250 arm B T5 (2026-11-28, the YASA distill, Research
+# 698): the cross-layer KV-sharing init harness — per kv head, the
+# RoPE-commuting Procrustes fit on post-gain PRE-RoPE anchor keys
+# (katgpt-spectral `rope_commuting_procrustes_paired` + `orthogonal_procrustes`
+# on the non-rotary dim slice, consumed — never forked; the constrained
+# solve is Issue 1251's landed primitive) + the rank-truncated
+# Gram/pseudoinverse value map (katgpt-core `symmetric_eig`) folded into
+# the consumer's output projection, plus the three-arm eval forward
+# (baseline / naive copy / aligned init) and the pre-registered cell bin.
+# OFFLINE by construction — never a serving path (the lens-lane posture:
+# serving bins never link it, never a serving-path claim). Implies the
+# ternary stack (the league-model forward it mirrors); a folded league
+# file additionally needs `bonsai2_hadamard` at the run (the sink_audit
+# note), which the cell bin's reader row carries. sha2 rides the lane: the
+# pre-registration pins the eval corpus' SHA-256 and the bin verifies it
+# fail-closed.
+kv_share_align = ["dep:katgpt-spectral", "dep:sha2", "deltanet_ternary_inference"]
 
 # riir-infer Issue 1242 T1 - the KL-vs-anchor ranked-selection census
 # (the QDA distill anchor instrument): per-token forward-KL from logits
@@ -909,6 +941,27 @@ required-features = ["mtp_draft_block", "deltanet_ternary_inference", "bonsai2_h
 [[test]]
 name = "mtp_draft_step_g4_alloc"
 required-features = ["mtp_draft_block", "deltanet_ternary_inference", "bonsai2_hadamard"]
+
+# katgpt-rs Issue 1250 arm B T5 — the kv_share_align gate battery
+# (G0 bit-identity, G1 identity-inertness, G2/G2b planted recovery,
+# G3 refusals, G4 determinism; synthetic tiny hybrids, NO model file).
+# Whole-file #![cfg] protects the count; this row protects the reader
+# (a default build skips the target loudly — the green-zero law).
+[[test]]
+name = "kv_share_align_gates"
+path = "tests/kv_share_align_gates.rs"
+required-features = ["kv_share_align"]
+
+# Issue 1250 arm B T5 — the pre-registered cell front (fit → three arms →
+# per-window NLL rows → bootstrap CI → the T7 bar verdict → BLAKE3/SHA-256
+# digests + box-state provenance in the JSON artifact). Reader protection
+# row (the green-zero law): a default build skips the bin loudly. The
+# folded league checkpoint refuses to load without `bonsai2_hadamard`, so
+# the row carries it (the sink_audit note: at the RUN, not in the feature).
+[[bin]]
+name = "i1250_kvshare_cell"
+path = "src/bin/i1250_kvshare_cell.rs"
+required-features = ["kv_share_align", "bonsai2_hadamard"]
 
 # Issue 1249 — the two-cell GDN erase-stability gate (pure-CPU; the shipped
 # scalar-beta step + the MemT channel-wise sweep; no GPU, no other features).

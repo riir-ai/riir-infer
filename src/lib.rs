@@ -319,6 +319,19 @@ pub mod trigger_vote_safetensors;
 #[cfg(feature = "anchor_kl")]
 pub mod anchor_kl;
 
+/// Cross-layer KV-sharing init harness (katgpt-rs Issue 1250 arm B T5 —
+/// the YASA distill, Research 698): the closed-form alignment fit
+/// (RoPE-commuting Procrustes on post-gain pre-RoPE anchor keys + the
+/// rank-truncated Gram/pseudoinverse value map) + the three-arm eval
+/// forward (baseline / naive copy / aligned init). The pre-registration
+/// is pinned in the issue; this module implements it. Opt-in
+/// `kv_share_align`, OFFLINE measurement lane — never a serving path (the
+/// lens-lane posture: serving bins never link it, never a serving-path
+/// claim). The cell front is `src/bin/i1250_kvshare_cell.rs`; the gate
+/// battery is `tests/kv_share_align_gates.rs`.
+#[cfg(feature = "kv_share_align")]
+pub mod kv_share_align;
+
 /// f64 golden-NLL readout (Issue 959 T6, opt-in `golden_nll`): the
 /// tail-faithful per-token oracle for lossy-quant gates over
 /// katgpt-core's `fixed_log_softmax_target_f64`. Instrument-grade —

@@ -551,7 +551,9 @@ fn draft_step_chat_transcript_teacher_forced_agreement() {
     };
     assert_eq!(tokens_bytes.len() % 4, 0, "the chat token file is u32-LE");
     let tokens: Vec<usize> = tokens_bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
         .collect();
     eprintln!(
@@ -666,7 +668,7 @@ fn draft_step_chat_transcript_teacher_forced_agreement() {
         }
         windows += 1;
         start += STRIDE;
-        if windows % 32 == 0 {
+        if windows.is_multiple_of(32) {
             eprintln!(
                 "leg A: window {}/{} — agree {}/{} (start_window {start_window})",
                 start_window + windows,
