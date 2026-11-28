@@ -81,6 +81,14 @@ pub mod glm5;
 #[cfg(feature = "glm5_forward")]
 pub mod glm5_forward;
 
+/// GLM-5.3-Flash KDA-layer CPU-reference seat — Plan 627 Phase 1 T4a:
+/// the sigmoid lower-bound forget gate over the upstream `gdn2::kda_forward`
+/// substrate, the separate-conv1d slice map, and the low-rank output gate
+/// composed at map time. Opt-in `glm5_kda` (implies `glm5`); unarmed builds
+/// compile the module to nothing.
+#[cfg(feature = "glm5_kda")]
+pub mod glm5_kda;
+
 /// Quantization primitives: `Q2_0` / `Q4_K` / `Q5_K` / `Q6_K` / `Q8_KV`.
 pub mod quant;
 

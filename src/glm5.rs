@@ -90,6 +90,22 @@ pub struct Glm5Config {
     pub index_head_dim: Option<usize>,
     #[serde(default)]
     pub index_n_heads: Option<usize>,
+    /// KDA (linear-attention) geometry — the top-level `linear_*` keys
+    /// (transformers `Glm5NextTextConfig`): heads × head_dim, the short-conv
+    /// kernel, and the sigmoid forget-gate lower bound (glm5: 64 × 128,
+    /// kernel 4, −5.0). The KDA seat (`glm5_kda`) refuses loud when a KDA
+    /// layer exists but the geometry is absent.
+    #[serde(default)]
+    pub linear_num_heads: Option<usize>,
+    #[serde(default)]
+    pub linear_head_dim: Option<usize>,
+    #[serde(default)]
+    pub linear_conv_kernel_dim: Option<usize>,
+    /// The sigmoid forget-gate lower bound — the transformers
+    /// `linear_lower_bound` / `safe_gate_lower_bound` branch selector; `None`
+    /// means the kimi softplus form (not glm5's posture).
+    #[serde(default)]
+    pub linear_lower_bound: Option<f32>,
 }
 
 fn default_rms_norm_eps() -> f32 {

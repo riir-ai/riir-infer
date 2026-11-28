@@ -2253,6 +2253,7 @@ dependencies = [
 name = "katgpt-attn"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "katgpt-core",
  "katgpt-forward",
  "katgpt-kv",
