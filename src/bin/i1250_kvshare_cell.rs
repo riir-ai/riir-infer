@@ -407,8 +407,16 @@ spaces are already aligned on this pair; the arm closes NO-OP (recorded, not neg
 
     let verdict = if noop {
         "NO-OP"
-    } else if neg_cis.0 > 0.0 && neg_cis.2 > 0.0 {
-        // aligned worse than naive at the CI level: the arm closes outright.
+    } else if neg_cis.1 > 0.0 {
+        // aligned worse than naive at the CI level — the CI's LOWER bound
+        // above zero ("at the 95% CI" per the pre-registration and this
+        // bin's own doc; CORRECTION 2026-11-28, zed-7bab0f17@amo: the
+        // original condition `mean > 0 && hi > 0` fired on a CI that
+        // STRADDLES zero (this run: mean 0.0028, CI [−0.0107, +0.0127]),
+        // printing NEGATIVE where the pre-registered gates read PASS — the
+        // bug was verdict-LABELING only; the recorded NLL counts are
+        // deterministic and unchanged. The i1250-B T7 adjudication record
+        // carries the correction + the fold.
         "NEGATIVE"
     } else if half_cis.0 <= 0.0 && half_cis.2 <= 0.0 {
         "PASS"
