@@ -968,6 +968,35 @@ mod issue1254_llama_hook_g3 {
             let _ = crate::rope::RopeFreqTable::new_weighted(theta, hd, &[1.0; 3]);
         });
         assert!(result.is_err(), "wrong-shaped factors must refuse loud");
+
+        // Issue 1254 T0: the PAIRED spelling (head_dim/4 factors, one per
+        // rotary pair, applied to BOTH dims) — the real Llama-3.2-3B GGUF
+        // carries dims=[64] for head_dim=128, i.e. exactly this shape class.
+        let hd_pair = 8usize; // 4 pairs
+        let plain_pair: Vec<f32> = crate::rope::RopeFreqTable::new(theta, hd_pair)
+            .as_slice()
+            .to_vec();
+        let ones_pair = vec![1.0f32; hd_pair / 4];
+        let weighted_pair = crate::rope::RopeFreqTable::new_weighted(theta, hd_pair, &ones_pair);
+        for (a, b) in plain_pair.iter().zip(weighted_pair.as_slice()) {
+            assert_eq!(
+                a.to_bits(),
+                b.to_bits(),
+                "all-ones PAIRED factors must be the plain table"
+            );
+        }
+        let halves_pair = vec![0.5f32; hd_pair / 4];
+        let weighted_half_pair =
+            crate::rope::RopeFreqTable::new_weighted(theta, hd_pair, &halves_pair);
+        for (pair_idx, w) in halves_pair.iter().enumerate() {
+            for dim in [pair_idx * 2, pair_idx * 2 + 1] {
+                assert_eq!(
+                    (plain_pair[dim] * w).to_bits(),
+                    weighted_half_pair.as_slice()[dim].to_bits(),
+                    "paired factor must scale BOTH dims of its pair"
+                );
+            }
+        }
     }
 
     /// The weights' ONE table constructor: None ⇒ the plain table (bit-exact);

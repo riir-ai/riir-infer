@@ -42,14 +42,28 @@ impl RopeFreqTable {
     /// [`RopeFreqTable::new`]).
     pub fn new_weighted(theta: f32, head_dim: usize, weights: &[f32]) -> Self {
         let half = head_dim / 2;
+        // Issue 1254 T0 disposition (measured on the real Llama-3.2-3B GGUF):
+        // `rope_freqs.weight` carries `head_dim/2` factors — ONE per rotary
+        // PAIR (dims=[64] F32 for head_dim=128) — and llama.cpp applies each
+        // factor to BOTH dims of its pair. A factors vector shorter than
+        // `half` is the PAIRED spelling (the real checkpoint's); full `half`
+        // is the per-dim spelling; anything else refuses loud.
         assert!(
-            weights.len() == half,
-            "rope frequency factors: expected head_dim/2 = {half} entries, got {}",
+            weights.len() == half || weights.len() * 2 == half,
+            "rope frequency factors: expected head_dim/2 = {half} entries              (per-dim) or head_dim/4 = {} entries (paired, applied to both              dims of each rotary pair), got {}",
+            half / 2,
             weights.len()
         );
         let mut table = Self::new(theta, head_dim);
-        for (f, w) in table.freq.iter_mut().zip(weights) {
-            *f *= w;
+        if weights.len() == half {
+            for (f, w) in table.freq.iter_mut().zip(weights) {
+                *f *= w;
+            }
+        } else {
+            for (pair_idx, w) in weights.iter().enumerate() {
+                table.freq[pair_idx * 2] *= w;
+                table.freq[pair_idx * 2 + 1] *= w;
+            }
         }
         table
     }
