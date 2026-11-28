@@ -10,6 +10,7 @@ writes nothing outside an optional cache dir.
 
 Usage:
     py scripts/plan627_glm53_hf_probe.py [--repo zai-org/GLM-5.3-Flash] [--cache-dir DIR]
+    py scripts/plan627_glm53_hf_probe.py --shard-headers [--cache-dir DIR]
 
 Exit 0 on a complete probe; exit 2 on a fetch/parse refusal (loud, named).
 """
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import struct
 import sys
 import urllib.request
 from pathlib import Path
@@ -69,14 +71,112 @@ def fetch(repo: str, name: str, cache_dir: Path | None) -> str:
 def fetch_api(repo: str, cache_dir: Path | None) -> dict:
     cached = _cached_read(cache_dir / "_api.json") if cache_dir else None
     if cached is not None:
-        data = json.loads(cached)
-    else:
-        url = HF_API.format(repo=repo)
-        with urllib.request.urlopen(url, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        if cache_dir is not None:
-            _cached_write(cache_dir / "_api.json", json.dumps(data))
+        return json.loads(cached)
+    url = HF_API.format(repo=repo)
+    with urllib.request.urlopen(url, timeout=60) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if cache_dir is not None:
+        _cached_write(cache_dir / "_api.json", json.dumps(data))
     return data
+
+
+def fetch_range(repo: str, name: str, start: int, end: int,
+                cache_dir: Path | None) -> bytes:
+    """Ranged GET of an LFS shard slice; refuses loud if Range is not honored
+    (a CDN that answers 200 would otherwise stream the whole ~10 GB shard)."""
+    cache_path = cache_dir / (name.replace("/", "_") + f".{start}.{end}") if cache_dir else None
+    if cache_path is not None and cache_path.exists():
+        return cache_path.read_bytes()
+    url = HF_RAW.format(repo=repo, name=name)
+    req = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}"})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        if resp.status != 206:
+            resp.close()
+            raise RuntimeError(
+                f"{name}: server answered {resp.status} to a Range request — "
+                "range not honored; refusing instead of streaming a full shard")
+        data = resp.read(end - start + 1 + 1)
+    if len(data) != end - start + 1:
+        raise RuntimeError(f"{name}: range read short ({len(data)} != {end - start + 1})")
+    if cache_path is not None:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_bytes(data)
+    return data
+
+
+def safetensors_header(repo: str, name: str,
+                       cache_dir: Path | None) -> tuple[dict, int]:
+    """Read ONLY the safetensors header (8-byte LE length + JSON header) of a
+    shard — never the tensor data. Returns (header, header_len)."""
+    head = fetch_range(repo, name, 0, 7, cache_dir)
+    (n,) = struct.unpack("<Q", head)
+    if n <= 0 or n > 32 * 1024 * 1024:
+        raise RuntimeError(f"{name}: implausible header length {n}")
+    body = fetch_range(repo, name, 8, 7 + n, cache_dir)
+    return json.loads(body.decode("utf-8")), n
+
+
+def census_header(header: dict, header_len: int) -> dict:
+    """Per-dtype {count, bytes} census over one shard's header."""
+    census: dict[str, dict] = {}
+    for tname, meta in header.items():
+        if tname == "__metadata__":
+            continue
+        dt = meta.get("dtype", "?")
+        lo, hi = meta.get("data_offsets", [0, 0])
+        row = census.setdefault(dt, {"count": 0, "bytes": 0})
+        row["count"] += 1
+        row["bytes"] += max(0, hi - lo)
+    total = sum(r["bytes"] for r in census.values())
+    return {"census": census, "tensor_bytes": total, "header_len": header_len}
+
+
+def probe_shard_headers(repo: str, cache_dir: Path | None) -> int:
+    """Resolve the storage-dtype question from the index + sampled shard
+    headers: which dtype do the weights actually STORE as (the 2.04 B/param
+    anomaly vs the fp8 quantization_config)."""
+    raw = fetch(repo, "model.safetensors.index.json", cache_dir)
+    index = json.loads(raw)
+    weight_map = index.get("weight_map") or {}
+    if not weight_map:
+        print("PROBE REFUSED: index carries no weight_map")
+        return 2
+    shards = sorted(set(weight_map.values()))
+    idx_meta = index.get("metadata") or {}
+    print("SAFETENSORS INDEX")
+    print(f"  tensors: {len(weight_map)}  shards: {len(shards)}")
+    if "Total_size" in idx_meta:
+        ts = idx_meta["Total_size"]
+        print(f"  index metadata Total_size: {ts:,} B = {ts / GB:.1f} GB"
+              f"  (the data-segment ground truth; per-dtype proof below)")
+    sample = [shards[0], shards[len(shards) // 2], shards[-1]]
+    sample = sorted(dict.fromkeys(sample))
+    measured_total = 0
+    for shard in sample:
+        header, hlen = safetensors_header(repo, shard, cache_dir)
+        row = census_header(header, hlen)
+        measured_total += row["tensor_bytes"]
+        n_tensors = sum(r["count"] for r in row["census"].values())
+        print(f"  {shard}: {n_tensors} tensors, data {row['tensor_bytes'] / GB:.2f} GB"
+              f"  (header {hlen / 1024:.0f} KiB)")
+        for dt, r in sorted(row["census"].items(), key=lambda kv: -kv[1]["bytes"]):
+            print(f"      {dt}: {r['count']} tensors, {r['bytes'] / GB:.2f} GB")
+        expert = [t for t, m in header.items()
+                  if t != "__metadata__" and ".mlp." in t]
+        if expert:
+            dtypes = sorted({header[t]["dtype"] for t in expert})
+            print(f"      expert (.mlp.) tensors: {len(expert)}, dtypes {dtypes}")
+    if len(sample) == len(shards):
+        est = measured_total
+        tag = "(complete)"
+    else:
+        est = measured_total / len(sample) * len(shards)
+        tag = f"(extrapolated from {len(sample)}/{len(shards)} sampled shards)"
+    print(f"  sampled data total: {measured_total / GB:.1f} GB;"
+          f" full-repo estimate {est / GB:.1f} GB {tag}")
+    print()
+    print("SHARD-HEADER PROBE COMPLETE")
+    return 0
 
 
 def main() -> int:
@@ -85,8 +185,19 @@ def main() -> int:
     ap.add_argument("--repo", default=REPO_DEFAULT)
     ap.add_argument("--cache-dir", default=None,
                     help="optional cache dir for the fetched metadata JSONs")
+    ap.add_argument("--shard-headers", action="store_true",
+                    help="resolve the storage-dtype question: fetch the "
+                         "safetensors index + ranged header reads of sampled "
+                         "shards (metadata only, never tensor data)")
     args = ap.parse_args()
     cache_dir = Path(args.cache_dir) if args.cache_dir else None
+
+    if args.shard_headers:
+        try:
+            return probe_shard_headers(args.repo, cache_dir)
+        except Exception as exc:
+            print(f"PROBE REFUSED: {exc}")
+            return 2
 
     try:
         cfg = json.loads(fetch(args.repo, "config.json", cache_dir))
