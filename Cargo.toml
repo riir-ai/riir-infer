@@ -1524,6 +1524,16 @@ name = "i1221_t4_sampling_cell"
 path = "examples/i1221_t4_sampling_cell.rs"
 required-features = ["dory"]
 
+# i1221 T3(c) — the tokens-per-task vs loop-count cell (plan 636's
+# tokenizer-decision amendment 2026-11-28): greedy decode over the
+# embedded gpt2 BPE until the labeled suite's verifier passes, per
+# k ∈ {1,2,4}. Timing rows → the exclusive-window law binds the RUN;
+# the example still needs its reader row (the P43 law).
+[[example]]
+name = "i1221_t3c_tokens_per_task"
+path = "examples/i1221_t3c_tokens_per_task.rs"
+required-features = ["dory"]
+
 [[test]]
 name = "i1221_t3a_spectra_gates"
 path = "tests/i1221_t3a_spectra_gates.rs"
@@ -1537,6 +1547,15 @@ required-features = ["dory"]
 [[test]]
 name = "i1221_t4_sampling_gates"
 path = "tests/i1221_t4_sampling_gates.rs"
+required-features = ["dory"]
+
+# i1221 T3(c) — the suite/verifier/stop-rule/lineage gate battery
+# (hermetic: pure functions on probe_suite, no model file). Whole-file
+# `#![cfg]` + required-features row in the SAME commit — the green-zero
+# law: without the row a default run prints `ok. 0 passed`, exit 0.
+[[test]]
+name = "i1221_t3c_gates"
+path = "tests/i1221_t3c_gates.rs"
 required-features = ["dory"]
 
 # riir-infer Issue 1256 T1 — the implant observe path's G4 alloc census

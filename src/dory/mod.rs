@@ -66,6 +66,7 @@
 //! and the loader refuses the arch loud by name.
 
 pub mod forward;
+pub mod probe_suite;
 pub mod self_spec;
 pub mod spectra;
 
