@@ -171,6 +171,38 @@ fn chain_deterministic_and_advances() {
     drop(path); // the twin file lives to the end of the arm's scope
 }
 
+/// Arm 2b — the T5.5 G4 build item (plan 639): `draft_chain_into`
+/// (scratch reuse) is byte-identical to `draft_chain`, clears stale
+/// contents first, and reuses the caller's allocation across rounds.
+#[test]
+fn draft_chain_into_matches_draft_chain_and_reuses() {
+    let (path, config, weights, block) = load_twin("riir_1253_t53_chain_into");
+    let h = land_main_stack(&config, &weights, &[7, 11, 23]);
+    let k = 4;
+    let mut d = MtpDraftBlockDrafter::new(
+        block,
+        weights,
+        config.clone(),
+        MtpDraftPreset::apple(k).unwrap(),
+    )
+    .expect("seat");
+    d.seed(&h, 23, 3).expect("seed");
+    let want = d.draft_chain();
+    // Stale contents are cleared, never appended to.
+    let mut scratch_buf = vec![(u32::MAX, f32::NAN); 9];
+    d.seed(&h, 23, 3).expect("reseed");
+    d.draft_chain_into(&mut scratch_buf);
+    assert_eq!(scratch_buf, want, "into == draft_chain (stale cleared)");
+    // The allocation is REUSED across rounds: capacity never shrinks,
+    // and the second round lands in the same buffer byte-identically.
+    let cap_after_first = scratch_buf.capacity();
+    d.seed(&h, 23, 3).expect("reseed 2");
+    d.draft_chain_into(&mut scratch_buf);
+    assert_eq!(scratch_buf, want, "bit-identical across into-rounds");
+    assert_eq!(scratch_buf.capacity(), cap_after_first, "no realloc churn");
+    drop(path);
+}
+
 /// Arm 3 — seat state: live preset reads, no sticky gate state, clean
 /// reseeds (the chain-conditioning premise itself is NOT expressible on
 /// this fixture — its synthetic draft head carries an input-invariant

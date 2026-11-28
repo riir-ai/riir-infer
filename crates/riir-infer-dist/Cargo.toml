@@ -54,6 +54,16 @@ name = "mtp_block_economics"
 path = "examples/mtp_block_economics.rs"
 required-features = ["mtp_draft_block", "bonsai2_hadamard"]
 
+# Issue 1253 T5.5 (plan 639) — the Metal decode economics cell over the
+# Issue-665 speculative-verify surface. The gpu lane carries the Metal
+# serving set; speculative_decode forwards the GPU crate's specdec
+# dispatch cfg key (NOT in the production aggregate — the forwarding row
+# is the only path to it, same shape as spec_mtp_cuda below).
+[[example]]
+name = "mtp_block_economics_metal"
+path = "examples/mtp_block_economics_metal.rs"
+required-features = ["mtp_draft_block", "bonsai2_hadamard", "gpu", "speculative_decode"]
+
 # Plan 623 Phase 3 — the RDMA ping/MTU/bandwidth probe over the TB
 # bridge (T3.1 bring-up + T3.2/T3.3 rows). macOS only (see the rdma
 # feature row).
@@ -160,6 +170,11 @@ prefill_f16b = ["riir-infer-gpu/prefill_f16b"]
 # is cfg'd out on macOS like its host module, and an arm request without
 # the feature refuses LOUD at the seat, never a silent CPU fallback).
 spec_mtp_cuda = ["dep:riir-infer-gpu", "riir-infer-gpu/bmth_cuda"]
+# Issue 1253 T5.5 (plan 639) — the Metal decode economics cell rides the
+# Issue-665 speculative-verify surface (forward_speculative_verify +
+# checkpoint/rollback). Empty feature on the GPU crate; this row is the
+# forwarding seam so the example's required-features stay declarative.
+speculative_decode = ["riir-infer-gpu/speculative_decode"]
 
 [[bin]]
 name = "dist_stage"

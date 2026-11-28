@@ -199,6 +199,17 @@ impl MtpDraftBlockDrafter {
     /// re-seeds of the same state.
     pub fn draft_chain(&mut self) -> Vec<(u32, f32)> {
         let mut out = Vec::with_capacity(self.preset.k);
+        self.draft_chain_into(&mut out);
+        out
+    }
+
+    /// Scratch-reuse variant of [`Self::draft_chain`] (the T5.5 G4 bar
+    /// (c) build item, plan 639): fills `out` (cleared first) so a
+    /// serving verify loop reuses ONE buffer across rounds instead of
+    /// allocating a fresh Vec per round. Byte-identical to
+    /// [`Self::draft_chain`] by construction — the single body.
+    pub fn draft_chain_into(&mut self, out: &mut Vec<(u32, f32)>) {
+        out.clear();
         for _ in 0..self.preset.k {
             let res = mtp_draft_step(
                 &self.block,
@@ -236,7 +247,6 @@ impl MtpDraftBlockDrafter {
             self.last_token = tok;
             self.next_pos += 1;
         }
-        out
     }
 
     /// The first error the drafter hit (unseeded posture, step refusal,
