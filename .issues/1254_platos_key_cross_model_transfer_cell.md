@@ -1,7 +1,8 @@
 # Issue 1254: PoC cell — Plato's Key cross-model key transfer (closed-form rotation, functional recall swap)
 
-**Status:** Open
-**Claimed:** zed-m3-research-lane, 1795663960, expires 2026-11-28T03:32Z
+**Status:** Open — P0a+P0b LANDED 2026-11-28 (branch `i1254-p0a-p0b`, commits `ea8c88b`+`19e1391`: the rope_freqs.weight loader arm wired + the PAIRED-spelling disposition measured on the real checkpoint + the P0 runtime probe bin; recipient load + scaled table (max ratio 32.0) + donor PQ2_0 load + layer_capture tap all GREEN; A1/A2 cells next — the A1 recipient download (Llama-3.2-3B-Base.Q8_0 3.42 GB, sha256 3a9d5b61...f2c6d, provenance recorded) is ON DISK at riir-train/data)
+**Claimed:** zed-2611a378@4090, 1795902000, expires 2026-11-29T06:00Z
+**Lease closed:** zed-m3-research-lane, 1795663960, was expires 2026-11-28T03:32Z — lapsed unworked (m3 dark through the window); re-claimed same hour by the 4090 housekeeping continuation per the lease law (the 03:40Z verify-only wake's claim-if-actionable arm executed early in-turn at the arbiter's execute-now order; push is the arbiter)
 
 Filing record: `../.research/044_Platos_Key_CrossModel_Key_Transfer.md` (distillation + prior art + falsifiers). This issue is the runnable PoC cell.
 
