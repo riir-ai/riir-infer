@@ -78,6 +78,9 @@ pub struct Glm5Config {
     pub hc_mult: Option<usize>,
     #[serde(default)]
     pub mhc: Option<bool>,
+    /// RMSNorm epsilon for the latent norms (`q_a_layernorm` / `kv_a_layernorm`).
+    #[serde(default = "default_rms_norm_eps")]
+    pub rms_norm_eps: f32,
     /// The trained KPool indexer, per DSA layer (plan finding 3).
     #[serde(default)]
     pub index_kpool: Option<usize>,
@@ -87,6 +90,10 @@ pub struct Glm5Config {
     pub index_head_dim: Option<usize>,
     #[serde(default)]
     pub index_n_heads: Option<usize>,
+}
+
+fn default_rms_norm_eps() -> f32 {
+    1e-5
 }
 
 /// The per-layer attention kind.
@@ -571,6 +578,7 @@ mod tests {
             "num_nextn_predict_layers": 1,
             "hc_mult": 4,
             "mhc": true,
+            "rms_norm_eps": 1e-05,
             "index_kpool": 4,
             "index_topk": 2048,
             "index_head_dim": 128,
@@ -595,6 +603,7 @@ mod tests {
         assert_eq!(cfg.hc_mult, Some(4));
         assert_eq!(cfg.index_kpool, Some(4));
         assert_eq!(cfg.index_topk, Some(2048));
+        assert_eq!(cfg.rms_norm_eps, 1e-5, "the real config ships rms_norm_eps");
     }
 
     #[test]

@@ -119,7 +119,7 @@ or checkpoints (this repo ships LOADERS, not weights).
 | katgpt-core | `../katgpt-rs/crates/katgpt-core` | non-optional (public upstream) |
 | katgpt-types | `../katgpt-rs/crates/katgpt-types` | non-optional (public upstream; the `act_aware_fit` enum home — katgpt-core forwards the feature, not the type) |
 | katgpt-transformer / katgpt-speculative / katgpt-forward | `../katgpt-rs/crates/*` | non-optional (public upstream; transformer `default-features = false`) |
-| katgpt-quant / katgpt-attn | `../katgpt-rs/crates/*` | optional (`turboquant` / `flashmemory_gqa`) |
+| katgpt-quant / katgpt-attn | `../katgpt-rs/crates/*` | optional (`turboquant` / `flashmemory_gqa` / `glm5_forward` — the third unlocks `katgpt-attn/mla_attention` for the plan-627 glm5 DSA CPU-reference lane; the MLA vocabulary is consumed, never forked) |
 | katgpt-kv | `../katgpt-rs/crates/katgpt-kv` | optional, default-features = false: the KVarN quantized KV cache — Issue 013 T1's designated backend (both consumers — `fitted_v_tables` + `gemma2_qkv` — select `kvarn` by name; the Research-159 tile quantizer whose 2-bit caveat Bench 895 records). Measurement-lane capability, never a default-feature dep |
 | katgpt-pruners | `../katgpt-rs/crates/katgpt-pruners` | optional, default-features = false: the bias-delta vocabulary (Issue 920 T1's `BiasDeltaBuilder`/`BiasDeltaTable`) — the `hyperthink_t1` capture lane accumulates through the shipped substrate instead of duplicating it. Measurement-lane capability, never a default-feature dep (the katgpt-kv precedent) |
 | crates.io: half, rayon, anyhow, memmap2, fastrand, bytemuck, serde, serde_json, thiserror, log, blake3 | crates.io | as pinned in `Cargo.toml` |

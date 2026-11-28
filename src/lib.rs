@@ -72,6 +72,15 @@ pub mod llama_layer;
 #[cfg(feature = "glm5")]
 pub mod glm5;
 
+/// GLM-5.3-Flash DSA-layer CPU-reference decode — Plan 627 Phase 1 T1:
+/// the fused-tensor de-fuse + the decode seat over the UPSTREAM
+/// `katgpt_attn::mla` substrate (nope-mode at `qk_rope_head_dim = 0`,
+/// dense-path only — the trained indexer's selection is Phase 4's lane).
+/// Opt-in `glm5_forward` (implies `glm5`); unarmed builds compile the
+/// module to nothing.
+#[cfg(feature = "glm5_forward")]
+pub mod glm5_forward;
+
 /// Quantization primitives: `Q2_0` / `Q4_K` / `Q5_K` / `Q6_K` / `Q8_KV`.
 pub mod quant;
 

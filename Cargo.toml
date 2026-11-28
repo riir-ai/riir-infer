@@ -128,6 +128,13 @@ edlm = []
 # upstream katgpt-attn::mla vocabulary and the deltanet lane at their
 # own re-claims (plan 627 lease law). Pure-local: no dep forwards.
 glm5 = []
+# Plan 627 Phase 1 T1 (2026-11-28) — the glm5 DSA-layer CPU-reference
+# decode: the fused-tensor de-fuse + the decode seat over the UPSTREAM
+# `katgpt-attn::mla` substrate (`mla_attention`), nope-mode at
+# `qk_rope_head_dim = 0`, dense-path only (indexer selection = Phase 4).
+# First dep-forwarding glm5 feature (BOUNDARY row updated in the same
+# landing); opt-in, never a default; unarmed builds compile to nothing.
+glm5_forward = ["glm5", "dep:katgpt-attn", "katgpt-attn/mla_attention", "dep:katgpt-kv", "katgpt-kv/shard_kv"]
 gemma_lora = []
 lora_still = []
 # EXL3 (trellis-coded, QTIP-variant) safetensors-side quant — CPU reference
