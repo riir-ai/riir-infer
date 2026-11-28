@@ -97,6 +97,15 @@ pub mod glm5_kda;
 #[cfg(feature = "glm5_mhc")]
 pub mod glm5_mhc;
 
+/// GLM-5.3-Flash MoE-block CPU-reference seat — Plan 627 Phase 1 T5: the
+/// DeepSeek-V3 sigmoid router (selection-only bias, raw-score renorm,
+/// routed_scaling_factor after renorm) + the clamped-SwiGLU experts + the
+/// always-on shared expert, over the upstream `katgpt-transformer::moe`
+/// substrate. Opt-in `glm5_moe` (implies `glm5`); unarmed builds compile the
+/// module to nothing.
+#[cfg(feature = "glm5_moe")]
+pub mod glm5_moe;
+
 /// Quantization primitives: `Q2_0` / `Q4_K` / `Q5_K` / `Q6_K` / `Q8_KV`.
 pub mod quant;
 

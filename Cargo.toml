@@ -158,6 +158,13 @@ glm5_forward = ["glm5", "dep:katgpt-attn", "katgpt-attn/mla_attention", "dep:kat
 # box (typed in plan 627; parity captures are weights-gated regardless).
 # Opt-in, never a default; unarmed builds compile to nothing.
 glm5_kda = ["glm5", "dep:katgpt-attn", "katgpt-attn/gdn2_attention", "katgpt-attn/kda_linear"]
+# Plan 627 Phase 1 T5 (2026-11-28) — the glm5 MoE-block CPU-reference seat
+# over the UPSTREAM `katgpt-transformer::moe` substrate (`transformer_moe`):
+# the DeepSeek-V3 sigmoid router (selection-only bias, raw-score renorm,
+# routed_scaling_factor 2.5 after renorm) + the clamped-SwiGLU experts at the
+# full hidden dim + the always-on shared expert. n_group ≠ 1 refuses loud.
+# Opt-in, never a default; unarmed builds compile to nothing.
+glm5_moe = ["glm5", "katgpt-transformer/transformer_moe"]
 # Plan 627 Phase 1 T4b (2026-11-28) — the glm5 mHC seat over the UPSTREAM
 # `katgpt-attn::mhc` substrate (`mhc`): the two per-layer hyper-connection
 # sites (hc_attn_* / hc_ffn_*), the sinkhorn-normalized stream mixer, the

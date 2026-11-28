@@ -87,6 +87,21 @@ pub struct Glm5Config {
     /// column normalization before the loop, then `iters − 1` row/col pairs.
     #[serde(default)]
     pub hc_sinkhorn_iters: Option<usize>,
+    /// MoE routing knobs — the transformers defaults fill absent keys
+    /// (`GlmMoeDsaConfig`: n_group 1 / topk_group 1 / norm_topk_prob true /
+    /// routed_scaling_factor 2.5; `Glm5NextTextConfig`: swiglu_limit 10.0).
+    /// The mHC/MoE seats apply the same defaults and REFUSE n_group ≠ 1
+    /// (the grouped-selection lane is not implemented — fail-closed).
+    #[serde(default)]
+    pub n_group: Option<usize>,
+    #[serde(default)]
+    pub topk_group: Option<usize>,
+    #[serde(default)]
+    pub norm_topk_prob: Option<bool>,
+    #[serde(default)]
+    pub routed_scaling_factor: Option<f32>,
+    #[serde(default)]
+    pub swiglu_limit: Option<f32>,
     /// RMSNorm epsilon for the latent norms (`q_a_layernorm` / `kv_a_layernorm`).
     #[serde(default = "default_rms_norm_eps")]
     pub rms_norm_eps: f32,
@@ -605,6 +620,11 @@ mod tests {
             "mhc": true,
             "hc_eps": 1e-06,
             "hc_sinkhorn_iters": 20,
+            "n_group": 1,
+            "topk_group": 1,
+            "norm_topk_prob": true,
+            "routed_scaling_factor": 2.5,
+            "swiglu_limit": 10.0,
             "rms_norm_eps": 1e-05,
             "index_kpool": 4,
             "index_topk": 2048,
@@ -630,6 +650,11 @@ mod tests {
         assert_eq!(cfg.hc_mult, Some(4));
         assert_eq!(cfg.hc_eps, Some(1e-6));
         assert_eq!(cfg.hc_sinkhorn_iters, Some(20));
+        assert_eq!(cfg.n_group, Some(1));
+        assert_eq!(cfg.topk_group, Some(1));
+        assert_eq!(cfg.norm_topk_prob, Some(true));
+        assert_eq!(cfg.routed_scaling_factor, Some(2.5));
+        assert_eq!(cfg.swiglu_limit, Some(10.0));
         assert_eq!(cfg.index_kpool, Some(4));
         assert_eq!(cfg.index_topk, Some(2048));
         assert_eq!(cfg.rms_norm_eps, 1e-5, "the real config ships rms_norm_eps");
