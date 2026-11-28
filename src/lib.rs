@@ -89,6 +89,14 @@ pub mod glm5_forward;
 #[cfg(feature = "glm5_kda")]
 pub mod glm5_kda;
 
+/// GLM-5.3-Flash mHC (hyper-connection) seat — Plan 627 Phase 1 T4b: the two
+/// per-layer hyper-connection sites (`hc_attn_*` / `hc_ffn_*`) over the
+/// upstream `katgpt-attn::mhc` sinkhorn-normalized stream mixer, plus the
+/// model-entry stream expand and GLM's unweighted-mean stream head. Opt-in
+/// `glm5_mhc` (implies `glm5`); unarmed builds compile the module to nothing.
+#[cfg(feature = "glm5_mhc")]
+pub mod glm5_mhc;
+
 /// Quantization primitives: `Q2_0` / `Q4_K` / `Q5_K` / `Q6_K` / `Q8_KV`.
 pub mod quant;
 

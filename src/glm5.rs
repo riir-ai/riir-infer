@@ -78,6 +78,15 @@ pub struct Glm5Config {
     pub hc_mult: Option<usize>,
     #[serde(default)]
     pub mhc: Option<bool>,
+    /// mHC numerical floor (`hc_eps`, glm5: 1e-6) — added after the comb
+    /// softmax and inside every sinkhorn divisor. The mHC seat refuses loud
+    /// when `hc_mult` is set but this is absent.
+    #[serde(default)]
+    pub hc_eps: Option<f32>,
+    /// mHC sinkhorn iteration count (`hc_sinkhorn_iters`, glm5: 20) — ONE
+    /// column normalization before the loop, then `iters − 1` row/col pairs.
+    #[serde(default)]
+    pub hc_sinkhorn_iters: Option<usize>,
     /// RMSNorm epsilon for the latent norms (`q_a_layernorm` / `kv_a_layernorm`).
     #[serde(default = "default_rms_norm_eps")]
     pub rms_norm_eps: f32,
@@ -594,6 +603,8 @@ mod tests {
             "num_nextn_predict_layers": 1,
             "hc_mult": 4,
             "mhc": true,
+            "hc_eps": 1e-06,
+            "hc_sinkhorn_iters": 20,
             "rms_norm_eps": 1e-05,
             "index_kpool": 4,
             "index_topk": 2048,
@@ -617,6 +628,8 @@ mod tests {
         assert_eq!(cfg.routed_experts(), 288);
         assert_eq!(cfg.num_nextn_predict_layers, Some(1));
         assert_eq!(cfg.hc_mult, Some(4));
+        assert_eq!(cfg.hc_eps, Some(1e-6));
+        assert_eq!(cfg.hc_sinkhorn_iters, Some(20));
         assert_eq!(cfg.index_kpool, Some(4));
         assert_eq!(cfg.index_topk, Some(2048));
         assert_eq!(cfg.rms_norm_eps, 1e-5, "the real config ships rms_norm_eps");
