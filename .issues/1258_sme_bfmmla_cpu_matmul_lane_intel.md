@@ -1,4 +1,4 @@
-# Issue 1257: SME/BFMMLA CPU-matmul lane intel — aarch64 instruction-path observation for any future CPU bf16 GEMM
+# Issue 1258: SME/BFMMLA CPU-matmul lane intel — aarch64 instruction-path observation for any future CPU bf16 GEMM
 
 **Status:** Open — observation-only lane intel, filed 2026-11-28 from the riir-refine hunch eg2cpu distill (Research 350, riir-refine Plan 311; delegated-verdict REVISE→DO round 1, session `e9e56fde-2068-46ae-bec7-55011c7d2451`). **No current consumer**: the codebase grep at filing time found ZERO bf16 CPU GEMM in riir-infer — every CPU matmul surface is f32 or dequant-to-f32. This note applies WHEN a CPU bf16 GEMM lands (a lane-intel pointer, never a serving-path claim, never a code change at filing).
 
